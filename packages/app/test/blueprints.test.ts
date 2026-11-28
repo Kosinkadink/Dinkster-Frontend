@@ -10,8 +10,9 @@
  * against the captured graph.
  */
 import { describe, expect, it, vi } from 'vitest'
+import { createHash } from 'node:crypto'
 import { DinksterConnection } from '@dinkster/client'
-import { asConnectionId } from '@dinkster/core'
+import { asConnectionId, boundaryOf } from '@dinkster/core'
 import {
   coreCommandRegistry,
   DocumentStore,
@@ -43,7 +44,7 @@ const validBody = {
       nets: {},
       reroutes: {},
       nextOrdinal: 1,
-      boundary: { inputs: [], outputs: [] },
+      boundary: boundaryOf([], []),
     },
   },
   view: { graphs: { g0: { nodes: { n0: { position: { x: 0, y: 0 } } } } } },
@@ -56,6 +57,18 @@ const textResponse = (text: string): Response =>
 const notFound = (): Response => ({ ok: false, status: 404 }) as unknown as Response
 
 describe('BlueprintBodyCache', () => {
+
+  it('loads the exact blueprint bytes named by a persisted card and refuses changed bytes at the same URL', async () => {
+    const text = JSON.stringify(validBody, null, 2)
+    const digest = `sha256:${createHash('sha256').update(text).digest('hex')}`
+    const fetchFn = vi.fn(async () => textResponse(text))
+    const connection = new DinksterConnection({ id: asConnectionId('card-blueprints'), baseUrl: 'http://b', clientId: 'test', fetchFn })
+    expect((await connection.fetchBlueprintBody('pack', 'bp', digest))?.graphs.g0?.nodes.n0?.type).toBe('EmptyImage')
+    fetchFn.mockImplementation(async () => textResponse(text.replace('EmptyImage', 'OtherImage')))
+    expect(await connection.fetchBlueprintBody('pack', 'bp', digest)).toBeUndefined()
+    fetchFn.mockImplementation(async () => textResponse(text))
+    expect(await connection.fetchBlueprintBody('pack', 'bp', `blake3:${digest.slice(7)}`)).toBeUndefined()
+  })
 
   it('404, unparseable JSON, and invalid documents are definitive per digest', async () => {
     for (const [response, digest] of [
@@ -258,10 +271,7 @@ describe('insertBlueprintIntoTab', () => {
           nets: {},
           reroutes: {},
           nextOrdinal: 1,
-          boundary: {
-            inputs: [{ id: 'seed', binds: { kind: 'port', node: 'n0', port: 'seed' }, promoted: true }],
-            outputs: [],
-          },
+          boundary: { body: [{ kind: 'input', id: 'seed', binds: { kind: 'port', node: 'n0', port: 'seed' }, promoted: true }] },
         },
       },
       view: { graphs: { g0: { nodes: { n0: { position: { x: 0, y: 0 } } } } } },
@@ -272,7 +282,7 @@ describe('insertBlueprintIntoTab', () => {
       category: 'sampling',
       source: 'v3',
       isOutputNode: false,
-      items: [
+      body: [
         {
           kind: 'input',
           id: 'seed',

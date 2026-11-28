@@ -29,13 +29,13 @@ const input = (id: string, extra?: Partial<InputSpec>): InputSpec => ({
 })
 const output = (id: string): OutputSpec => ({ kind: 'output', id, type: IMAGE })
 
-const schemaOf = (type: string, items: (InputSpec | OutputSpec)[]): NodeSchema => ({
+const schemaOf = (type: string, body: NodeSchema['body']): NodeSchema => ({
   type,
   displayName: type,
   category: 'test',
   source: 'v3',
   isOutputNode: false,
-  items,
+  body,
 })
 
 const schemas: Record<string, NodeSchema> = {
@@ -46,13 +46,7 @@ const schemas: Record<string, NodeSchema> = {
     widget: { widgetType: 'ASSET', options: { accept: ['image/png'] }, default: null },
   })]),
   Slot: schemaOf('Slot', [
-    {
-      kind: 'input',
-      id: 'slot',
-      type: IMAGE,
-      optional: true,
-      dynamic: { kind: 'dynamicSlot', slotType: IMAGE, inputs: [input('gain')] },
-    },
+    { kind: 'typeChoice', id: 'slot', type: IMAGE, rows: [input('gain')], required: false },
     output('out'),
   ]),
 }
@@ -125,6 +119,28 @@ describe('buildParamRows', () => {
     expect(rows.map((r) => live(r).linked)).toEqual([false, false])
   })
 
+  it('shows an automatic field with nothing stored at the value it has in use, not its default', () => {
+    const INT: TypeExpr = { kind: 'concrete', name: 'INT' }
+    const automatic: NodeSchema = schemaOf('Sink', [input('seed', { type: INT }), input('steps', { type: INT, automatic: { formula: 'seed * 2' } })])
+    const rows = buildParamRows(
+      doc({ values: { seed: 21 }, exposed: [entry('sink', 'steps')] }),
+      (type) => type === 'Sink' ? automatic : resolve(type),
+    )
+    expect(live(rows[0]!).value).toBe(42)
+  })
+
+  it('shows an automatic lookup field at the answer the editor holds, and its default before one arrives', () => {
+    const INT: TypeExpr = { kind: 'concrete', name: 'INT' }
+    const automatic: NodeSchema = schemaOf('Sink', [input('seed', { type: INT }), input('steps', { type: INT, automatic: { lookup: 'steps_for', args: ['seed'] } })])
+    const rows = (answer: number | undefined) => buildParamRows(
+      doc({ values: { seed: 21 }, exposed: [entry('sink', 'steps')] }),
+      (type) => type === 'Sink' ? automatic : resolve(type),
+      (lookup, args) => lookup === 'steps_for' && args[0] === 21 && answer !== undefined ? { state: 'ready', answer } : undefined,
+    )
+    expect(live(rows(30)[0]!).value).toBe(30)
+    expect(live(rows(undefined)[0]!).value).toBe(5)
+  })
+
   it('marks a link-driven input linked (read-only in the form)', () => {
     const rows = buildParamRows(
       doc({
@@ -171,7 +187,7 @@ describe('buildParamRows', () => {
     ])
   })
 
-  it('resolves DynamicSlot dependents through real connectivity: absent while the slot is disconnected, live once linked', () => {
+  it('resolves type choice rows through real connectivity: absent while the slot is disconnected, live once linked', () => {
     // Dependents exist only while the slot is CONNECTED (elaborate.ts): the
     // app view must feed elaboration the graph's real connectivity or the
     // exposed 'slot.gain' would diverge from what the canvas renders.

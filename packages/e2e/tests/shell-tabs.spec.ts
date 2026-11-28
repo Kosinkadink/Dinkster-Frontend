@@ -50,6 +50,7 @@ test('sub-threshold movement remains an activating click', async ({ page }) => {
 
 test('drag reorders on release, preserves focus and active tab, and persists', async ({ page }) => {
   const draggedSelect = tab(page, 'Subgraph').locator('.tab-select')
+  const draggedWidth = (await tab(page, 'Subgraph').boundingBox())!.width
   const from = await center(draggedSelect)
   const to = await center(tab(page, 'Basic').locator('.tab-select'))
 
@@ -66,13 +67,16 @@ test('drag reorders on release, preserves focus and active tab, and persists', a
   await expect.poll(() => titles(page)).toEqual(['Subgraph', 'Basic'])
   await expect(tab(page, 'Subgraph')).toHaveClass(/dragging/)
   await expect(tab(page, 'Subgraph')).toHaveAttribute('data-drop-index', '0')
-  const marker = await tab(page, 'Subgraph').evaluate((element) => {
-    const style = getComputedStyle(element, '::before')
-    return { content: style.content, left: Number.parseFloat(style.left), width: Number.parseFloat(style.width) }
-  })
-  expect(marker.content).not.toBe('none')
-  expect(marker.left).toBeGreaterThanOrEqual(0)
-  expect(marker.left + marker.width).toBeLessThanOrEqual((await tab(page, 'Subgraph').boundingBox())!.width)
+  const slot = await tab(page, 'Subgraph').evaluate((element) => ({
+    opacity: getComputedStyle(element).opacity,
+    width: element.getBoundingClientRect().width,
+  }))
+  expect(slot.opacity).toBe('0')
+  expect(slot.width).toBeCloseTo(draggedWidth, 1)
+  for (let step = 0; step < 3; step++) {
+    await page.mouse.move(to.x - 20, to.y)
+    expect(await titles(page)).toEqual(['Subgraph', 'Basic'])
+  }
   expect(await appTitles(page)).toEqual(['Basic', 'Subgraph'])
   await expect(tab(page, 'Basic')).toHaveClass(/active/)
   await expect(draggedSelect).toBeFocused()
@@ -92,6 +96,7 @@ test('drag reorders on release, preserves focus and active tab, and persists', a
 
 test('a dragged workflow tab shows a cursor-following ghost until release', async ({ page }) => {
   const draggedSelect = tab(page, 'Subgraph').locator('.tab-select')
+  const sourceIcon = await draggedSelect.locator('svg').innerHTML()
   const from = await center(draggedSelect)
   const to = await center(tab(page, 'Basic').locator('.tab-select'))
   const ghost = page.getByTestId('tab-drag-ghost')
@@ -105,6 +110,8 @@ test('a dragged workflow tab shows a cursor-following ghost until release', asyn
   await page.mouse.move(to.x - 20, to.y, { steps: 3 })
   await expect(ghost).toBeVisible()
   await expect(ghost.locator('.tab-drag-ghost-title')).toHaveText('Subgraph')
+  await expect(ghost.locator('.tab-drag-ghost-icon svg')).toBeVisible()
+  expect(await ghost.locator('.tab-drag-ghost-icon svg').innerHTML()).toBe(sourceIcon)
   const box = (await ghost.boundingBox())!
   expect(box.x).toBeGreaterThan(to.x - 20)
   expect(box.y).toBeGreaterThan(to.y)
@@ -118,7 +125,7 @@ test('tab close affordances retain activation semantics', async ({ page }) => {
   // Loaded tabs start dirty by design, so closing one requires the product
   // discard decision before the tab can be removed.
   await tab(page, 'Subgraph').click({ button: 'middle' })
-  const confirm = page.getByRole('dialog', { name: 'Close "Subgraph" and discard unsaved changes?' })
+  const confirm = page.getByRole('dialog', { name: 'Close "Subgraph"?' })
   await expect(confirm.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused()
   await confirm.getByRole('button', { name: 'Close and discard' }).click()
   await expect(page.getByTestId('tab-bar').locator('.tab')).toHaveCount(1)
@@ -126,6 +133,7 @@ test('tab close affordances retain activation semantics', async ({ page }) => {
   await expect(tab(page, 'Basic').locator('.tab-select')).toBeFocused()
 
   await page.getByTestId('new-tab').click()
+  await page.getByRole('menuitem', { name: 'Blank workflow', exact: true }).click()
   await expect(page.getByTestId('tab-bar').locator('.tab')).toHaveCount(2)
   await expect.poll(() => page.evaluate(() => {
     const untitled = window.__dinksterTest!.app.tabs.get().find((entry) => entry.title === 'Untitled')
@@ -135,7 +143,7 @@ test('tab close affordances retain activation semantics', async ({ page }) => {
   const untitled = tab(page, 'Untitled')
   await untitled.hover()
   await untitled.getByTestId('tab-close').click()
-  await page.getByRole('dialog', { name: 'Close "Untitled" and discard unsaved changes?' })
+  await page.getByRole('dialog', { name: 'Close "Untitled"?' })
     .getByRole('button', { name: 'Close and discard' }).click()
   await expect(page.getByTestId('tab-bar').locator('.tab')).toHaveCount(1)
   await expect(tab(page, 'Basic')).toHaveClass(/active/)
@@ -221,7 +229,7 @@ test('top-right region toggles and tab geometry match the workspace columns', as
 test('center-stage view menus stay reachable without overlapping App view at narrow width', async ({ page }) => {
   await page.setViewportSize({ width: 600, height: 720 })
   await page.getByTestId('views-switcher').click()
-  await page.getByRole('menuitemradio', { name: 'App view' }).click()
+  await page.getByRole('menuitemradio', { name: 'App', exact: true }).click()
   const controls = (await page.locator('.canvas-view-controls').boundingBox())!
   const header = (await page.locator('.app-view-header').boundingBox())!
   expect(controls.y + controls.height).toBeLessThanOrEqual(header.y)
@@ -248,10 +256,32 @@ test('shell separators expose values and resize from the keyboard', async ({ pag
   await expect(separator).toHaveAttribute('aria-valuenow', await separator.getAttribute('aria-valuemin') ?? '')
   await separator.press('End')
   await expect(separator).toHaveAttribute('aria-valuenow', await separator.getAttribute('aria-valuemax') ?? '')
+  await separator.press('Home')
+  await page.locator('body').click({ position: { x: 1, y: 1 } })
+  const start = await center(separator)
+  await page.mouse.move(start.x, start.y)
+  const mark = () => separator.evaluate((element) => {
+    const line = getComputedStyle(element, '::after')
+    const grip = getComputedStyle(element, '::before')
+    return { line: line.backgroundColor, width: line.width, grip: grip.backgroundColor, gripWidth: grip.width, gripHeight: grip.height }
+  })
+  const neutralMark = { line: 'rgb(79, 98, 101)', width: '1px', grip: 'rgb(164, 181, 183)', gripWidth: '3px', gripHeight: '40px' }
+  expect(await mark()).toEqual(neutralMark)
+  const beforeDrag = Number(await separator.getAttribute('aria-valuenow'))
+  await page.mouse.down()
+  await page.mouse.move(start.x + 40, start.y + 30)
+  expect(await mark()).toEqual(neutralMark)
+  await page.mouse.up()
+  await expect(separator).toHaveAttribute('aria-valuenow', String(beforeDrag + 40))
+  await page.mouse.move(1, 1)
+  await expect.poll(mark).toMatchObject({ line: 'rgba(0, 0, 0, 0)', grip: 'rgba(0, 0, 0, 0)' })
 })
 
 test('tab strip suppresses vertical scrolling and retains horizontal overflow', async ({ page }) => {
-  for (let index = 0; index < 20; index++) await page.getByTestId('new-tab').click()
+  for (let index = 0; index < 20; index++) {
+    await page.getByTestId('new-tab').click()
+    await page.getByRole('menuitem', { name: 'Blank workflow', exact: true }).click()
+  }
   await page.evaluate(() => document.fonts.ready)
   // Tab publication can replace DOM nodes between a locator query and evaluation.
   const titleWidths = await page.evaluate(() => {
@@ -302,7 +332,7 @@ const actionsTest = test.extend({
         json: {
           schemaVersion: 1,
           epoch: 1,
-          dinkster: { version: 'e2e', schemaWire: 1 },
+          dinkster: { version: 'e2e', schemaWire: 2 },
           packs: {},
           nodes: {
             Relay: { displayName: 'Relay', category: 'test', interface: [] },
@@ -469,12 +499,12 @@ actionsTest.describe('workflow tab actions', () => {
         .toEqual(['Basic', 'Basic copy 2', 'Basic copy'])
       await tabAction(page, 'Basic', 'closeOthers')
       const dialog = page.getByRole('dialog', {
-        name: 'Close others',
+        name: 'Close 2 other tabs?',
         exact: true,
       })
       await expect(dialog).toHaveCount(1)
       await expect
-        .poll(async () => (await dialog.locator('li').allTextContents()).sort())
+        .poll(async () => (await dialog.locator('li > span:first-child').allTextContents()).sort())
         .toEqual(['Basic copy', 'Basic copy 2'])
       await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
       await expect

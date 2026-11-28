@@ -8,10 +8,18 @@ const repository = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const stylesheet = resolve(repository, 'packages/ui/styles.css')
 const primitiveTags = new Map(
   [
-    ['controls.tsx', new Set(['button', 'input', 'textarea', 'select'])],
+    ['controls.tsx', new Set(['button', 'input', 'textarea'])],
+    ['color-input.tsx', new Set(['button'])],
+    ['select.tsx', new Set(['button', 'input'])],
+    ['canvas-field.tsx', new Set(['button', 'input'])],
+    ['canvas-list.tsx', new Set(['button', 'input'])],
+    ['fixes-notice.tsx', new Set(['button'])],
+    ['canvas-save-target.tsx', new Set(['button', 'input'])],
+    ['problem-box.tsx', new Set(['button'])],
     ['layout.tsx', new Set(['button'])],
     ['menu.tsx', new Set(['button'])],
     ['messages.tsx', new Set(['dialog'])],
+    ['search.tsx', new Set(['button', 'input'])],
   ].map(([file, tags]) => [resolve(repository, 'packages/ui/src', file), tags]),
 )
 const controls = new Set(['button', 'input', 'textarea', 'select', 'dialog'])
@@ -37,6 +45,8 @@ const geometry = new Set([
   'maxHeight',
   'minWidth',
   'minHeight',
+  'scale',
+  'webkitLineClamp',
 ])
 
 export async function checkDesignSystem(args = []) {
@@ -110,18 +120,42 @@ export async function checkDesignSystem(args = []) {
   }
   checkDeclarations(css, stylesheet)
 
-  async function visitDirectory(directory) {
+  async function visitDirectory(directory, shortcutsOnly = false) {
     for (const entry of await readdir(directory, { withFileTypes: true })) {
       if (['node_modules', 'dist', '.git'].includes(entry.name)) continue
       const path = resolve(directory, entry.name)
-      if (entry.isDirectory()) await visitDirectory(path)
-      else if (/\.(?:[cm]?[jt]sx?|css|html)$/u.test(entry.name))
-        await checkFile(path)
+      if (entry.isDirectory()) await visitDirectory(path, shortcutsOnly)
+      else if (/\.(?:[cm]?[jt]sx?|css|html|json)$/u.test(entry.name))
+        await checkFile(path, shortcutsOnly)
     }
   }
 
-  async function checkFile(path) {
+  async function checkFile(path, shortcutsOnly) {
     const text = await readFile(path, 'utf8')
+    if (path.endsWith('.json')) {
+      // #1383 excludes the old consent dialog; #1345 owns the storage redraw.
+      const deferred = new Set([
+        'modelConsent.bytes',
+        'storageSettings.bytes',
+        'storageSettings.cleared',
+      ])
+      const appCatalog = /^packages\/app\/src\/locales\/(?:en|zh)\.json$/u.test(
+        relative(repository, path),
+      )
+      for (const [key, value] of Object.entries(JSON.parse(text)))
+        if (
+          typeof value === 'string' &&
+          /\{[^{}]+\}\s*(?:bytes\b|\u5b57\u8282)/iu.test(value) &&
+          !(appCatalog && deferred.has(key))
+        )
+          report(
+            path,
+            1,
+            'Byte sizes must use formatByteSize from @dinkster/core',
+          )
+      return
+    }
+    if (shortcutsOnly && !/\.[cm]?[jt]sx?$/u.test(path)) return
     if (path.endsWith('.css')) {
       if (path !== stylesheet)
         report(path, 1, 'Styles belong in packages/ui/styles.css')
@@ -142,10 +176,116 @@ export async function checkDesignSystem(args = []) {
       text,
       ts.ScriptTarget.Latest,
       true,
-      ts.ScriptKind.TSX,
+      path.endsWith('.tsx') || path.endsWith('.jsx')
+        ? ts.ScriptKind.TSX
+        : ts.ScriptKind.TS,
     )
     const line = (node) =>
       source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1
+    const shortcutSource = resolve(repository, 'packages/ui/src/shortcut.tsx')
+    const checkRenderedShortcut = (node) => {
+      if (ts.isStringLiteralLike(node) || ts.isJsxText(node)) {
+        if (/\b(?:Ctrl|Cmd|Alt|Shift|Meta)\+/iu.test(node.text))
+          report(path, line(node), 'Shortcut text must use ProductShortcut')
+      } else if (ts.isConditionalExpression(node)) {
+        checkRenderedShortcut(node.whenTrue)
+        checkRenderedShortcut(node.whenFalse)
+      } else if (ts.isParenthesizedExpression(node)) {
+        checkRenderedShortcut(node.expression)
+      } else if (
+        ts.isBinaryExpression(node) &&
+        [
+          ts.SyntaxKind.AmpersandAmpersandToken,
+          ts.SyntaxKind.BarBarToken,
+          ts.SyntaxKind.QuestionQuestionToken,
+          ts.SyntaxKind.PlusToken,
+        ].includes(node.operatorToken.kind)
+      ) {
+        if (node.operatorToken.kind !== ts.SyntaxKind.AmpersandAmpersandToken)
+          checkRenderedShortcut(node.left)
+        checkRenderedShortcut(node.right)
+      }
+    }
+    const visitShortcut = (node) => {
+      if (path !== resolve(repository, 'packages/core/src/byte-size.ts')) {
+        const unit = /^(?:[KMGT]i?B|B)$/u
+        const unitTable =
+          ts.isArrayLiteralExpression(node) &&
+          node.elements.filter(
+            (element) =>
+              ts.isStringLiteralLike(element) && unit.test(element.text),
+          ).length > 1
+        const calculatedSize =
+          ts.isTemplateExpression(node) &&
+          node.templateSpans.some(
+            (span) =>
+              /^\s*(?:[KMGT]i?B|B)\b/u.test(span.literal.text) ||
+              (path.endsWith('.tsx') && /^\s*bytes\b/u.test(span.literal.text)),
+          )
+        const concatenatedSize =
+          ts.isBinaryExpression(node) &&
+          node.operatorToken.kind === ts.SyntaxKind.PlusToken &&
+          ts.isStringLiteralLike(node.right) &&
+          /^(?:[KMGT]i?B|B|bytes)$/u.test(node.right.text.trim())
+        const renderedBytes =
+          ts.isJsxText(node) &&
+          /^\s*bytes\b/u.test(node.text) &&
+          node.parent.children.some(
+            (child, index, children) =>
+              child === node &&
+              index > 0 &&
+              ts.isJsxExpression(children[index - 1]),
+          )
+        const localizedBytes =
+          ts.isStringLiteralLike(node) &&
+          /\{[^{}]+\}\s*bytes\b/iu.test(node.text)
+        const localFormatter =
+          (ts.isFunctionDeclaration(node) || ts.isVariableDeclaration(node)) &&
+          node.name &&
+          /^(?:formatByteSize|formatBytes|formatScanBytes|formatSize)$/u.test(
+            node.name.getText(source),
+          ) &&
+          (ts.isFunctionDeclaration(node) ||
+            (node.initializer &&
+              (ts.isArrowFunction(node.initializer) ||
+                ts.isFunctionExpression(node.initializer))))
+        if (
+          unitTable ||
+          calculatedSize ||
+          concatenatedSize ||
+          localFormatter ||
+          renderedBytes ||
+          localizedBytes
+        )
+          report(
+            path,
+            line(node),
+            'Byte sizes must use formatByteSize from @dinkster/core',
+          )
+      }
+      if (path !== shortcutSource) {
+        if (
+          (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) &&
+          node.tagName.getText(source) === 'kbd'
+        )
+          report(path, line(node), 'Shortcut keys must use ProductShortcut')
+        if (
+          ts.isStringLiteralLike(node) &&
+          /\bdinkster-(?:key|window-action-shortcut)\b/u.test(node.text)
+        )
+          report(path, line(node), 'Shortcut chips belong to ProductShortcut')
+        if (ts.isJsxText(node)) checkRenderedShortcut(node)
+        else if (
+          ts.isJsxExpression(node) &&
+          (ts.isJsxElement(node.parent) || ts.isJsxFragment(node.parent)) &&
+          node.expression
+        )
+          checkRenderedShortcut(node.expression)
+      }
+      ts.forEachChild(node, visitShortcut)
+    }
+    visitShortcut(source)
+    if (shortcutsOnly) return
     const classExpression = (node) => {
       if (ts.isStringLiteralLike(node))
         checkClasses(node.text, path, line(node))
@@ -313,6 +453,9 @@ export async function checkDesignSystem(args = []) {
         report(path, line, `Class ${name} is not in the shared stylesheet`)
   }
   for (const directory of sources) await visitDirectory(directory)
+  if (!args.length)
+    for (const name of ['app', 'canvas', 'client', 'core', 'widgets'])
+      await visitDirectory(resolve(repository, `packages/${name}/src`), true)
   if (problems.length) throw new Error(problems.join('\n'))
 }
 

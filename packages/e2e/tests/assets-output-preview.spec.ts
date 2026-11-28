@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { expect } from '../visual.js'
-import { nativeTest as test, mockProjectPacks, waitForWorkspaceReady, type Page } from './fixtures.js'
+import { inspectRun, nativeTest as test, mockProjectPacks, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const proofDir = resolve(import.meta.dirname, '../../../.amp/in/artifacts/native-output-preview')
 const longIdentityName = `middle-${'complete-identity-'.repeat(6)}.png`
@@ -16,7 +16,7 @@ const imageOutput = (names: readonly string[]) => ({
 async function mockBackend(page: Page): Promise<void> {
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'isolated proof' }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'output-proof', schemaWire: 1 }, nodes: {},
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'output-proof', schemaWire: 2 }, nodes: {},
   } }))
   await page.route('**/api/assets/*', async (route) => {
     const digest = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!)
@@ -47,7 +47,7 @@ async function installExecution(page: Page): Promise<void> {
   await page.evaluate(async (output) => {
     window.__dinksterTest!.app.registerSchemas([{
       type: 'OutputPreviewProof', displayName: 'Save Image', category: 'proof', source: 'v3', isOutputNode: true,
-      items: [{ kind: 'output', id: 'images', type: { kind: 'concrete', name: 'IMAGE' } }],
+      body: [{ kind: 'output', id: 'images', type: { kind: 'concrete', name: 'IMAGE' } }],
     }])
     await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'output-preview-proof', root: 'g0',
@@ -90,7 +90,7 @@ test.beforeEach(async ({ page }) => {
   await expect(page.getByTestId('node-output-pager')).toHaveCount(1)
 })
 
-test('Runs shows three thumbnails in one row and pages the remaining images in the viewer', async ({ page }) => {
+test('a chosen finished run shows four thumbnails in one row and pages the remaining images in the viewer', async ({ page }) => {
   const requested: number[] = []
   const png = await page.evaluate(() => {
     const canvas = document.createElement('canvas')
@@ -124,8 +124,8 @@ test('Runs shows three thumbnails in one row and pages the remaining images in t
     })
   }, descriptor)
   const thumbnails = page.locator('.output-thumbnail')
-  await expect(thumbnails).toHaveCount(3)
-  await expect.poll(() => [...new Set(requested)].sort()).toEqual([0, 1, 2])
+  await expect(thumbnails).toHaveCount(4)
+  await expect.poll(() => [...new Set(requested)].sort()).toEqual([0, 1, 2, 3])
   for (const image of await thumbnails.locator('img').all()) await expect(image).toHaveJSProperty('naturalWidth', 64)
   const boxes = await thumbnails.evaluateAll((elements) => elements.map((element) => {
     const { x, y, width, height } = element.getBoundingClientRect()
@@ -133,10 +133,11 @@ test('Runs shows three thumbnails in one row and pages the remaining images in t
   }))
   expect(boxes[1]!.x).toBeGreaterThanOrEqual(boxes[0]!.x + boxes[0]!.width)
   expect(boxes[2]!.x).toBeGreaterThanOrEqual(boxes[1]!.x + boxes[1]!.width)
+  expect(boxes[3]!.x).toBeGreaterThanOrEqual(boxes[2]!.x + boxes[2]!.width)
   for (const box of boxes) expect(Math.abs(box.y - boxes[0]!.y)).toBeLessThan(1)
   const all = page.getByRole('button', { name: 'Show all 9 outputs' })
-  await expect(all).toHaveText('+6')
-  await page.getByTestId('runs-panel').screenshot({ path: `${proofDir}/native-batch-three-thumbnails.png` })
+  await expect(all).toHaveText('+5')
+  await page.getByTestId('runs-panel').screenshot({ path: `${proofDir}/native-batch-four-thumbnails.png` })
   await all.click()
   const grid = page.getByTestId('output-viewer-grid')
   const pages = page.getByRole('toolbar', { name: 'Image viewer controls' })
@@ -169,7 +170,7 @@ test('rail viewer and canvas paging remain ordered, accessible, ephemeral, and r
   await expect(thumbnails.nth(0)).toHaveAttribute('aria-label', /Image 1 of 3, node save, output images, descriptor 1, first.png/)
   await expect(thumbnails.nth(1)).toHaveAttribute('aria-label', /Image 2 of 3, node save, output images, descriptor 2, middle-/)
   await expect(thumbnails.nth(1)).toHaveAccessibleName(new RegExp(longIdentityName))
-  await page.getByTestId('execution-row').locator('.runs-details > summary').click()
+  await inspectRun(page.getByTestId('execution-row'))
   await expect(page.getByTestId('runs-panel').getByLabel('Execution provenance')).toContainText('output-preview-run-1')
   await page.screenshot({ path: `${proofDir}/01-rail-grid-1920.png`, animations: 'disabled' })
   await page.getByTestId('runs-panel').screenshot({ path: `${proofDir}/01a-output-panel-complete.png`, animations: 'disabled' })
@@ -319,6 +320,9 @@ test('rail viewer and canvas paging remain ordered, accessible, ephemeral, and r
 })
 
 test('output inspection distinguishes lifecycle, asset identity, errors, and unavailable owners', async ({ page }) => {
+  // Rows sit under Running, Queued and Finished, newest first in each.
+  const section = { queued: 'runs-queued', running: 'runs-running' } as const
+  let row = page.getByTestId('execution-row').first()
   const installState = async (kind: 'queued' | 'running' | 'loading' | 'empty' | 'error' | 'asset' | 'disconnected-owner' | 'removed-owner') => {
     await page.evaluate((stateKind) => {
       const app = window.__dinksterTest!.app as any
@@ -376,10 +380,15 @@ test('output inspection distinguishes lifecycle, asset identity, errors, and una
         if (stateKind === 'empty') app.store.hydrateArtifacts(ref, [])
       }
     }, kind)
+    row = kind === 'queued' || kind === 'running' ? page.getByTestId(section[kind]).getByTestId('execution-row').first()
+      : kind === 'disconnected-owner' ? page.getByRole('list', { name: 'Configured disconnected owner', exact: true }).getByTestId('execution-row')
+      : kind === 'removed-owner' ? page.getByRole('list', { name: /removed backend executions/ }).getByTestId('execution-row')
+      : page.getByTestId('runs-finished').getByTestId('execution-row').first()
+    // A row shows its outputs once its name is pressed.
+    if (await row.locator('.runs-output-thumbnails').count() === 0) await row.locator('.run-row-name').click()
+    state = row.locator('.runs-output-thumbnails > [data-state]')
   }
-
-  const row = page.getByTestId('execution-row').first()
-  const state = row.locator('.runs-output-thumbnails > [data-state]')
+  let state = row.locator('.runs-output-thumbnails > [data-state]')
   await installState('queued')
   await expect(state).toHaveText('Waiting for image outputs')
   await expect(state).toHaveAttribute('title', 'The execution is queued.')
@@ -393,19 +402,21 @@ test('output inspection distinguishes lifecycle, asset identity, errors, and una
   await expect(state).toHaveText('Loading retained outputs')
   await page.screenshot({ path: `${proofDir}/22-state-loading.png`, animations: 'disabled' })
 
+  // A chosen finished run without pictures shows no strip line; a failed one says why on its reason line.
   await installState('empty')
-  await expect(state).toHaveText('No image outputs')
+  await expect(row.getByTestId('chosen-run')).toBeAttached()
+  await expect(state).toHaveCount(0)
   await page.screenshot({ path: `${proofDir}/23-state-empty.png`, animations: 'disabled' })
 
   await installState('error')
-  await expect(state).toHaveText('Execution failed without image outputs')
-  await expect(state).toHaveAttribute('title', 'Exact output proof failure.')
-  await row.locator('.runs-details > summary').click()
+  await expect(row.locator('.run-chosen-reason')).toContainText('Exact output proof failure.')
+  await expect(state).toHaveCount(0)
+  await inspectRun(row)
   await expect(row).toContainText('Exact output proof failure')
   await page.screenshot({ path: `${proofDir}/24-state-error.png`, animations: 'disabled' })
 
   await installState('asset')
-  await row.locator('.runs-details > summary').click()
+  await inspectRun(row)
   await expect(row.locator('.output-thumbnail')).toHaveCount(1)
   const facts = row.locator('.output-facts')
   await expect(facts).toContainText(`blake3:${'a'.repeat(5)}...${'a'.repeat(8)}`)
@@ -419,14 +430,14 @@ test('output inspection distinguishes lifecycle, asset identity, errors, and una
   const disconnectedState = disconnected.locator('.runs-output-thumbnails > [data-state]')
   await expect(disconnectedState).toHaveText('Output backend unavailable')
   await expect(disconnectedState).toHaveAttribute('title', /removed or disconnected/)
-  await disconnected.locator('.runs-details > summary').click()
+  await inspectRun(disconnected)
   await expect(disconnected).toContainText('Configured disconnected owner')
   await disconnected.scrollIntoViewIfNeeded()
   await page.screenshot({ path: `${proofDir}/26-state-disconnected-owner.png`, animations: 'disabled' })
 
   await installState('removed-owner')
   const removed = page.getByRole('list', { name: /removed backend executions/ }).getByTestId('execution-row')
-  await removed.locator('.runs-details > summary').click()
+  await inspectRun(removed)
   await expect(removed).toContainText('http://127.0.0.1:5382/removed-output-owner')
   await expect(removed).toContainText('removed or disconnected')
   await expect(removed.locator('.output-facts')).toContainText('retained/owner/path')

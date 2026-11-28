@@ -30,12 +30,17 @@ import {
   type DocumentStoreContract,
   type TransactionRecord,
 } from './contract.js'
-import { applyOwnedOps, getAtPath, type PatchOp } from './patch.js'
+import { applyOwnedOps, getAtPath, invertOps, type PatchOp } from './patch.js'
+import { nodesChangedBy, storeStartState } from './start-state.js'
+import { groupMembershipAfter, type GroupGeometryResolver } from '../group-membership.js'
 
 export type BoundaryPositionResolver = (
   document: WorkflowDocument,
   graphId: string,
 ) => Readonly<Record<BoundarySide, BoundaryNodeViewState>>
+
+/** Natural row-stack height, measured by the renderer without manual-size surplus. */
+export type NodeHeightResolver = (document: WorkflowDocument, graphId: string, nodeId: string) => number | undefined
 
 /** Materialize only missing geometry; layout stays owned by the renderer. */
 export function initializeBoundaryViews(
@@ -130,7 +135,7 @@ function isAllocationCursor(path: readonly (string | number)[]): boolean {
 /**
  * Shape position of an op target inside a node's dynamic-state subtree.
  * Dynamic state EMBEDS allocation cursors: every DynamicPortState carries a
- * numeric `seq`, including nested memberState scopes. Commands write whole
+ * numeric `seq`. Commands write whole
  * subtrees here (dynamic.materialize replaces the entire `dynamic` object),
  * so cursor monotonicity must be preserved structurally.
  *
@@ -140,41 +145,20 @@ function isAllocationCursor(path: readonly (string | number)[]): boolean {
  * data, not a cursor - blindly preserving it would make redo diverge from
  * the recorded forward state. Only the DECLARED positions are cursors:
  *
- *   dynamic                                    -> portMap    (portId -> state)
- *   dynamic.<port>                             -> state      (DynamicPortState)
- *   dynamic.<port>.memberState                 -> memberMap  (memberId -> scope)
- *   dynamic.<port>.memberState.<member>        -> scope      (constructId -> state)
- *   dynamic.<port>.memberState.<m>.<construct> -> state      (recurses)
+ *   dynamic        -> portMap    (portId -> state)
+ *   dynamic.<port> -> state      (DynamicPortState)
  *
  * Everything else ('members', 'selected', unknown props) is 'outside' -
  * replayed verbatim. Direct numeric `.seq` ops are handled separately by
  * isAllocationCursor.
  */
-type DynShapePos = 'portMap' | 'state' | 'memberMap' | 'scope' | 'outside'
+type DynShapePos = 'portMap' | 'state' | 'outside'
 
 function dynamicShapePosition(path: readonly (string | number)[]): DynShapePos {
   if (path.length < 5 || path[0] !== 'graphs' || path[2] !== 'nodes' || path[4] !== 'dynamic')
     return 'outside'
-  let pos: DynShapePos = 'portMap'
-  for (let i = 5; i < path.length; i++) {
-    switch (pos) {
-      case 'portMap':
-        pos = 'state'
-        break
-      case 'state':
-        pos = path[i] === 'memberState' ? 'memberMap' : 'outside'
-        break
-      case 'memberMap':
-        pos = 'scope'
-        break
-      case 'scope':
-        pos = 'state'
-        break
-      case 'outside':
-        return 'outside'
-    }
-  }
-  return pos
+  if (path.length === 5) return 'portMap'
+  return path.length === 6 ? 'state' : 'outside'
 }
 
 const isJsonObject = (v: Json | undefined): v is { readonly [k: string]: Json } =>
@@ -183,7 +167,7 @@ const isJsonObject = (v: Json | undefined): v is { readonly [k: string]: Json } 
 type Preserve = (current: Json | undefined, next: Json | undefined) => Json | undefined
 
 /**
- * Record-shaped positions (portMap/memberMap/scope): every entry's value is
+ * Record-shaped position (portMap): every entry's value is
  * preserved by `child`; keys are ids and carry no cursors themselves.
  * Returns undefined when nothing needed preserving and `next` was undefined
  * (a remove may proceed as recorded). `skip` opts individual keys out of
@@ -212,8 +196,7 @@ const preserveRecord =
 /**
  * DynamicPortState position: clamp the declared numeric `seq` so it never
  * rewinds below what the CURRENT document holds (CO3), creating a {seq}
- * skeleton where `next` lacks the position entirely, and recurse ONLY
- * through the declared memberState scope chain.
+ * skeleton where `next` lacks the position entirely.
  */
 const preserveStateCursors: Preserve = (current, next) => {
   if (!isJsonObject(current)) return next
@@ -227,25 +210,16 @@ const preserveStateCursors: Preserve = (current, next) => {
       changed = true
     }
   }
-  const mergedMs = preserveMemberMap(current['memberState'], base['memberState'])
-  if (mergedMs !== undefined && mergedMs !== base['memberState']) {
-    base['memberState'] = mergedMs
-    changed = true
-  }
   if (!changed) return next
   if (!isJsonObject(next) && Object.keys(base).length === 0) return next
   return Object.freeze(base)
 }
 
-const preserveScope: Preserve = preserveRecord(preserveStateCursors)
-const preserveMemberMap: Preserve = preserveRecord(preserveScope)
 const preservePortMap: Preserve = preserveRecord(preserveStateCursors)
 
 const preserverAt: Record<Exclude<DynShapePos, 'outside'>, Preserve> = {
   portMap: preservePortMap,
   state: preserveStateCursors,
-  memberMap: preserveMemberMap,
-  scope: preserveScope,
 }
 
 /**
@@ -413,6 +387,8 @@ export class DocumentStore implements DocumentStoreContract {
     private readonly executionContext: () => CommandExecutionContext = () => ({ kind: 'initial' }),
     private readonly validateCommit?: DocumentCommitPolicy,
     private readonly boundaryPositionsFor?: BoundaryPositionResolver,
+    private readonly nodeHeightFor?: NodeHeightResolver,
+    private readonly groupGeometryFor?: GroupGeometryResolver,
   ) {
     // Ownership boundary (CO1): the store never retains or exposes caller-
     // mutable data. The initial document is validated, deep-copied, and
@@ -544,7 +520,42 @@ export class DocumentStore implements DocumentStoreContract {
     const tx = createTransactionBuilder(this.doc, ownedInvocation.actor)
     let commandDiags: readonly Diagnostic[]
     try {
-      commandDiags = executeCommand(def, this.doc, ownedInvocation.params, tx, this.executionContext())
+      const context = this.executionContext()
+      commandDiags = executeCommand(def, this.doc, ownedInvocation.params, tx, context)
+      // The last part of every command: a required choice that now exists
+      // with nothing stored gets its start key, and a group that grows by hand
+      // its minimum members, in the same undo step.
+      const resolve = context.kind === 'initial' && !hasErrors(commandDiags) ? context.schemaResolverFor?.(tx.current) : undefined
+      if (resolve !== undefined) {
+        storeStartState(tx, resolve, nodesChangedBy(tx.current, tx.forward))
+      }
+      if (context.kind === 'initial' && !hasErrors(commandDiags) && !def.replaysHistory && this.nodeHeightFor) {
+        for (const [graphId, graph] of Object.entries(tx.current.view.graphs)) {
+          if (graph === this.doc.view.graphs[graphId]) continue
+          for (const [nodeId, view] of Object.entries(graph.nodes)) {
+            const before = this.doc.view.graphs[graphId]?.nodes[nodeId]
+            if (!view.size || !before?.size || !jsonSameValue(view.size, before.size) ||
+              (jsonSameValue(view.editors, before.editors) && jsonSameValue(view.sections, before.sections) &&
+                jsonSameValue(view.lines, before.lines))) continue
+            const oldHeight = this.nodeHeightFor(this.doc, graphId, nodeId)
+            const newHeight = this.nodeHeightFor(tx.current, graphId, nodeId)
+            if (oldHeight === undefined || newHeight === undefined || oldHeight === newHeight) continue
+            tx.set(['view', 'graphs', graphId, 'nodes', nodeId, 'size'], {
+              width: view.size.width,
+              height: Math.max(0, Math.max(view.size.height, oldHeight) + newHeight - oldHeight),
+            })
+          }
+        }
+      }
+      if (!hasErrors(commandDiags) && !def.replaysHistory && tx.forward.length > 0 && this.groupGeometryFor) {
+        for (const [graphId, view] of Object.entries(tx.current.view.graphs)) {
+          if (view === this.doc.view.graphs[graphId] && tx.current.graphs[graphId] === this.doc.graphs[graphId]) continue
+          if (!Object.keys(view.groups ?? {}).length && !this.doc.view.graphs[graphId]?.groupMembership) continue
+          const membership = groupMembershipAfter(this.doc, tx.current, graphId, ownedInvocation, this.groupGeometryFor)
+          if (!jsonSameValue(view.groupMembership as unknown as Json, membership as unknown as Json))
+            tx.set(['view', 'graphs', graphId, 'groupMembership'], membership as unknown as Json)
+        }
+      }
       if (!hasErrors(commandDiags) && !def.replaysHistory && tx.forward.length > 0 && this.boundaryPositionsFor) {
         const changedGraphs = new Set(Object.keys(tx.current.graphs).filter((id) =>
           tx.current.graphs[id] !== this.doc.graphs[id] ||
@@ -688,6 +699,32 @@ export class DocumentStore implements DocumentStoreContract {
     this.revisionCounter += 1
     const revision = this.revisionCounter
     this.commit(doc, Object.freeze({ kind: 'redo' as const, record, revision, patch: applied }))
+    return true
+  }
+
+  /**
+   * Replay recorded patches, such as an earlier record's inverse, as one new
+   * undo step on top of whatever was done since. Refused, changing nothing,
+   * when the document no longer holds the values the patches were recorded
+   * against, when they no longer fit it, or when the result breaks an
+   * invariant: an edit made since is never overwritten.
+   */
+  replayRecorded(ops: readonly PatchOp[]): boolean {
+    let replay: ReturnType<typeof replayHistoryOps>
+    try {
+      replay = replayHistoryOps(this.doc, ops, { requireRecordedValues: true })
+    } catch {
+      return false
+    }
+    if (replay.stale || replay.applied.length === 0) return false
+    if (hasErrors(this.validateCommit?.(this.doc, replay.doc, this.historySnapshot()) ?? [])) return false
+    this.publishDispatch(Object.freeze({ command: 'history.replay', params: null }), {
+      ok: true,
+      doc: replay.doc,
+      forward: Object.freeze(replay.applied),
+      inverse: Object.freeze(invertOps(replay.applied)),
+      diagnostics: [],
+    })
     return true
   }
 

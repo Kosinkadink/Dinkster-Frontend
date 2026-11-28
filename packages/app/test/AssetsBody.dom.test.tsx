@@ -3,11 +3,12 @@
 import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { DinksterConnection } from '@dinkster/client'
+import { DinksterConnection, RequestFailure } from '@dinkster/client'
 import { asConnectionId, registerCatalog, setLocale } from '@dinkster/core'
 import { AssetsBody } from '../src/AssetsBody.js'
 import { AssetEntrySelection } from '../src/asset-browser/rail.js'
 import { assetEntryOf } from '../src/asset-browser/collection-adapter.js'
+import { ASSET_DRAG_TYPE, readAssetDrag } from '../src/asset-browser/drag.js'
 import type { DinksterDesktopBridge } from '../src/desktop-bridge.js'
 import '../src/locale.js'
 
@@ -37,6 +38,65 @@ const stubConnection = <T extends object>(members: T): DinksterConnection => ({
 } as unknown as DinksterConnection)
 
 describe('Assets dock body', () => {
+  it('opens the requested mount after discovery without overriding later source choices', async () => {
+    let finish!: () => void
+    const pending = new Promise<void>((resolve) => { finish = resolve })
+    const connection = stubConnection({
+      listMounts: async () => {
+        await pending
+        return [{ id: 'renders', mode: 'readwrite', state: 'ready', entryCount: 1 }, { id: 'plates', mode: 'read', state: 'ready', entryCount: 0 }]
+      },
+      listMountEntries: async (id: string) => ({ entries: id === 'renders' ? [{ virtualPath: 'render.txt', name: 'render.txt', size: 7, mediaType: 'text/plain' }] : [] }),
+      assetUrl: () => '',
+    })
+    const [focus, setFocus] = createSignal({ mountId: 'plates' })
+    const root = document.createElement('div'); document.body.append(root)
+    const dispose = render(() => <AssetsBody connection={connection} backendId="native" mountFocus={focus()} />, root)
+    const source = () => root.querySelector<HTMLButtonElement>('[data-testid="asset-source-select"]')!
+    try {
+      finish()
+      await vi.waitFor(() => expect(source().textContent).toContain('Other / Plates'))
+      expect(root.querySelector('[data-testid="collection-entry"]')).toBeNull()
+      setFocus({ mountId: 'renders' })
+      await vi.waitFor(() => expect(root.querySelector('[data-testid="collection-entry"]')?.textContent).toContain('render.txt'))
+      expect(source().textContent).toContain('Other / Renders')
+      source().click()
+      document.querySelector<HTMLButtonElement>('[data-option-id="local-assets"]')!.click()
+      await vi.waitFor(() => expect(source().textContent).toContain('Local assets'))
+      setFocus({ mountId: 'renders' })
+      await vi.waitFor(() => expect(source().textContent).toContain('Other / Renders'))
+      await vi.waitFor(() => expect(root.querySelector('[data-testid="collection-entry"]')?.textContent).toContain('render.txt'))
+    } finally { dispose() }
+  })
+
+  it('offers complete available media as project/backend-tagged drags, but not models or missing bytes', async () => {
+    const assets = [
+      { digest: `blake3:${'a'.repeat(64)}`, name: 'song.wav', mediaType: 'audio/wav', size: 42, virtualPath: '' },
+      { digest: `blake3:${'b'.repeat(64)}`, name: 'missing.mp4', mediaType: 'video/mp4', size: 84, virtualPath: '' },
+      { digest: `blake3:${'c'.repeat(64)}`, name: 'model.bin', mediaType: 'application/octet-stream', size: 126, virtualPath: '' },
+    ]
+    const connection = stubConnection({
+      listMounts: async () => [], assetUrl: () => '',
+      listLocalAssets: async () => ({ assets: assets.map((asset) => ({ asset, aliases: [asset.name], observations: [] })) }),
+      checkAssetAvailability: async () => assets.map((asset) => ({ digest: asset.digest, status: asset.name.startsWith('missing') ? 'missing' : 'available' })),
+    })
+    const root = document.createElement('div'); document.body.append(root)
+    const dispose = render(() => <AssetsBody connection={connection} backendId="native" baseUrl="http://engine.test" />, root)
+    try {
+      await vi.waitFor(() => expect(root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(3))
+      const row = (name: string) => [...root.querySelectorAll<HTMLElement>('[data-testid="collection-entry"]')].find((entry) => entry.textContent?.includes(name))!
+      expect(row('missing.mp4').getAttribute('draggable')).toBe('false')
+      expect(row('model.bin').getAttribute('draggable')).toBe('false')
+      expect(row('song.wav').getAttribute('draggable')).toBe('true')
+      const transfer = new Map<string, string>()
+      const event = new Event('dragstart', { bubbles: true, cancelable: true })
+      Object.defineProperty(event, 'dataTransfer', { value: { setData: (type: string, value: string) => transfer.set(type, value) } })
+      row('song.wav').dispatchEvent(event)
+      expect(readAssetDrag(transfer.get(ASSET_DRAG_TYPE)!)).toEqual({ project: 'default', baseUrl: 'http://engine.test', asset: assets[0] })
+      expect(root.querySelector('[data-testid="asset-rail-details"]')).toBeNull()
+    } finally { dispose() }
+  })
+
   it.each(['selection', 'engine'])('ignores a pending hide completion after changing %s', async (change) => {
     const item = (name: string) => assetEntryOf({ id: name, name, kind: 'model/checkpoint', digest: `blake3:${'a'.repeat(64)}`,
       virtualPath: `mounts/models/${name}`, rawRef: { digest: `blake3:${'a'.repeat(64)}`, virtualPath: `mounts/models/${name}` }, source: { id: 'mount:models', label: 'Models' } })
@@ -52,9 +112,10 @@ describe('Assets dock body', () => {
     const root = document.createElement('div'); document.body.append(root)
     const dispose = render(() => <AssetEntrySelection entry={entry()} adapters={[]} backendId="native" connection={connection()} visibilityConnection={connection()} backendUrl="" onVisibilityChanged={changed} />, root)
     try {
-      const button = () => root.querySelector<HTMLButtonElement>('[data-testid="model-visibility-action"] button:last-child')!
+      const button = () => [...root.querySelectorAll<HTMLButtonElement>('[data-testid="model-visibility-action"] button')].find((row) => row.textContent === 'Hide in this project')!
       button().click(); button().click()
-      expect(button().disabled).toBe(true)
+      expect(button().getAttribute('aria-disabled')).toBe('true')
+      expect(button().getAttribute('aria-busy')).toBe('true')
       if (change === 'engine') setConnection(second)
       else setEntry(item('second.safetensors'))
       finish(); await Promise.resolve(); await Promise.resolve()
@@ -78,7 +139,7 @@ describe('Assets dock body', () => {
       const action = () => root.querySelector<HTMLElement>('[data-testid="model-visibility-action"]')!
       const button = (text: string) => [...action().querySelectorAll<HTMLButtonElement>('button')].find((row) => row.textContent === text)!
       button('Hide in this project').click()
-      expect(action().textContent).toContain('No files will be deleted')
+      expect(action().textContent).toContain('no files are deleted')
       expect(hideModel).not.toHaveBeenCalled()
       button('Cancel').click()
       expect(hideModel).not.toHaveBeenCalled()
@@ -221,7 +282,7 @@ describe('Assets dock body', () => {
       'assets.state.empty.title': '[Noch keine Assets]',
     })
     const listMountEntries = vi.fn(async (mountId: string) => {
-      if (mountId === 'RAW-broken-source') throw new Error('RAW backend failure')
+      if (mountId === 'RAW-broken-source') throw new RequestFailure('GET', '/api/mounts/RAW-broken-source/entries', 503, 'RAW backend failure')
       return { entries: [] }
     })
     const connection = stubConnection({
@@ -335,7 +396,7 @@ describe('Assets dock body', () => {
           elapsedSeconds: 2.5,
         },
       }])
-      .mockRejectedValueOnce(new Error('temporary mount listing failure'))
+      .mockRejectedValueOnce(new RequestFailure('GET', '/api/mounts', 503, 'temporary mount listing failure'))
       .mockResolvedValue([{ id: 'models', mode: 'read', state: 'ready', entryCount: 10 }])
     const connection = stubConnection({
       listMounts,
@@ -361,7 +422,7 @@ describe('Assets dock body', () => {
     root.querySelector<HTMLElement>('[data-testid="asset-source-health"] summary')!.click()
     expect(root.querySelector('[data-source="mount:models"]')?.getAttribute('data-state')).toBe('scanning')
     expect(root.querySelector('[data-source="mount:models"]')?.textContent).toContain(
-      'Indexed 4/10 files, 1.0 KiB/4.0 KiB, 2s elapsed',
+      'Indexed 4/10 files, 1 KB/4 KB, 2s elapsed',
     )
 
     await vi.advanceTimersByTimeAsync(1000)
@@ -455,19 +516,20 @@ describe('Assets dock body', () => {
     dispose()
   })
 
-  it('renders a ready mount listing failure as a source-specific reason', async () => {
+  it('keeps source-specific failure details separate from the collection recovery banner', async () => {
     const connection = stubConnection({
       listMounts: vi.fn().mockResolvedValue([{ id: 'broken', mode: 'read', state: 'ready' }]),
-      listMountEntries: vi.fn().mockRejectedValue(new Error('index unavailable')),
-      listLocalAssets: vi.fn().mockRejectedValue(new Error('local catalog unavailable')),
+      listMountEntries: vi.fn().mockRejectedValue(new RequestFailure('GET', '/api/mounts/ready/entries', 503, 'index unavailable')),
+      listLocalAssets: vi.fn().mockRejectedValue(new RequestFailure('GET', '/api/assets', 503, 'local catalog unavailable')),
       assetUrl: (digest: string) => `/assets/${digest}`,
       fetchAssetMetadata: vi.fn(),
     })
     const root = document.createElement('div')
     document.body.append(root)
     const dispose = render(() => <AssetsBody connection={connection} backendId="native" />, root)
-    await vi.waitFor(() => expect(root.querySelector('[data-collection-state="error"]')?.textContent).toContain('Assets unavailable'))
-    expect(root.querySelector('[data-collection-state="error"]')?.textContent).toContain('index unavailable')
+    await vi.waitFor(() => expect(root.querySelector('[data-collection-state="error"]')?.textContent).toContain('Could not load All assets.'))
+    expect(root.querySelector('[data-collection-state="error"]')?.textContent).not.toContain('local catalog unavailable')
+    expect(root.querySelector('[role="alert"] [data-testid="collection-retry"]')).not.toBeNull()
     root.querySelector<HTMLElement>('[data-testid="asset-source-health"] summary')!.click()
     expect(root.querySelector('[data-testid="asset-source-health"]')?.textContent).toContain('Broken')
     expect(root.querySelector('[data-testid="asset-source-health"]')?.textContent).toContain('index unavailable')
@@ -478,7 +540,7 @@ describe('Assets dock body', () => {
     const digest = `blake3:${'c'.repeat(64)}`
     const asset = { digest, name: 'local.png', size: 5, mediaType: 'image/png', virtualPath: 'imports/local.png' }
     const connection = stubConnection({
-      listMounts: vi.fn().mockRejectedValue(new Error('mount catalog offline')),
+      listMounts: vi.fn().mockRejectedValue(new RequestFailure('GET', '/api/mounts', 503, 'mount catalog offline')),
       listLocalAssets: vi.fn().mockResolvedValue({ assets: [{ asset, aliases: ['local.png'], observations: [] }] }),
       checkAssetAvailability: vi.fn().mockResolvedValue([{ digest, status: 'available' }]),
       assetUrl: (digest: string) => `/assets/${digest}`,

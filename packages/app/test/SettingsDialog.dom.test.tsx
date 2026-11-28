@@ -2,13 +2,14 @@
 
 import { render } from 'solid-js/web'
 import { createSignal } from 'solid-js'
-import type { LibraryStorage, PackSettings } from '@dinkster/client'
+import { RequestFailure, type LibraryStorage, type PackSettings } from '@dinkster/client'
 import { registerCatalog, setLocale, t } from '@dinkster/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import '../src/locale.js'
 import { SettingsDialog } from '../src/SettingsDialog.js'
 import { LibraryStorageSettings } from '../src/LibraryStorageSettings.js'
 import { CommandRegistry, KeybindingRegistry, SettingsRegistry, SETTINGS_STORAGE_KEY } from '../src/settings.js'
+import { registerAutomaticFixSettings } from '../src/automatic-fixes.js'
 
 const isolatedSettings = (): SettingsRegistry => new SettingsRegistry({ getItem: () => null, setItem: () => {} })
 
@@ -59,6 +60,61 @@ afterEach(() => {
 })
 
 describe('SettingsDialog search', () => {
+  it('persists personal fix choices independently and keeps the existing upgrade preference', async () => {
+    const data = new Map([[SETTINGS_STORAGE_KEY, JSON.stringify({ v: 1, values: { 'execution.reviewUpgrades': true } })]])
+    const storage = { getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => { data.set(key, value) } }
+    const settings = new SettingsRegistry(storage)
+    registerAutomaticFixSettings(settings)
+    const root = document.createElement('div')
+    document.body.append(root)
+    const unmount = render(() => <SettingsDialog settings={settings} commands={new CommandRegistry()}
+      keybindings={new KeybindingRegistry(settings)} request={{ category: 'automaticFixes', id: 'automaticFixes.numberOutsideLimits' }} />, root)
+    const row = (id: string) => root.querySelector<HTMLElement>(`[data-setting-id="${id}"]`)!
+    const choose = async (id: string, text: string, wire = false) => {
+      row(id).querySelectorAll<HTMLButtonElement>('[role="combobox"]')[wire ? 1 : 0]!.click()
+      await Promise.resolve()
+      const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((item) => item.textContent === text)!
+      expect(option).toBeDefined()
+      option.click()
+    }
+    expect(row('execution.reviewUpgrades').textContent).toContain('Ask me')
+    expect(row('execution.reviewUpgrades').querySelector('[aria-label="Reset Node replacement to default"]')).not.toBeNull()
+    expect(row('automaticFixes.numberOutsideLimits').querySelector('[aria-label="Reset Number outside limits to default"]')).toBeNull()
+    expect(row('automaticFixes.numberOutsideLimits').querySelectorAll('[role="combobox"]')).toHaveLength(1)
+    await choose('automaticFixes.numberOutsideLimits', 'Ask me')
+    await choose('automaticFixes.subgraphRowRemoved', 'Remove the wire', true)
+    await choose('automaticFixes.subgraphRowRemoved', 'Ask me')
+    expect(row('automaticFixes.numberOutsideLimits').querySelector('[aria-label="Reset Number outside limits to default"]')).not.toBeNull()
+    expect(row('automaticFixes.listGrows').querySelector('[aria-label="Reset List grows to default"]')).toBeNull()
+    const restored = new SettingsRegistry(storage, 'another-project')
+    registerAutomaticFixSettings(restored)
+    expect(restored.get('automaticFixes.numberOutsideLimits')).toBe('ask')
+    expect(restored.get('automaticFixes.subgraphRowRemoved')).toBe('ask-remove-wire')
+    expect(restored.get('automaticFixes.listGrows')).toBe('apply')
+    expect(restored.get('execution.reviewUpgrades')).toBe(true)
+    row('automaticFixes.numberOutsideLimits').querySelector<HTMLButtonElement>('[aria-label="Reset Number outside limits to default"]')!.click()
+    expect(row('automaticFixes.numberOutsideLimits').querySelector('[aria-label="Reset Number outside limits to default"]')).toBeNull()
+    expect(settings.get('automaticFixes.subgraphRowRemoved')).toBe('ask-remove-wire')
+    unmount()
+  })
+
+  it.each([
+    ['en', 'Wheel'],
+    ['zh', '\u6eda\u8f6e'],
+  ])('renders complete %s shortcut names without consuming adjacent prose', (locale, wheel) => {
+    setLocale(locale)
+    const settings = isolatedSettings()
+    settings.register({ id: 'canvas.scrollBehavior', name: t('settings.canvas.scrollBehavior.name'), category: 'canvas', description: t('settings.canvas.scrollBehavior.description'), type: 'boolean', defaultValue: false })
+    const root = document.createElement('div')
+    document.body.append(root)
+    const unmount = render(() => <SettingsDialog settings={settings} commands={new CommandRegistry()} keybindings={new KeybindingRegistry(settings)} />, root)
+    const description = root.querySelector('#setting-canvas\\.scrollBehavior-description')!
+    expect([...description.querySelectorAll('kbd')].map((key) => key.textContent)).toEqual([`Ctrl+${wheel}`])
+    expect(description.textContent).toBe(t('settings.canvas.scrollBehavior.description').replace(/`/g, '').replace('Ctrl+wheel', 'Ctrl+Wheel'))
+    expect(root.querySelector('#setting-canvas\\.scrollBehavior')?.getAttribute('aria-describedby')).toContain(description.id)
+    unmount()
+  })
+
   it('discards pending accounting from a replaced backend', async () => {
     const settings = isolatedSettings()
     const status: LibraryStorage = { temporaryBytes: 37, vaultBytes: 313, adoptedBytes: 211,
@@ -121,7 +177,7 @@ describe('SettingsDialog search', () => {
       updateLibraryStorageLimit: async () => {},
       clearLibraryStorage: async () => {
         await pending
-        if (fail) throw new Error('Cleanup unavailable')
+        if (fail) throw new RequestFailure('POST', '/api/library/storage/clear', 503, 'Cleanup unavailable')
         return { collectionEnabled: enabled, blocked: enabled ? [] : ['owner_completeness_unknown'],
           reclaimedBytes: enabled ? 113 : 0, reclaimedFiles: enabled ? 2 : 0 }
       },
@@ -135,7 +191,7 @@ describe('SettingsDialog search', () => {
     expect(clear.disabled).toBe(true)
     expect(root.textContent).toContain('Clearing eligible assets...')
     finish()
-    await vi.waitFor(() => expect(root.querySelector('[role="alert"]')?.textContent).toBe('Cleanup unavailable'))
+    await vi.waitFor(() => expect(root.querySelector('[role="alert"]')?.textContent).toBe('The action could not be completed. Cleanup unavailable'))
     expect(clear.disabled).toBe(false)
     fail = false
     pending = Promise.resolve()
@@ -157,7 +213,7 @@ describe('SettingsDialog search', () => {
       fetchLibraryStorage: async () => ({ temporaryBytes: null, vaultBytes: null, adoptedBytes: null,
         reclaimableBytes: null, blocked: ['reference_state_unavailable'], collectionEnabled: false,
         policyAvailable: available, limitBytes: available ? 8193 : null }),
-      updateLibraryStorageLimit: async () => { throw new Error('Operator permission denied') },
+      updateLibraryStorageLimit: async () => { throw new RequestFailure('PATCH', '/api/library/storage', 403, 'Operator permission denied') },
       clearLibraryStorage: async () => { throw new Error('Clear must remain blocked') },
     }
     const root = document.createElement('div')
@@ -172,7 +228,7 @@ describe('SettingsDialog search', () => {
     await vi.waitFor(() => expect(unlimited.disabled).toBe(false))
     unlimited.click()
     ;[...root.querySelectorAll('button')].find((button) => button.textContent === 'Apply limit')!.click()
-    await vi.waitFor(() => expect(root.querySelector('[role="alert"]')?.textContent).toBe('Operator permission denied'))
+    await vi.waitFor(() => expect(root.querySelector('[role="alert"]')?.textContent).toBe('The action could not be completed. Operator permission denied'))
     expect(root.querySelector('#library-storage-vaultBytes')?.textContent).toBe('Unknown')
     unmount()
   })
@@ -487,11 +543,12 @@ describe('SettingsDialog search', () => {
     capture.click()
 
     capture.dispatchEvent(new KeyboardEvent('keydown', { key: 'Control', ctrlKey: true, bubbles: true }))
-    expect(capture.textContent).toBe('ctrl')
+    expect([...capture.querySelectorAll('kbd')].map((key) => key.textContent)).toEqual(['Ctrl'])
     expect(keybindings.combo('workflow.save')).toBe('ctrl+s')
     capture.dispatchEvent(new KeyboardEvent('keydown', { key: 'o', ctrlKey: true, bubbles: true }))
 
     expect(keybindings.combo('workflow.save')).toBe('ctrl+o')
+    expect([...capture.querySelectorAll('kbd')].map((key) => key.textContent)).toEqual(['Ctrl+O'])
     expect(saveRow.classList.contains('product-field-invalid')).toBe(true)
     expect(capture.getAttribute('aria-invalid')).toBe('true')
     expect(capture.getAttribute('aria-describedby')).toBe('keybinding-workflow.save-message')
@@ -554,13 +611,13 @@ describe('SettingsDialog search', () => {
     document.body.append(root)
     const unmount = render(() => <SettingsDialog settings={settings} commands={new CommandRegistry()} keybindings={new KeybindingRegistry(settings)} packSettings={{
       client: {
-        fetchPackSettings: async () => { throw new Error('pack is unavailable') },
+        fetchPackSettings: async () => { throw new RequestFailure('GET', '/api/packs/test/settings', 503, 'pack is unavailable') },
         updatePackSettings: async () => { throw new Error('unexpected update') },
       },
       packs: () => [{ id: 'broken', displayName: 'Broken Pack' }],
     }} />, root)
     root.querySelector<HTMLButtonElement>('.settings-categories button[aria-label="Broken Pack"]')!.click()
-    await vi.waitFor(() => expect(root.querySelector('[role="status"]')?.textContent).toBe('pack is unavailable'))
+    await vi.waitFor(() => expect(root.querySelector('[role="status"]')?.textContent).toBe('The action could not be completed. pack is unavailable'))
     expect(root.querySelector('[data-pack-setting-id]')).toBeNull()
     unmount()
   })

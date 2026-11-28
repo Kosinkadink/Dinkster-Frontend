@@ -27,7 +27,7 @@ const reg = (backend: Backend, epoch?: number): SchemaRegistry => ({
 const translations = (version: string): readonly ComfyTranslation[] => [{
   pack: 'dinkster-text', version,
   schema: { type: 'dinkster.text.string_length', displayName: 'String Length', category: 'text',
-    source: 'v3', isOutputNode: false, items: [] },
+    source: 'v3', isOutputNode: false, body: [] },
   rule: { from: 'StringLength', cases: [{ to: 'dinkster.text.string_length', inputs: {}, outputs: {} }] },
 }]
 
@@ -70,7 +70,7 @@ describe('schema_changed epoch invalidation', () => {
       vi.spyOn(nativeConnection(), 'fetchSchemas').mockResolvedValue(reg(backend, 2))
       await app.refreshBackendSchemas(backend)
       expect(backend.registry.get()).toBeUndefined()
-      expect(backend.schemaState.get()).toMatchObject({ status: 'error', message: 'registration unavailable' })
+      expect(backend.schemaState.get()).toMatchObject({ status: 'error', message: 'Node definitions could not be loaded.' })
       expect(data.get('dinkster.projects')).toBe(source)
       register.mockImplementation(async (id, name) => ({ id, name, created: '2026-11-18T12:34:56Z', revision: 1, deleted: false }))
       await app.refreshBackendSchemas(backend)
@@ -436,7 +436,7 @@ describe('reconnect capability invalidation', () => {
     expect(backend.registry.get()?.extensionSnapshotPair).toBeUndefined()
     expect(connection.currentRegistry?.extensionSnapshotPair).toBeUndefined()
     expect(app.problems.get().some((p) => p.code === 'schema.refreshFailed')).toBe(true)
-    expect(backend.schemaState.get()).toEqual({ status: 'error', message: 'offline' })
+    expect(backend.schemaState.get()).toEqual({ status: 'error', message: 'Node definitions could not be loaded.' })
     expect(backendConnectionStatus(backend)).toBe('disconnected')
   })
 

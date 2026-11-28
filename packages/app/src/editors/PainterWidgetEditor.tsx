@@ -1,17 +1,19 @@
 import { canvasPaintTokens } from '@dinkster/canvas'
-import { defaultRenditionOf } from '@dinkster/client'
+import { defaultRenditionOf, RequestFailure } from '@dinkster/client'
 import { asNodeId, asPortId, buildRerouteIndex, companionSourcesOf, isAssetRefValue, occurrencesForView, portRefKey } from '@dinkster/core'
+import { ProductColorInput } from '@dinkster/ui'
 import { createSignal, onCleanup, onMount, Show, type Component } from 'solid-js'
 import { viewInstancePath } from '../app-state.js'
 import { liveExactnessFor } from '../companion-display.js'
-import { ProductButton, ProductColorInput, ProductFileInput } from '../ProductControls.js'
+import { ProductButton, ProductFileInput } from '../ProductControls.js'
 import { ProductActionFooter, ProductField, ProductNotice } from '../ProductForm.js'
 import { ProductNumberInput } from '../ProductNumberInput.js'
 import { useAppMessage } from '../locale.js'
+import { failureMessage } from '../request-failure.js'
 import { activeProjectId } from '../projects.js'
 import { UploadDestination } from '../UploadDestination.js'
 import { readUploadDestination, saveUploadDestination } from '../upload-destination.js'
-import { WidgetEditorController, type WidgetEditorImplementationProps, type WidgetEditorProps } from '../WidgetEditorController.js'
+import { partRow, WidgetEditorController, type WidgetEditorImplementationProps, type WidgetEditorProps } from '../WidgetEditorController.js'
 import './painter-widget-editor.css'
 
 const PainterImplementation: Component<WidgetEditorImplementationProps> = (props) => {
@@ -27,8 +29,11 @@ const PainterImplementation: Component<WidgetEditorImplementationProps> = (props
   const node = target.kind === 'input'
     ? graph?.nodes[target.familyOwner?.nodeId ?? target.nodeId]
     : undefined
-  const dimension = (name: string): number => {
-    const value = node?.values[name] ?? canvasPaintTokens.editor.painter.defaultDimension
+  // The rows the painter reads, by the part names its widget declares.
+  const rowOf = (part: string): string | undefined => partRow(target, part)
+  const dimension = (part: string): number => {
+    const row = rowOf(part)
+    const value = (row === undefined ? undefined : node?.values[row]) ?? canvasPaintTokens.editor.painter.defaultDimension
     return typeof value === 'number' && Number.isSafeInteger(value) && 64 <= value && 4096 >= value ? value : canvasPaintTokens.editor.painter.defaultDimension
   }
   let width = dimension('width')
@@ -73,11 +78,14 @@ const PainterImplementation: Component<WidgetEditorImplementationProps> = (props
       if (backend.protocol !== 'dinkster' || !canvas.getContext('2d')) throw new Error(message('painterWidget.unavailable'))
       const sources = graph && node && companionSourcesOf(graph, undefined, undefined,
         props.editor.app.registryForTab?.(ed.tab)?.resolve).get(node.id)
-      const imageSource = sources?.get('image')
-      const colorSource = sources?.get('bg_color')
+      const imageRow = rowOf('image')
+      const colorRow = rowOf('bg_color')
+      const imageSource = imageRow === undefined ? undefined : sources?.get(imageRow)
+      const colorSource = colorRow === undefined ? undefined : sources?.get(colorRow)
       if (graph && node) {
         const index = buildRerouteIndex(graph)
-        for (const input of ['image', 'bg_color']) {
+        for (const input of [imageRow, colorRow]) {
+          if (input === undefined) continue
           const key = portRefKey({ node: node.id, port: asPortId(input) })
           if ((index.inputDriverOf.has(key) || index.netSourceOf.has(key)) && !sources?.has(input)) {
             throw new Error(message('painterWidget.sourceUnavailable'))
@@ -85,7 +93,8 @@ const PainterImplementation: Component<WidgetEditorImplementationProps> = (props
         }
       }
       const source = imageSource ?? (colorSource?.kind === 'producer' ? colorSource : undefined)
-      let background = colorSource?.kind === 'literal' ? colorSource.value : node?.values.bg_color ?? canvasPaintTokens.editor.painter.backgroundColor
+      let background = colorSource?.kind === 'literal' ? colorSource.value
+        : (colorRow === undefined ? undefined : node?.values[colorRow]) ?? canvasPaintTokens.editor.painter.backgroundColor
       if (source !== undefined) {
         const unavailable = (): Error => { return new Error(message('painterWidget.sourceUnavailable')) }
         if (source.kind !== 'producer') throw unavailable()
@@ -167,7 +176,7 @@ const PainterImplementation: Component<WidgetEditorImplementationProps> = (props
         await load()
       }
       ready = true
-    })().catch((reason: unknown) => { if (live) setError(reason instanceof Error ? reason.message : String(reason)) })
+    })().catch((reason: unknown) => { if (live) setError(failureMessage(reason, message('painterWidget.unavailable'))) })
       .finally(() => { if (live) setBusy(false) })
   })
   const pickFile = async (file: File): Promise<void> => {
@@ -221,7 +230,7 @@ const PainterImplementation: Component<WidgetEditorImplementationProps> = (props
       requireCurrent()
       try { saveUploadDestination(String(backend.id), project, choice) } catch { /* Storage failure does not discard a successful upload. */ }
       props.commitValue(ref)
-    } catch (reason) { if (live) setError(reason instanceof Error ? reason.message : String(reason)) }
+    } catch (reason) { if (live) setError(reason instanceof RequestFailure ? failureMessage(reason, message('painterWidget.unavailable')) : reason instanceof Error ? reason.message : String(reason)) }
     finally { if (live) setBusy(false) }
   }
 
@@ -229,7 +238,7 @@ const PainterImplementation: Component<WidgetEditorImplementationProps> = (props
     <div class="painter-content">
     <div class="painter-toolbar">
       <ProductField controlId="painter-color" label={message('painterWidget.color')} layout="compact">
-        <ProductColorInput id="painter-color" value={color()} disabled={busy()} onInput={(event) => setColor(event.currentTarget.value)} />
+        <ProductColorInput id="painter-color" value={color()} disabled={busy()} onChange={setColor} />
       </ProductField>
       <ProductField controlId="painter-size" label={message('painterWidget.size')} layout="compact">
         <ProductNumberInput id="painter-size" value={size()} min={1} max={512} integer disabled={busy()} onCommit={(raw) => setSize(Math.max(1, Math.min(512, Number(raw) || 1)))} />

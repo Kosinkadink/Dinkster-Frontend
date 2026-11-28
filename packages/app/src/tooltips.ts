@@ -1,135 +1,46 @@
 import { defaultTokens, presentedType, typeIdDisplayLabel } from '@dinkster/canvas'
-import { effectiveAbsentPolicy, effectiveWidgetDefault, formatWidgetValue, t as translate } from '@dinkster/core'
-import type { InputSpec, RegionContract, TypeExpr } from '@dinkster/core'
-
-export interface TooltipContent {
-  readonly title?: string
-  readonly lines: readonly string[]
-  readonly detail?: readonly string[]
-}
-
-export interface TooltipResolveOptions { readonly detailed: boolean }
-export interface TooltipProvider {
-  readonly id: string
-  resolve(target: unknown, opts: TooltipResolveOptions): TooltipContent | undefined
-}
-export interface TooltipAnchor { readonly x: number; readonly y: number; readonly element?: HTMLElement }
-export interface VisibleTooltip extends TooltipContent, TooltipAnchor { readonly detailed: boolean }
-
-/** One tooltip policy boundary shared by DOM chrome and the painted canvas. */
-export class TooltipController {
-  private readonly providers: TooltipProvider[] = []
-  private listeners = new Set<() => void>()
-  private pending: ReturnType<typeof setTimeout> | undefined
-  private candidate: { target: unknown; anchor: TooltipAnchor; owner: unknown } | undefined
-  private current: VisibleTooltip | undefined
-  private currentTarget: unknown
-  private currentOwner: unknown
-  private detailed = false
-
-  constructor(private readonly delayMs: () => number = () => 500) {}
-
-  register(provider: TooltipProvider): () => void {
-    if (this.providers.some((p) => p.id === provider.id)) throw new Error(`tooltip provider '${provider.id}' already registered`)
-    this.providers.push(provider)
-    return () => {
-      const index = this.providers.indexOf(provider)
-      if (index >= 0) this.providers.splice(index, 1)
-    }
-  }
-
-  subscribe(listener: () => void): () => void { this.listeners.add(listener); return () => this.listeners.delete(listener) }
-  get visible(): VisibleTooltip | undefined { return this.current }
-
-  show(target: unknown, anchor: TooltipAnchor, detailed = this.detailed, immediate = false, owner?: unknown): void {
-    this.clearTimer()
-    this.candidate = { target, anchor, owner }
-    this.detailed = detailed
-    if (detailed || immediate) this.resolveNow()
-    else this.pending = setTimeout(() => this.resolveNow(), Math.max(0, this.delayMs()))
-  }
-
-  /** Update an owned visible session without reopening it after dismissal. */
-  refreshTarget(previousTarget: unknown, target: unknown, owner: unknown): void {
-    const candidate = this.candidate
-    if (this.current === undefined || this.currentTarget !== previousTarget || this.currentOwner !== owner ||
-        candidate === undefined || candidate.target !== previousTarget || candidate.owner !== owner) return
-    this.candidate = { ...candidate, target }
-    this.resolveNow()
-  }
-
-  /** Replace a target inside one hover session without restarting its initial delay. */
-  showInSession(target: unknown, anchor: TooltipAnchor, detailed = this.detailed): void {
-    if (this.current) {
-      this.show(target, anchor, detailed, true)
-      return
-    }
-    if (this.pending !== undefined) {
-      this.candidate = { target, anchor, owner: undefined }
-      this.detailed = detailed
-      if (detailed) { this.clearTimer(); this.resolveNow() }
-      return
-    }
-    this.show(target, anchor, detailed)
-  }
-
-  hide(): void {
-    this.clearTimer()
-    this.candidate = undefined
-    this.currentTarget = undefined
-    this.currentOwner = undefined
-    if (this.current) { this.current = undefined; this.emit() }
-  }
-
-  /**
-   * Hide only when the pending or visible tooltip's TARGET matches. Lets the
-   * canvas invalidate its own scene-anchored tooltips (scene rebuilds, camera
-   * moves) without cancelling DOM chrome tooltips that share this controller.
-   * An owner limits invalidation to one producer on the shared surface.
-   */
-  hideMatching(predicate: (target: unknown) => boolean, owner?: unknown): void {
-    const candidateMatches = this.candidate !== undefined &&
-      (owner === undefined || this.candidate.owner === owner) && predicate(this.candidate.target)
-    const currentMatches = this.current !== undefined &&
-      (owner === undefined || this.currentOwner === owner) && predicate(this.currentTarget)
-    if (candidateMatches) { this.clearTimer(); this.candidate = undefined }
-    if (currentMatches) { this.current = undefined; this.currentTarget = undefined; this.currentOwner = undefined; this.emit() }
-  }
-
-  setDetailed(detailed: boolean): void {
-    if (this.detailed === detailed) return
-    this.detailed = detailed
-    if (this.candidate) {
-      this.clearTimer()
-      // Alt is instant. Releasing Alt keeps the tooltip open but re-resolves basic content.
-      this.resolveNow()
-    }
-  }
-
-  private resolveNow(): void {
-    const candidate = this.candidate
-    if (!candidate) return
-    const content = this.providers.map((p) => p.resolve(candidate.target, { detailed: this.detailed })).find(Boolean)
-    this.current = content ? { ...content, ...candidate.anchor, detailed: this.detailed } : undefined
-    this.currentTarget = content ? candidate.target : undefined
-    this.currentOwner = content ? candidate.owner : undefined
-    this.emit()
-  }
-  private clearTimer(): void { if (this.pending !== undefined) clearTimeout(this.pending); this.pending = undefined }
-  private emit(): void { for (const listener of this.listeners) listener() }
-}
-
-export interface DomTooltipTarget { readonly kind: 'dom'; readonly label: string; readonly detail?: readonly string[] }
-
-/** Time a visible tooltip may bridge empty space inside one hover session. */
-export const DOM_TOOLTIP_SESSION_GRACE_MS = 300
-
-const isDomTooltipTarget = (target: unknown): target is DomTooltipTarget =>
-  typeof target === 'object' && target !== null && (target as { kind?: unknown }).kind === 'dom'
+import { effectiveAbsentPolicy, effectiveWidgetDefault, elaborateInterface, formatWidgetValue, isIntegerWidgetValue, t as translate } from '@dinkster/core'
+import { storedNumberNote } from './widget-commit.js'
+import type { InputSpec, Json, NodeData, NodeSchema, OutputSpec, RegionContract, TypeExpr, WidgetSpec } from '@dinkster/core'
+import type { TooltipContent, TooltipResolveOptions } from '@dinkster/ui'
+export { attachDomTooltips, DOM_TOOLTIP_SESSION_GRACE_MS, TooltipController, type DomTooltipTarget, type TooltipContent, type TooltipResolveOptions, type TooltipProvider, type TooltipAnchor, type VisibleTooltip } from '@dinkster/ui'
 
 export interface CanvasTooltipContext {
   readonly resolveSchema?: (type: string) => any
   readonly resolvePack?: (id: string) => any
+  /** The row view's whole-value readout lines, when the view writes one. */
+  readonly widgetReadout?: (row: { readonly viewId: string; readonly spec: WidgetSpec }, value: Json) => readonly string[] | undefined
+  /** Text lines the tooltip holds while staying wholly on screen. */
+  readonly tooltipLines?: number
+  readonly measureLine?: (text: string) => number
+}
+
+/** Items a widget readout lists before it says how many more there are. */
+export const WIDGET_READOUT_ITEMS = 20
+
+/**
+ * A row value's readout: its summary line, then up to WIDGET_READOUT_ITEMS
+ * more lines and a count of the rest, using at most `room` lines in all so
+ * a long list never runs off screen. Empty when the row has no value of its
+ * own to read.
+ */
+function widgetValueLines(readout: readonly string[], context: CanvasTooltipContext, room: number, prefix: string): readonly string[] {
+  const measure = context.measureLine ?? (() => 1)
+  const [head, ...items] = readout
+  if (head === undefined) return []
+  const heading = `${prefix}${head}`
+  let used = measure(heading)
+  if (used > room) return []
+  let shown = 0
+  while (shown < Math.min(items.length, WIDGET_READOUT_ITEMS)) {
+    const next = measure(items[shown]!)
+    const remainder = shown + 1 < items.length ? measure(translate('widgetSummary.more', { count: items.length - shown - 1 })) : 0
+    if (used + next + remainder > room) break
+    used += next
+    shown++
+  }
+  const more = translate('widgetSummary.more', { count: items.length - shown })
+  return [heading, ...items.slice(0, shown), ...(shown < items.length && used + measure(more) <= room ? [more] : [])]
 }
 
 const joinedPorts = (ports: readonly string[] | undefined): string => ports?.join(', ') || 'its inputs'
@@ -146,6 +57,14 @@ const outputSummary = (region: RegionContract): string => {
     : role.kind === 'state'
       ? `${id} carries ${role.statePort} state`
       : `${id} gathered`).join('; ')}`
+}
+
+/** The row a flattened port id names on this node, as its elaborated interface shows it. */
+const portSpecOf = (schema: NodeSchema | undefined, node: NodeData, side: 'input' | 'output', port: string): InputSpec | OutputSpec | undefined => {
+  if (schema === undefined) return undefined
+  const item = elaborateInterface(schema, node).items.find((candidate) =>
+    candidate.kind === side && candidate.address.port === port)
+  return item?.kind === 'input' || item?.kind === 'output' ? item.spec : undefined
 }
 
 const absentPolicyLine = (input: InputSpec): string => {
@@ -222,6 +141,7 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
     const button = t.button.button
     return { lines: [button.label, ...(button.reason ? [button.reason] : [])] }
   }
+  if (t.kind === 'subgraphMark') return { lines: [`On the subgraph node as ${t.mark.label}`] }
   if (t.kind === 'controller') {
     const mode = t.hit.row.controllerMode as 'fixed' | 'increment' | 'decrement' | 'randomize'
     const afterRefresh = t.hit.row.spec.controller === 'after_refresh'
@@ -245,6 +165,9 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
         : `Only successful runs advance literal, submitted values. Linked values are not changed. ${t.connected ? 'Connected controls are inert.' : 'Click to choose a mode.'}`] } : {}),
     }
   }
+  if (t.kind === 'button') return { lines: [t.hit.row.label, ...(t.hit.row.tooltip ? [t.hit.row.tooltip] : [])] }
+  if (t.kind === 'note') return t.row.text === '' ? undefined : { lines: [t.row.text] }
+  if (t.kind === 'memberRemove') return { lines: [t.hit.remove.disabledReason ?? 'Remove member'] }
   if (t.kind === 'reroute') {
     const rerouteTypeName: string | undefined = t.hit.reroute.typeName
     return { title: 'Reroute', lines: [rerouteTypeName !== undefined ? typeIdDisplayLabel(rerouteTypeName) : 'Any'] }
@@ -256,9 +179,16 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
         diagnostic.message),
     }
   }
+  if (t.kind === 'link' && t.hit.link.fromType?.kind === 'record') {
+    const record = t.hit.link.fromType as Extract<TypeExpr, { kind: 'record' }>
+    return {
+      title: record.name,
+      lines: record.fields.map((field) => `${field.name}: ${presentedType(defaultTokens, field.type).label}`),
+    }
+  }
   if (t.kind === 'pin') {
     const schema = context.resolveSchema?.(t.hit.node.node.type)
-    const port = schema?.items.find((item: any) => item.kind === (t.hit.direction === 'in' ? 'input' : 'output') && item.id === t.hit.portId)
+    const port = portSpecOf(schema, t.hit.node.node, t.hit.direction === 'in' ? 'input' : 'output', t.hit.portId)
     const type = presentedType(defaultTokens, t.hit.type)
     const matchVariable: string | undefined = t.hit.pin.matchVariable
     const matchConstraint = t.hit.pin.matchConstraint as TypeExpr | undefined
@@ -292,10 +222,12 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
     const row = t.hit.node.layout.rows.find((candidate: any) =>
       candidate.kind === 'widget' && candidate.inputId === t.hit.input)
     return {
-      title: `Output: ${row?.label ?? t.hit.input}`,
+      title: `Output: ${row?.name ?? row?.label ?? t.hit.pin.label ?? t.hit.input}`,
       lines: [type.tooltip],
     }
   }
+  if (t.kind === 'widget' && t.hit.row.inert) return undefined
+  if (t.kind === 'widget' && t.hit.row.kept !== undefined) return { title: t.hit.row.name ?? t.hit.row.label, lines: [t.hit.row.kept] }
   if (t.kind === 'widget') {
     const row = t.hit.row
     const options = row.spec.options ?? {}
@@ -304,28 +236,58 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
       ? values[row.valueKey]
       : effectiveWidgetDefault(row.spec)
     const schema = context.resolveSchema?.(t.hit.node.node.type)
-    const input = schema?.items.find((item: any) => item.kind === 'input' && item.id === row.inputId)
+    const input = portSpecOf(schema, t.hit.node.node, 'input', row.inputId)
+    const saveTarget = row.viewId === 'core.saveTarget'
     const detail = [
       ...['min', 'max', 'step'].filter((key) => options[key] !== undefined).map((key) => `${key}: ${options[key]}`),
-      ...(input?.tooltip ? [input.tooltip] : []),
+      ...(!saveTarget && input?.tooltip ? [input.tooltip] : []),
     ]
-    const text = formatWidgetValue(t.companion?.value ?? value, row.spec)
+    const note = t.keptNumberNote === undefined ? undefined
+      : isIntegerWidgetValue(value) ? storedNumberNote(row.spec, value) ?? t.keptNumberNote : t.keptNumberNote
+    const measure = context.measureLine ?? (() => 1)
+    const room = (context.tooltipLines ?? Infinity) - measure(row.name ?? row.label) -
+      (note === undefined ? 0 : measure(note)) -
+      (opts.detailed ? detail.reduce((sum, line) => sum + measure(line), 0) : 0)
     const state = t.companion?.state ?? (t.companion?.stale ? 'stale' : t.companion ? 'expected' : undefined)
-    const line = state === 'expected'
-      ? `Current expected value: ${text}`
+    const absence = state === 'nothing' ? 'Nothing: the node feeding this wire was skipped'
+      : state === 'unknown' ? 'The wire has no known value yet' : undefined
+    const prefix = absence !== undefined ? '' : state === 'expected'
+      ? 'Arriving: '
       : state === 'cached'
-        ? `Retained last-resolved value: ${text}`
+        ? 'Retained last-resolved value: '
         : state === 'stale'
-          ? `Stale/unproven value: ${text}`
+          ? 'Stale/unproven value: '
           : state === 'estimate'
-            ? `Mirrored estimate (computed locally, not executed): ${text}`
+            ? 'Mirrored estimate (computed locally, not executed): '
             : t.connected
-              ? `Dormant stored value under connection: ${text}`
-              : `Value: ${text}`
+              ? 'Stored: '
+              : 'Value: '
+    const storedPrefix = 'Stored: '
+    const incomingValue = t.companion?.value ?? value
+    const incomingReadout = absence === undefined
+      ? context.widgetReadout?.(row, incomingValue) ?? [formatWidgetValue(incomingValue, row.spec)] : [absence]
+    const storedReadout = t.companion && t.connected
+      ? (context.widgetReadout?.(row, value) ?? [formatWidgetValue(value, row.spec)])
+        .map((text, index) => index === 0 ? `${text}. Used again when the wire is removed.` : text) : []
+    const storedMinimum = storedReadout.length === 0 ? 0 : measure(`${storedPrefix}${storedReadout[0]}`) +
+      (storedReadout.length > 1 ? measure(translate('widgetSummary.more', { count: storedReadout.length - 1 })) : 0)
+    const incomingMinimum = incomingReadout.length === 0 ? 0 : measure(`${prefix}${incomingReadout[0]}`)
+    // Reserve the stored summary and remainder before spending room on incoming items.
+    const storedRoom = Math.min(storedMinimum, Math.max(0, room - incomingMinimum))
+    const incoming = widgetValueLines(incomingReadout, context, room - storedRoom, prefix)
     const stored = t.companion && t.connected
-      ? [`Dormant stored value under connection: ${formatWidgetValue(value, row.spec)}`]
-      : []
-    return { title: row.label, lines: [line, ...stored], ...(opts.detailed && detail.length ? { detail } : {}) }
+      ? widgetValueLines(storedReadout, context, room - incoming.reduce((sum, line) => sum + measure(line), 0), storedPrefix) : []
+    return {
+      title: row.name ?? row.label,
+      ...(note === undefined ? {} : { note }),
+      lines: [...incoming, ...stored, ...(!t.connected && saveTarget ? [
+        ...(input?.tooltip ? [input.tooltip] : []),
+        translate('saveTargetWidget.naming', { suffix: typeof options['suffix'] === 'string' ? options['suffix'] : '' }),
+      ] : [])],
+      ...(opts.detailed && detail.length ? { detail } : {}),
+      ...(context.measureLine === undefined && (incomingReadout.length > 1 || storedReadout.length > 1) ? { fit: (lines: number, measureLine: (text: string) => number) =>
+        resolveCanvasTooltip(target, opts, { ...context, tooltipLines: lines, measureLine })! } : {}),
+    }
   }
   if (t.kind === 'header') {
     if (t.hit.node.node.region !== undefined) return regionContractTooltip(t.hit.node.node.region)
@@ -348,137 +310,4 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
     }
   }
   return undefined
-}
-
-/** Event-delegated opt-in for chrome: data-tooltip-label plus optional data-tooltip-detail. */
-export function attachDomTooltips(root: HTMLElement, controller: TooltipController): () => void {
-  let sessionGrace: ReturnType<typeof setTimeout> | undefined
-  let hovered: HTMLElement | undefined
-  let shown: HTMLElement | undefined
-  // Stateful controls rewrite data-tooltip-label from click handlers that run
-  // after the focus-driven show has already captured the old text. Watching
-  // the shown element's tooltip attributes keeps the visible tooltip current.
-  // Removal never fires an attribute mutation, so the tree is watched too:
-  // a tooltip must not outlive its control. Unrelated tree churn is cheap
-  // here (the observer only runs while a tooltip is pending or visible) and
-  // must not re-resolve the tooltip, so only attribute mutations refresh.
-  const labelObserver = new MutationObserver((mutations) => {
-    if (shown === undefined) return
-    if (!shown.isConnected) { hideNow(); return }
-    if (mutations.some((mutation) => mutation.type === 'attributes')) refreshShown()
-  })
-  const observeShown = (element: HTMLElement): void => {
-    if (shown === element) return
-    shown = element
-    labelObserver.disconnect()
-    labelObserver.observe(element, { attributes: true, attributeFilter: ['data-tooltip-label', 'data-tooltip-detail'] })
-    labelObserver.observe(root, { childList: true, subtree: true })
-  }
-  const releaseShown = (): void => {
-    shown = undefined
-    labelObserver.disconnect()
-  }
-  const clearSessionGrace = (): void => {
-    if (sessionGrace !== undefined) clearTimeout(sessionGrace)
-    sessionGrace = undefined
-  }
-  const hideNow = (): void => {
-    clearSessionGrace()
-    releaseShown()
-    controller.hide()
-  }
-  const hideAfterSessionGrace = (): void => {
-    clearSessionGrace()
-    if (controller.visible) {
-      sessionGrace = setTimeout(() => {
-        sessionGrace = undefined
-        releaseShown()
-        controller.hideMatching(isDomTooltipTarget)
-      }, DOM_TOOLTIP_SESSION_GRACE_MS)
-    } else {
-      releaseShown()
-      controller.hideMatching(isDomTooltipTarget)
-    }
-  }
-  const tooltipTargetOf = (target: EventTarget | null) =>
-    (target instanceof Element ? target : undefined)?.closest<HTMLElement>('[data-tooltip-label]')
-  const elementAt = (event: Event) => tooltipTargetOf(event.target)
-  const focusedElement = () => document.activeElement instanceof HTMLElement && document.activeElement.matches('[data-tooltip-label]')
-    ? document.activeElement
-    : undefined
-  const sessionOf = (element: Element | null | undefined) => element?.closest<HTMLElement>('[data-tooltip-session]')
-  const domTargetOf = (element: HTMLElement) => {
-    const rect = element.getBoundingClientRect()
-    const detail = element.dataset['tooltipDetail']?.split('|').filter(Boolean)
-    return {
-      target: { kind: 'dom', label: element.dataset['tooltipLabel']!, ...(detail ? { detail } : {}) },
-      anchor: { x: rect.left + rect.width / 2, y: rect.bottom + 8, element },
-    }
-  }
-  const showForElement = (element: HTMLElement, detailed?: boolean, immediate = false): void => {
-    const { target, anchor } = domTargetOf(element)
-    observeShown(element)
-    controller.show(target, anchor, detailed, immediate)
-  }
-  const refreshShown = (): void => {
-    const element = shown
-    if (element === undefined) return
-    if (!element.isConnected || element.dataset['tooltipLabel'] === undefined) { hideNow(); return }
-    if (hovered !== element && document.activeElement !== element) return
-    const { target, anchor } = domTargetOf(element)
-    controller.showInSession(target, anchor)
-  }
-  const enter = (event: PointerEvent) => {
-    const element = elementAt(event)
-    if (!element || (event.relatedTarget instanceof Node && element.contains(event.relatedTarget))) return
-    hovered = element
-    clearSessionGrace()
-    const related = event.relatedTarget instanceof Element ? event.relatedTarget : undefined
-    const session = sessionOf(element)
-    const sharedSession = session !== undefined && session === sessionOf(related)
-    const immediate = element.dataset['tooltipImmediate'] === 'true'
-    if (sharedSession && !immediate) {
-      const { target, anchor } = domTargetOf(element)
-      observeShown(element)
-      controller.showInSession(target, anchor, event.altKey)
-    } else showForElement(element, event.altKey, immediate)
-  }
-  const leave = (event: PointerEvent) => {
-    const element = elementAt(event)
-    const related = event.relatedTarget instanceof Element ? event.relatedTarget : undefined
-    if (!element) {
-      const session = sessionOf(event.target instanceof Element ? event.target : undefined)
-      if (session !== undefined && session !== sessionOf(related)) hideNow()
-      return
-    }
-    if (event.relatedTarget instanceof Node && element.contains(event.relatedTarget)) return
-    if (hovered === element) hovered = undefined
-    if (document.activeElement === element) return
-    const focused = focusedElement()
-    if (focused !== undefined) { showForElement(focused, undefined, true); return }
-    const session = sessionOf(element)
-    if (session === undefined || session !== sessionOf(related)) hideNow()
-    else if (!tooltipTargetOf(event.relatedTarget)) hideAfterSessionGrace()
-  }
-  const focusIn = (event: FocusEvent) => {
-    const element = elementAt(event)
-    if (element && event.target === element) { clearSessionGrace(); showForElement(element, undefined, true) }
-  }
-  const focusOut = (event: FocusEvent) => {
-    const element = elementAt(event)
-    if (!element || event.target !== element) return
-    if (hovered !== undefined) showForElement(hovered, undefined, true)
-    else hideNow()
-  }
-  const down = () => hideNow()
-  const keydown = (event: KeyboardEvent) => { if (event.key === 'Alt') controller.setDetailed(true); if (event.key === 'Escape') hideNow() }
-  const keyup = (event: KeyboardEvent) => { if (event.key === 'Alt') controller.setDetailed(false) }
-  root.addEventListener('pointerover', enter)
-  root.addEventListener('pointerout', leave)
-  root.addEventListener('focusin', focusIn)
-  root.addEventListener('focusout', focusOut)
-  root.addEventListener('pointerdown', down)
-  window.addEventListener('keydown', keydown)
-  window.addEventListener('keyup', keyup)
-  return () => { clearSessionGrace(); releaseShown(); controller.hideMatching(isDomTooltipTarget); root.removeEventListener('pointerover', enter); root.removeEventListener('pointerout', leave); root.removeEventListener('focusin', focusIn); root.removeEventListener('focusout', focusOut); root.removeEventListener('pointerdown', down); window.removeEventListener('keydown', keydown); window.removeEventListener('keyup', keyup) }
 }

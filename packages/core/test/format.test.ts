@@ -45,7 +45,7 @@ describe('golden workflow fixtures', () => {
     const raw = structuredClone(loadFixture('subgraph')) as Record<string, unknown>
     const graph = (raw['graphs'] as Record<string, Record<string, unknown>>)['g1']!
     const boundary = graph['boundary'] as Record<string, Record<string, unknown>[]>
-    boundary['outputs']![0]!['binds'] = { kind: 'widgetTap', node: 'n0', tap: 'seed' }
+    boundary['body']![2]!['binds'] = { kind: 'widgetTap', node: 'n0', tap: 'seed' }
     const result = loadDocument(JSON.parse(JSON.stringify(raw)))
     expect(errorsOf(result.diagnostics)).toEqual([])
     expect(JSON.parse(JSON.stringify(result.document))).toEqual(raw)
@@ -164,39 +164,39 @@ describe('shape validation failures', () => {
 })
 
 describe('document shape rejection', () => {
-  it('rejects retired scalar members with ordinary shape diagnostics', () => {
-    const result = loadDocument(loadFixture('retired-scalar-member'))
-    expect(result.document).toBeUndefined()
-    const errors = errorsOf(result.diagnostics)
-    expect(errors.every((diagnostic) => diagnostic.code === 'doc.shape.invalid')).toBe(true)
-    for (const path of [
-      '$.graphs.g0.links.l3.to.member',
-      '$.graphs.g0.nets.net4.sinks[0].member',
-      '$.graphs.g1.boundary.inputs[0].binds.member',
-    ]) {
-      expect(errors.some((diagnostic) => diagnostic.message.startsWith(`${path}:`))).toBe(true)
-    }
-  })
-
   it('rejects a boundary binding without kind rather than guessing a port binding', () => {
     const raw = structuredClone(loadFixture('subgraph')) as JsonObject
     const graph = (raw['graphs'] as JsonObject)['g1'] as JsonObject
     const boundary = graph['boundary'] as JsonObject
-    const binding = ((boundary['inputs'] as JsonObject[])[0]!['binds']) as Record<string, unknown>
+    const binding = ((boundary['body'] as JsonObject[])[0]!['binds']) as Record<string, unknown>
     delete binding['kind']
     const result = loadDocument(raw)
     expect(result.document).toBeUndefined()
     expect(errorsOf(result.diagnostics)).toMatchObject([{
       code: 'doc.shape.invalid',
-      message: expect.stringContaining('$.graphs.g1.boundary.inputs[0].binds.kind:'),
+      message: expect.stringContaining('$.graphs.g1.boundary.body[0].binds.kind:'),
     }])
   })
 
-  it('rejects nested member paths that do not resolve through persisted dynamic state', () => {
+  it.each([
+    ['valueSources', 'value sources are no longer supported; use primitive nodes'],
+    ['selectors', 'selectors are no longer supported; use a Switch node'],
+  ])('refuses a document holding %s and returns no document', (field, reason) => {
+    const raw = structuredClone(loadFixture('subgraph')) as JsonObject
+    ;((raw['graphs'] as JsonObject)['g0'] as Record<string, unknown>)[field] = {}
+    const result = loadDocument(raw)
+    expect(result.document).toBeUndefined()
+    expect(errorsOf(result.diagnostics)).toMatchObject([{
+      code: 'doc.shape.invalid',
+      message: expect.stringContaining(`$.graphs.g0.${field}: ${reason}`),
+    }])
+  })
+
+  it('rejects nested flattened ids that do not resolve through persisted dynamic state', () => {
     const raw = structuredClone(loadFixture('subgraph')) as JsonObject
     const graph = (raw['graphs'] as JsonObject)['g1'] as JsonObject
     const link = (graph['links'] as JsonObject)['l3'] as Record<string, unknown>
-    link['to'] = { node: 'n2', port: 'input.input', members: ['outer', 'inner'] }
+    link['to'] = { node: 'n2', port: 'input.outer.inner' }
     const result = loadDocument(raw)
     expect(result.document).toBeUndefined()
     expect(errorsOf(result.diagnostics).map((diagnostic) => diagnostic.code)).toContain('doc.dynamic.memberMissing')

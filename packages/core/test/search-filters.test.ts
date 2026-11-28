@@ -2,8 +2,7 @@
  * Structured search filters: kind:/in:/out: token parsing, structural
  * type-token matching (the "one generic node, many forms" rule: variables
  * consult allowed sets instead of enumerating concrete forms), and schema
- * port matching across dynamic interfaces (autogrow, dynamicCombo,
- * dynamicSlot).
+ * port matching across groups, choices and type choices.
  */
 import { describe, expect, it } from 'vitest'
 import {
@@ -12,7 +11,6 @@ import {
   hintsMatchPortFilters,
   parseSearchFilters,
   schemaMatchesLinkDrop,
-  schemaMatchesAnyPortFilters,
   schemaMatchesPortFilters,
   typeMatchesToken,
   type InputSpec,
@@ -30,12 +28,12 @@ const input = (id: string, type: TypeExpr, extra?: Partial<InputSpec>): InputSpe
   ...extra,
 })
 
-const schema = (items: NodeSchema['items']): NodeSchema => ({
+const schema = (items: NodeSchema['body']): NodeSchema => ({
   type: 'test.node',
   displayName: 'Test',
   category: 'test',
   source: 'v3',
-  items,
+  body: items,
   isOutputNode: false,
 })
 
@@ -110,51 +108,52 @@ describe('schemaMatchesPortFilters', () => {
       input('provider', concrete('COMBO'), { hidden: true }),
     ])
     expect(schemaMatchesPortFilters(hiddenOnly, { inputs: ['combo'] })).toBe(false)
-    expect(schemaMatchesAnyPortFilters(hiddenOnly, { inputs: ['combo'] })).toBe(false)
     expect(schemaMatchesLinkDrop(hiddenOnly, concrete('COMBO'), 'in')).toBe(false)
     expect(autoConnectTarget(hiddenOnly, concrete('COMBO'), 'in')).toBeUndefined()
   })
 
-  it('sees through dynamicCombo option sets', () => {
+  it('sees through the options of a choice', () => {
     const s = schema([
-      input('mode', concrete('COMBO'), {
-        dynamic: {
-          kind: 'dynamicCombo',
-          options: [
-            { key: 'a', inputs: [input('strength', concrete('FLOAT'))] },
-            { key: 'b', inputs: [input('mask', concrete('MASK'))] },
-          ],
-        },
-      }),
+      {
+        kind: 'choice',
+        id: 'mode',
+        required: true,
+        shared: [],
+        options: [
+          { key: 'a', rows: [input('strength', concrete('FLOAT'))] },
+          { key: 'b', rows: [input('mask', concrete('MASK'))] },
+        ],
+      },
     ])
     expect(schemaMatchesPortFilters(s, { inputs: ['mask'] })).toBe(true)
     expect(schemaMatchesPortFilters(s, { inputs: ['float'] })).toBe(true)
     expect(schemaMatchesPortFilters(s, { inputs: ['image'] })).toBe(false)
   })
 
-  it('sees through dynamicSlot slot types and dependents', () => {
+  it('sees through a type choice pin type and its rows', () => {
     const s = schema([
-      input('slot', { kind: 'wildcard' }, {
-        dynamic: {
-          kind: 'dynamicSlot',
-          slotType: concrete('core.conditioning'),
-          inputs: [input('strength', concrete('FLOAT'))],
-        },
-      }),
+      {
+        kind: 'typeChoice',
+        id: 'slot',
+        type: concrete('core.conditioning'),
+        rows: [input('strength', concrete('FLOAT'))],
+        required: true,
+      },
     ])
     expect(schemaMatchesPortFilters(s, { inputs: ['conditioning'] })).toBe(true)
     expect(schemaMatchesPortFilters(s, { inputs: ['float'] })).toBe(true)
   })
 
-  it('sees through autogrow templates', () => {
+  it('sees through group members', () => {
     const s = schema([
-      input('images', concrete('IMAGE'), {
-        dynamic: {
-          kind: 'autogrow',
-          template: [input('image', concrete('IMAGE'))],
-          naming: { kind: 'prefix', prefix: 'image' },
-        },
-      }),
+      {
+        kind: 'group',
+        id: 'images',
+        value: input('image', concrete('IMAGE')),
+        keys: { kind: 'numbered', prefix: 'image', start: 0, pad: 0 },
+        grows: 'link',
+        minMembers: 0,
+      },
     ])
     expect(schemaMatchesPortFilters(s, { inputs: ['image'] })).toBe(true)
   })
@@ -170,20 +169,6 @@ describe('schemaMatchesPortFilters', () => {
   })
 })
 
-describe('schemaMatchesAnyPortFilters', () => {
-  const convert = schema([
-    input('image', concrete('IMAGE')),
-    { kind: 'output', id: 'mask', type: concrete('MASK') },
-  ])
-
-  it('ORs selections within a direction and ANDs the input/output groups', () => {
-    expect(schemaMatchesAnyPortFilters(convert, { inputs: ['audio', 'image'] })).toBe(true)
-    expect(schemaMatchesAnyPortFilters(convert, { inputs: ['IMAGE'] })).toBe(true)
-    expect(schemaMatchesAnyPortFilters(convert, { outputs: ['latent', 'mask'] })).toBe(true)
-    expect(schemaMatchesAnyPortFilters(convert, { inputs: ['audio', 'image'], outputs: ['latent'] })).toBe(false)
-  })
-})
-
 describe('hintsMatchPortFilters (blueprint boundary hints)', () => {
   const hints = { inputs: ['core.text'], outputs: ['IMAGE'] }
 
@@ -193,6 +178,8 @@ describe('hintsMatchPortFilters (blueprint boundary hints)', () => {
     expect(hintsMatchPortFilters(hints, { outputs: ['image'] })).toBe(true)
     expect(hintsMatchPortFilters(hints, { inputs: ['image'] })).toBe(false)
     expect(hintsMatchPortFilters(hints, { outputs: ['text'] })).toBe(false)
+    expect(hintsMatchPortFilters(hints, { inputs: ['text', 'image'] })).toBe(false)
+    expect(hintsMatchPortFilters(hints, { outputs: ['image', 'mask'] })).toBe(false)
   })
 
   it('undeclared hints exclude the entry when a port filter is active', () => {
@@ -218,48 +205,61 @@ describe('schemaMatchesLinkDrop (noodle-drop compatibility)', () => {
     expect(schemaMatchesLinkDrop(decode, concrete('LATENT'), 'out')).toBe(false)
   })
 
-  it('fails closed when the dangling end has no proven type', () => {
-    expect(schemaMatchesLinkDrop(decode, { kind: 'wildcard' }, 'in')).toBe(false)
-    expect(schemaMatchesLinkDrop(decode, { kind: 'wildcard' }, 'out')).toBe(false)
-    expect(schemaMatchesLinkDrop(decode, { kind: 'variable', templateId: 'unknown' }, 'in')).toBe(false)
-    expect(schemaMatchesLinkDrop(decode, { kind: 'variable', templateId: 'unknown' }, 'out')).toBe(false)
-    expect(schemaMatchesLinkDrop(decode, {
-      kind: 'variable', templateId: 'mixed',
-      allowedTypes: [concrete('LATENT'), { kind: 'wildcard' }],
-    }, 'in')).toBe(false)
-    expect(schemaMatchesLinkDrop(decode, {
-      kind: 'list', element: { kind: 'variable', templateId: 'open' },
-    }, 'in')).toBe(false)
-  })
-
   it('cardinality is structural: a list anchor never feeds a scalar input', () => {
     const listAnchor: TypeExpr = { kind: 'list', element: concrete('IMAGE') }
     expect(schemaMatchesLinkDrop(decode, listAnchor, 'in')).toBe(false)
     const batch = schema([input('images', { kind: 'list', element: concrete('IMAGE') })])
     expect(schemaMatchesLinkDrop(batch, listAnchor, 'in')).toBe(true)
+    const either = schema([input('images', concrete('IMAGE'), { acceptsList: true })])
+    expect(autoConnectTarget(either, listAnchor, 'in')).toEqual({ port: 'images', label: 'images' })
+    expect(schemaMatchesPortFilters(either, { inputs: ['list<image>'] })).toBe(true)
+    expect(schemaMatchesLinkDrop(either, concrete('IMAGE'), 'in')).toBe(true)
+    expect(schemaMatchesLinkDrop(either, { kind: 'list', element: concrete('MASK') }, 'in')).toBe(false)
+    expect(schemaMatchesPortFilters(either, { inputs: ['list<mask>'] })).toBe(false)
+    expect(schemaMatchesPortFilters(decode, { inputs: ['list<image>'] })).toBe(false)
+  })
+
+  it('input file requirements include the same one-step decoding as a dropped file wire', () => {
+    const image = schema([input('image', concrete('IMAGE'))])
+    const file: TypeExpr = { kind: 'asset', element: concrete('IMAGE') }
+    expect(schemaMatchesLinkDrop(image, file, 'in')).toBe(true)
+    expect(hintsMatchLinkDrop({ inputs: ['IMAGE'] }, file, 'in')).toBe(true)
+    expect(schemaMatchesPortFilters(image, { inputs: ['asset<image>'] })).toBe(true)
+    expect(hintsMatchPortFilters({ inputs: ['IMAGE'] }, { inputs: ['asset<image>'] })).toBe(true)
+    expect(schemaMatchesPortFilters(image, { inputs: ['list<asset<image>>'] })).toBe(true)
+    expect(schemaMatchesPortFilters(image, { inputs: ['asset<latent>'] })).toBe(false)
+    expect(schemaMatchesPortFilters(image, { inputs: ['asset<asset<image>>'] })).toBe(false)
+    expect(schemaMatchesPortFilters(image, { inputs: ['list<image>'] })).toBe(false)
+    const batch = schema([input('images', { kind: 'list', element: concrete('IMAGE') })])
+    expect(schemaMatchesPortFilters(batch, { inputs: ['asset<image>'] })).toBe(false)
+    expect(schemaMatchesPortFilters(batch, { inputs: ['list<asset<image>>'] })).toBe(true)
+    const batchFile = schema([input('images', { kind: 'asset', element: { kind: 'list', element: concrete('IMAGE') } })])
+    expect(schemaMatchesPortFilters(batchFile, { inputs: ['asset<image>'] })).toBe(false)
+    expect(hintsMatchLinkDrop({ inputs: ['list<IMAGE>'] }, concrete('IMAGE'), 'in')).toBe(false)
+    const output = schema([{ kind: 'output', id: 'image', type: concrete('IMAGE') }])
+    expect(schemaMatchesPortFilters(output, { outputs: ['asset<image>'] })).toBe(false)
+    expect(hintsMatchPortFilters({ outputs: ['asset<IMAGE>'] }, { outputs: ['image'] })).toBe(true)
+    expect(hintsMatchLinkDrop({ outputs: ['asset<IMAGE>'] }, concrete('IMAGE'), 'out')).toBe(true)
   })
 
   it('matches concrete batch families and a constrained shared family exactly', () => {
+    const group = (type: TypeExpr) => ({
+      kind: 'group' as const,
+      id: 'values',
+      value: input('value', type),
+      keys: { kind: 'numbered' as const, prefix: 'value', start: 0, pad: 0 },
+      grows: 'link' as const,
+      minMembers: 1,
+      maxMembers: 50,
+    })
     const family = (name: string) => schema([
-      input('values', concrete(name), {
-        dynamic: {
-          kind: 'autogrow',
-          template: [input('value', concrete(name))],
-          naming: { kind: 'prefix', prefix: 'value', min: 1, max: 50 },
-        },
-      }),
+      group(concrete(name)),
       { kind: 'output', id: 'value', type: concrete(name) },
     ])
     const allowed = ['comfy.IMAGE', 'comfy.MASK', 'comfy.LATENT'].map(concrete)
     const matchType: TypeExpr = { kind: 'variable', templateId: 'MatchType', allowedTypes: allowed }
     const combined = schema([
-      input('values', matchType, {
-        dynamic: {
-          kind: 'autogrow',
-          template: [input('value', matchType)],
-          naming: { kind: 'prefix', prefix: 'value', min: 1, max: 50 },
-        },
-      }),
+      group(matchType),
       { kind: 'output', id: 'value', type: matchType },
     ])
 
@@ -284,22 +284,20 @@ describe('autoConnectTarget (link-drop auto-connect target)', () => {
   ])
 
   it('returns the first compatible port, interface order', () => {
-    expect(autoConnectTarget(decode, concrete('core.vae'), 'in')).toEqual({ port: 'vae' })
-    expect(autoConnectTarget(decode, concrete('IMAGE'), 'out')).toEqual({ port: 'image' })
+    expect(autoConnectTarget(decode, concrete('core.vae'), 'in')).toEqual({ port: 'vae', label: 'vae' })
+    expect(autoConnectTarget(decode, concrete('IMAGE'), 'out')).toEqual({ port: 'image', label: 'image' })
     expect(autoConnectTarget(decode, concrete('MASK'), 'in')).toBeUndefined()
   })
 
-  it('rejects unknown anchors but preserves intentional generic targets as fallbacks', () => {
+  it('preserves intentional generic targets as fallbacks', () => {
     const genericInput = schema([input('value', { kind: 'variable', templateId: 'T' })])
     const genericOutput = schema([{ kind: 'output', id: 'value', type: { kind: 'wildcard' } }])
-    expect(autoConnectTarget(decode, { kind: 'wildcard' }, 'in')).toBeUndefined()
-    expect(autoConnectTarget(decode, { kind: 'variable', templateId: 'unknown' }, 'out')).toBeUndefined()
-    expect(autoConnectTarget(genericInput, concrete('comfy.IMAGE'), 'in')).toEqual({ port: 'value' })
-    expect(autoConnectTarget(genericOutput, concrete('comfy.IMAGE'), 'out')).toEqual({ port: 'value' })
+    expect(autoConnectTarget(genericInput, concrete('comfy.IMAGE'), 'in')).toEqual({ port: 'value', label: 'value' })
+    expect(autoConnectTarget(genericOutput, concrete('comfy.IMAGE'), 'out')).toEqual({ port: 'value', label: 'value' })
     expect(autoConnectTarget(schema([input('value', {
       kind: 'variable', templateId: 'mixed',
       allowedTypes: [concrete('comfy.IMAGE'), { kind: 'wildcard' }],
-    })]), concrete('comfy.IMAGE'), 'in')).toEqual({ port: 'value' })
+    })]), concrete('comfy.IMAGE'), 'in')).toEqual({ port: 'value', label: 'value' })
   })
 
   it('prefers a compatible closed target over an earlier generic target', () => {
@@ -307,46 +305,49 @@ describe('autoConnectTarget (link-drop auto-connect target)', () => {
       input('generic', { kind: 'wildcard' }),
       input('image', concrete('comfy.IMAGE')),
     ])
-    expect(autoConnectTarget(target, concrete('comfy.IMAGE'), 'in')).toEqual({ port: 'image' })
-    expect(autoConnectTarget(target, concrete('comfy.MASK'), 'in')).toEqual({ port: 'generic' })
+    expect(autoConnectTarget(target, concrete('comfy.IMAGE'), 'in')).toEqual({ port: 'image', label: 'image' })
+    expect(autoConnectTarget(target, concrete('comfy.MASK'), 'in')).toEqual({ port: 'generic', label: 'generic' })
   })
 
-  it('an autogrow family member is a target, with its materialize frames', () => {
-    // Mirrors std.list.make: family 'items', single template slot 'items',
-    // variable-typed. A fresh node's first (synthetic) member must be
-    // auto-connectable - the palette path parity of the ghost-pin drop.
+  it('a group member is a target, with materialize frames when the node does not store it yet', () => {
+    // Mirrors std.list.make: group 'items' of one variable-typed input.
+    // A fresh node's first member must be auto-connectable - the palette
+    // path parity of the ghost-pin drop.
     const itemType: TypeExpr = { kind: 'variable', templateId: 'T' }
-    const make = schema([
-      input('items', itemType, {
-        dynamic: {
-          kind: 'autogrow',
-          template: [input('items', itemType)],
-          naming: { kind: 'prefix', prefix: 'item', min: 1 },
-        },
-      }),
+    const make = (minMembers: number) => schema([
+      {
+        kind: 'group',
+        id: 'items',
+        value: input('item', itemType),
+        keys: { kind: 'numbered', prefix: 'item', start: 0, pad: 0 },
+        grows: 'link',
+        minMembers,
+      },
       { kind: 'output', id: 'list', type: { kind: 'list', element: itemType } },
     ])
-    expect(autoConnectTarget(make, concrete('IMAGE'), 'in')).toEqual({
-      port: 'items.items',
-      members: ['m0'],
-      materialize: [{ construct: 'items', members: ['m0'] }],
+    // A new node stores its first minMembers members, so that member is a plain port.
+    expect(autoConnectTarget(make(1), concrete('IMAGE'), 'in')).toEqual({ port: 'items.item0', label: 'item 1' })
+    // With no minimum, the offered spare member carries the frame that stores it.
+    expect(autoConnectTarget(make(0), concrete('IMAGE'), 'in')).toEqual({
+      port: 'items.item0',
+      label: 'item 1',
+      materialize: [{ construct: 'items', members: ['item0'], seq: 1 }],
     })
   })
 
-  it('a DynamicCombo default-branch input is a target; the selector row never is', () => {
+  it("a choice's start-option input is a target; the choice's dropdown never is", () => {
     const s = schema([
-      input('mode', concrete('COMBO'), {
-        dynamic: {
-          kind: 'dynamicCombo',
-          options: [{ key: 'a', inputs: [input('mask', concrete('MASK'))] }],
-        },
-      }),
+      {
+        kind: 'choice',
+        id: 'mode',
+        required: true,
+        shared: [],
+        options: [{ key: 'a', rows: [input('mask', concrete('MASK'))] }],
+      },
     ])
     expect(schemaMatchesLinkDrop(s, concrete('MASK'), 'in')).toBe(true)
-    // The default branch's input is a real addressable port on a fresh node.
-    expect(autoConnectTarget(s, concrete('MASK'), 'in')).toEqual({ port: 'mode.[a].mask' })
-    // Unknown anchor metadata cannot choose a branch input or selector row.
-    expect(autoConnectTarget(s, { kind: 'wildcard' }, 'in')).toBeUndefined()
+    // The start option's input is a real addressable port on a fresh node.
+    expect(autoConnectTarget(s, concrete('MASK'), 'in')).toEqual({ port: 'mode.mask', label: 'mask' })
   })
 })
 
@@ -375,9 +376,9 @@ describe('v14 COMBO link-drop compatibility', () => {
 
   it('matches and auto-connects combo-to-combo without inspecting choices', () => {
     expect(schemaMatchesLinkDrop(comboConsumer, concrete('COMBO'), 'in')).toBe(true)
-    expect(autoConnectTarget(comboConsumer, concrete('COMBO'), 'in')).toEqual({ port: 'mode' })
+    expect(autoConnectTarget(comboConsumer, concrete('COMBO'), 'in')).toEqual({ port: 'mode', label: 'mode' })
     expect(schemaMatchesLinkDrop(comboProducer, concrete('COMBO'), 'out')).toBe(true)
-    expect(autoConnectTarget(comboProducer, concrete('COMBO'), 'out')).toEqual({ port: 'choice' })
+    expect(autoConnectTarget(comboProducer, concrete('COMBO'), 'out')).toEqual({ port: 'choice', label: 'choice' })
   })
 
 })

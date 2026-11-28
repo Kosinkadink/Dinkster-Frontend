@@ -7,7 +7,7 @@ async function installStartup(page: Page): Promise<void> {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'form-language-e2e', schemaWire: 1 },
+    dinkster: { version: 'form-language-e2e', schemaWire: 2 },
     nodes: {},
   } }))
   await page.route('/api/diagnostics*', (route) => route.fulfill({ json: { diagnostics: [] } }))
@@ -18,7 +18,7 @@ async function openNumericWidget(page: Page): Promise<void> {
   await page.evaluate(async () => {
     window.__dinksterTest!.app.registerSchemas([{
       type: 'FormLanguageWidget', displayName: 'Form language', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input', id: 'count', type: { kind: 'concrete', name: 'INT' }, optional: false,
         widget: { widgetType: 'INT', options: { min: 0, max: 100, step: 5 }, default: 5 },
       }],
@@ -93,13 +93,12 @@ test('widget validation and a busy asset decision remain usable on a narrow view
   await expect(page.getByTestId('graph-canvas')).toBeVisible()
   await openNumericWidget(page)
   const editor = page.getByTestId('widget-editor')
-  const input = editor.getByRole('textbox', { name: 'Value' })
+  const input = editor.getByRole('textbox', { name: 'count', exact: true })
   await input.fill('not a number')
-  await input.press('Enter')
-  await expect(editor.getByRole('alert')).toContainText('exact integer')
+  await expect(editor.getByRole('alert')).toContainText('Not a number')
   await expect(input).toHaveAttribute('aria-invalid', 'true')
   await page.screenshot({ path: `${PROOF}/after-widget-1366x768.png`, fullPage: true })
-  await page.getByTestId('widget-editor-cancel').click()
+  await input.press('Escape')
 
   await page.setViewportSize({ width: 360, height: 640 })
   await page.evaluate(() => {

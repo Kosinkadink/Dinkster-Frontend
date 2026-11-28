@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, onCleanup, Show } from 'solid-js'
 import type { AccountProjectChoices, AccountStatus, DinksterConnection, LibraryProject } from '@dinkster/client'
 import { ProductButton, ProductConfirmation, ProductDialog, ProductErrorBanner, ProductField, ProductLoading, ProductNotice, ProductSelect } from '@dinkster/ui'
 import { useAppMessage } from './locale.js'
@@ -75,8 +75,7 @@ export function ProjectAccountLink(props: {
     } catch {
       if (!controller.signal.aborted) {
         setError(true)
-        setProject(undefined)
-        setRemoving(false)
+        if (!removing()) setProject(undefined)
       }
     } finally {
       if (!controller.signal.aborted) setSaving(false)
@@ -88,8 +87,11 @@ export function ProjectAccountLink(props: {
   }
 
   // The nested dialog must not trigger the Projects dialog's backdrop or shortcuts.
-  return <div onPointerDown={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}><ProductDialog title={message('projectAccount.title')} pending={saving()} onDismiss={props.onClose}>
-    <Show when={error()}><ProductErrorBanner onDismiss={() => setError(false)}>{message('projectAccount.error')}</ProductErrorBanner></Show>
+  return <div onPointerDown={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}><ProductDialog title={message('projectAccount.title')} pending={saving()} onDismiss={props.onClose}
+    action={!loading() && !removing() && choices()?.projects.length
+      ? <ProductButton intent="add" fill="solid" pending={saving()} disabled={!changed() || !project()?.uid} onClick={() => { void save(selection()) }}>{message('projectAccount.save')}</ProductButton>
+      : undefined}>
+    <Show when={error() && !removing()}><ProductErrorBanner onDismiss={() => setError(false)}>{message('projectAccount.error')}</ProductErrorBanner></Show>
     <Show when={loading()} fallback={<>
       <Show when={project()}>{(record) => <>
         <p class="dinkster-description">{message('projectAccount.project', { name: record().name })}</p>
@@ -101,19 +103,16 @@ export function ProjectAccountLink(props: {
           <Show when={status()?.signedIn && status()?.signIn !== 'pending'} fallback={<ProductNotice>{message('projectAccount.signIn')}</ProductNotice>}>
             <Show when={choices()?.projects.length} fallback={<ProductNotice>{message('projectAccount.empty')}</ProductNotice>}>
               <ProductField label={message('projectAccount.choice')}>{(attributes) =>
-                <ProductSelect {...attributes} value={selection()} disabled={saving()} onChange={(event) => setSelection(event.currentTarget.value)}>
-                  <option value="" disabled>{message('projectAccount.choose')}</option>
-                  <For each={choices()?.projects}>{(item) => <option value={item.id}>{item.displayName ?? item.id}</option>}</For>
-                </ProductSelect>
+                <ProductSelect {...attributes} value={selection()} disabled={saving()} onChange={setSelection}
+                  options={[{ value: '', label: message('projectAccount.choose'), disabled: true }, ...(choices()?.projects ?? []).map((item) => ({ value: item.id, label: item.displayName ?? item.id }))]} />
               }</ProductField>
             </Show>
           </Show>
           <div class="dinkster-actions">
-            <Show when={choices()?.projects.length}><ProductButton intent="add" fill="solid" pending={saving()} disabled={!changed() || !record().uid} onClick={() => { void save(selection()) }}>{message('projectAccount.save')}</ProductButton></Show>
             <Show when={record().accountProject}><ProductButton intent="remove" disabled={saving() || !record().uid} onClick={() => setRemoving(true)}>{message('projectAccount.unlink')}</ProductButton></Show>
           </div>
         </>}>
-          <ProductConfirmation title={message('projectAccount.unlink')} consequence={message('projectAccount.unlinkNotice')} actionLabel={message('projectAccount.unlink')} intent="remove" pending={saving()} onCancel={() => setRemoving(false)} onConfirm={() => { void save(null) }} />
+          <ProductConfirmation title={message('projectAccount.unlinkTitle', { name: record().name })} consequence={message('projectAccount.unlinkNotice')} error={error() ? message('projectAccount.error') : undefined} actionLabel={message('projectAccount.unlink')} intent="remove" pending={saving()} onCancel={() => { setError(false); setRemoving(false) }} onConfirm={() => { void save(null) }} />
         </Show>
       </>}</Show>
       <div class="dinkster-actions"><ProductButton disabled={saving()} onClick={() => setReload((value) => value + 1)}>{message('projectAccount.refresh')}</ProductButton></div>

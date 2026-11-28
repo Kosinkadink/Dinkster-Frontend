@@ -1,0 +1,1330 @@
+import { asNodeId, CURVE_HISTOGRAM_PREVIEW_CHANNEL, curveHistogramStream, effectiveWidgetDefault, elabInputsOf, formatByteSize, occurrenceKey, type AssetRef, type ElaboratedInterface, type Json, type JsonObject } from '@dinkster/core'
+import { canvasPaintTokens, clampPictureHeight, defaultTokens, IN_NODE_EDITORS, type EditorSummary, type EditorSummaryMap, type LayoutRow } from '@dinkster/canvas'
+import { audioRecordKind, curveEditorInterpolations, curveInterpolator, isSaveTarget, isProjectDefaultTarget, saveTargetDraft, webcamKind, type CurvePoint, type CurveValue } from '@dinkster/widgets'
+import {
+  CanvasAnglePicture,
+  CanvasCurvePlot,
+  CanvasEditorButtons,
+  CanvasEditorChoice,
+  CanvasEditorControls,
+  CanvasEditorLine,
+  CanvasEditorNote,
+  CanvasEditorNumber,
+  CanvasEditorPicture,
+  CanvasEditorSpace,
+  CanvasRecorderStrip,
+  CanvasTargetBox,
+  canvasEditorIcons,
+  type CanvasCurveStrip,
+} from '@dinkster/ui'
+import { createEffect, createMemo, createSignal, on, onCleanup, Show, untrack, type JSX } from 'solid-js'
+import { RequestFailure, type ExecutionState, type MountSettings } from '@dinkster/client'
+import { useAppMessage } from './locale.js'
+import { failureMessage } from './request-failure.js'
+import { frameFromVideo, webcamError, type WebcamDimensions } from './webcam.js'
+import { overlayClipStyle, type EditorWorldRect } from './widget-editor-position.js'
+
+type SpaceRow = Extract<LayoutRow, { kind: 'editorSpace' }>
+type FieldRow = Extract<LayoutRow, { kind: 'widget' }>
+
+export interface SaveTargetPart {
+  readonly value: Json | undefined
+  readonly declared: Json | undefined
+  readonly wired: boolean
+  readonly readOnly: boolean
+  readonly disabled: boolean
+}
+
+type SaveTargetParts = Readonly<Record<'mount' | 'name', SaveTargetPart>>
+
+/** An unfolded editor's space in a node of the canvas, in world coordinates. */
+export interface EditorSpaceItem {
+  readonly key: string
+  readonly nodeId: string
+  readonly row: SpaceRow
+  /** The editor button row the space hangs under. */
+  readonly field: FieldRow
+  readonly node: EditorWorldRect
+  /** The space within the node. */
+  readonly space: EditorWorldRect
+  /** Where the editor's value is kept: its own row, or for an editor row the one row it writes. */
+  readonly valueKey: string
+  readonly value: Json | undefined
+  readonly saveTargetParts?: SaveTargetParts
+  /** The editor's input has a wire, so the wire decides its value. */
+  readonly wired: boolean
+  /** The parts of the widget whose rows have a wire, such as a 3D view's camera. */
+  readonly wiredParts: ReadonlySet<string>
+  /** What the wire brought in the last run, when it is known. */
+  readonly carried: Json | undefined
+  /** What each wired part's wire brought in the last run, when it is known. */
+  readonly carriedParts: Readonly<Record<string, Json | undefined>>
+}
+
+/** How the scene's wires reach an editor's input. */
+export interface EditorWires {
+  readonly wired: (nodeId: string, inputId: string) => boolean
+  readonly carried: (nodeId: string, valueKey: string) => Json | undefined
+}
+
+/** The spaces of the scene's unfolded editors, each with its editor button row. */
+export function editorSpaceItems(nodes: readonly {
+  readonly id: string
+  readonly x: number
+  readonly y: number
+  readonly layout: { readonly width: number; readonly height: number; readonly minimized?: boolean; readonly rows: readonly LayoutRow[] }
+  readonly node: { readonly values?: Readonly<Record<string, Json>> }
+  readonly elaborated?: ElaboratedInterface
+}[], wires: EditorWires): EditorSpaceItem[] {
+  return nodes.flatMap((node) => {
+    if (node.layout.minimized === true) return []
+    return node.layout.rows.flatMap((row) => {
+      if (row.kind !== 'editorSpace') return []
+      const field = node.layout.rows.find((item): item is FieldRow => item.kind === 'widget' && item.valueKey === row.valueKey)
+      if (field === undefined) return []
+      const written = field.editor === true && field.parts !== undefined ? Object.values(field.parts.writes) : []
+      const valueKey = written.length === 1 ? written[0]! : row.valueKey
+      const parts = field.parts === undefined ? [] : [...Object.entries(field.parts.reads), ...Object.entries(field.parts.writes)]
+      const wired = wires.wired(node.id, row.inputId)
+      const carried = wires.carried(node.id, row.valueKey)
+      const saveParts = saveTargetParts(node, field, wires)
+      return [{
+        key: `${node.id}:${row.valueKey}`,
+        nodeId: node.id,
+        row,
+        field,
+        node: { x: node.x, y: node.y, width: node.layout.width, height: node.layout.height },
+        // The controls stop at the editor's outline, above the row's bottom band.
+        space: { x: row.inset, y: row.y, width: row.width ?? node.layout.width - row.inset * 2, height: row.height - defaultTokens.rowGeometry.fieldInsetY },
+        valueKey,
+        value: saveParts === undefined ? wired ? carried : node.node.values?.[valueKey] : saveTargetValue(saveParts),
+        ...(saveParts === undefined ? {} : { saveTargetParts: saveParts }),
+        wired,
+        wiredParts: new Set(parts.flatMap(([part, partRow]) => wires.wired(node.id, partRow) ? [part] : [])),
+        carried,
+        carriedParts: Object.fromEntries(parts.flatMap(([part, partRow]) =>
+          wires.wired(node.id, partRow) ? [[part, wires.carried(node.id, partRow)]] : [])),
+      }]
+    })
+  })
+}
+
+function saveTargetParts(node: {
+  readonly id: string
+  readonly node?: { readonly values?: Readonly<Record<string, Json>> }
+  readonly elaborated?: ElaboratedInterface
+}, row: FieldRow, wires: EditorWires): SaveTargetParts | undefined {
+  const mountId = row.parts?.writes['mount']
+  const nameId = row.parts?.writes['name']
+  if (row.editor !== true || row.viewId !== 'core.saveTarget' || mountId === undefined || nameId === undefined) return undefined
+  const inputs = node.elaborated === undefined ? [] : elabInputsOf(node.elaborated)
+  const part = (id: string): SaveTargetPart => {
+    const input = inputs.find((input) => input.spec.id === id)
+    const declared = input?.spec.widget === undefined ? undefined : effectiveWidgetDefault(input.spec.widget)
+    const wired = wires.wired(node.id, id)
+    const stored = node.node?.values?.[id]
+    return {
+      value: wired ? wires.carried(node.id, id) : stored !== undefined ? stored : input?.derivedValue !== undefined ? input.derivedValue : input?.automatic?.value ?? declared,
+      declared, wired, readOnly: input?.readOnly === true, disabled: input?.disabled === true,
+    }
+  }
+  return { mount: part(mountId), name: part(nameId) }
+}
+
+function saveTargetValue(parts: SaveTargetParts): Json | undefined {
+  const mount = parts.mount.value
+  const prefix = parts.name.value
+  return mount === undefined || prefix === undefined ? undefined : { ...(mount === null ? {} : { mount }), prefix }
+}
+
+/**
+ * Derived closed-file pictures and editor summaries. A wire shows its own
+ * carried value or `notKnown`, never the stored value under it. Unfolded
+ * editors keep their full preview instead of adding pictures to the row.
+ */
+export function wiredEditorSummaries(nodes: readonly {
+  readonly id: string
+  readonly layout: { readonly width?: number; readonly rows: readonly LayoutRow[] }
+  readonly node?: { readonly values?: Readonly<Record<string, Json>> }
+  readonly elaborated?: ElaboratedInterface
+}[], wires: EditorWires, notKnown: string, thumbnails?: (value: Json, width: number) => EditorSummary['thumbnails']): EditorSummaryMap {
+  return Object.fromEntries(nodes.flatMap((node) => {
+    const summaries = Object.fromEntries(node.layout.rows.flatMap((row): [string, EditorSummary][] => {
+      if (row.kind !== 'widget') return []
+      const saveParts = saveTargetParts(node, row, wires)
+      if (saveParts !== undefined) {
+        const value = saveTargetValue(saveParts)
+        return [[row.valueKey, value === undefined ? { text: notKnown, placeholder: true, value: null } : { value }]]
+      }
+      const wired = wires.wired(node.id, row.inputId)
+      if (!wired) {
+        const value = node.node?.values?.[row.valueKey]
+        const pictures = row.viewId === 'core.asset' && !row.unfolded && value !== undefined ? thumbnails?.(value, node.layout.width ?? Infinity) : undefined
+        return pictures === undefined ? [] : [[row.valueKey, { thumbnails: pictures }]]
+      }
+      if (IN_NODE_EDITORS[row.viewId] === undefined && row.viewId !== 'core.asset') return []
+      const carried = wires.carried(node.id, row.valueKey)
+      if (carried === undefined) return row.viewId === 'core.asset' ? [] : [[row.valueKey, { text: notKnown, placeholder: true, value: null }]]
+      const named = typeof carried === 'object' && carried !== null && !Array.isArray(carried) ? (carried as JsonObject)['name'] : undefined
+      const name = typeof carried === 'string' ? carried : typeof named === 'string' ? named : undefined
+      const pictures = row.viewId === 'core.asset' && !row.unfolded ? thumbnails?.(carried, node.layout.width ?? Infinity) : undefined
+      return [[row.valueKey, {
+        ...(name === undefined || name === '' ? {} : { text: name }), value: carried,
+        ...(pictures === undefined ? {} : { thumbnails: pictures }),
+      }]]
+    }))
+    return Object.keys(summaries).length === 0 ? [] : [[node.id, summaries]]
+  }))
+}
+
+/**
+ * The controls of one unfolded editor, laid over its space at the canvas's
+ * normal size and scaled with the canvas. Wheel turns go to the canvas and
+ * never to the controls (a 3D view does not zoom on them), so the canvas
+ * zooms and pans over an editor as over the rest of the node.
+ */
+export function NodeEditorSpaceOverlay(props: {
+  readonly item: EditorSpaceItem
+  readonly rect: EditorWorldRect
+  readonly scale: number
+  readonly canvas: HTMLCanvasElement
+  /** The canvas paints the node at a dragged picture height, and stores it when the drag ends. */
+  readonly pictureHeight: {
+    readonly preview: (height: number | undefined) => void
+    readonly commit: (height: number) => void
+  }
+  /** Screen rectangles the canvas draws in front of the editor, cut out of it. */
+  readonly covers: readonly EditorWorldRect[]
+  readonly children: JSX.Element
+}) {
+  // The picture's bottom edge is dragged, or stepped with the arrow keys, like a text box's.
+  const [dragged, setDragged] = createSignal<number>()
+  const stored = () => props.item.row.picture?.height ?? 0
+  const shown = () => dragged() ?? stored()
+  const grown = () => shown() - stored()
+  let drag: { readonly pointerId: number; readonly y: number; readonly height: number } | undefined
+  const resizeBar = (event: Event): HTMLElement | undefined =>
+    event.target instanceof Element ? event.target.closest<HTMLElement>('.dinkster-canvas-editor-resize') ?? undefined : undefined
+  const press = (event: PointerEvent): void => {
+    const bar = resizeBar(event)
+    if (bar === undefined || event.button !== 0 || props.item.row.picture === undefined) return
+    event.preventDefault()
+    event.stopPropagation()
+    const overlay = event.currentTarget as HTMLElement
+    overlay.setPointerCapture(event.pointerId)
+    drag = { pointerId: event.pointerId, y: event.clientY, height: stored() }
+  }
+  const move = (event: PointerEvent): void => {
+    if (drag?.pointerId !== event.pointerId) return
+    const height = clampPictureHeight(drag.height + (event.clientY - drag.y) / props.scale)
+    setDragged(height)
+    props.pictureHeight.preview(height)
+  }
+  const release = (event: PointerEvent): void => {
+    if (drag?.pointerId !== event.pointerId) return
+    drag = undefined
+    const height = dragged()
+    setDragged(undefined)
+    if (height === undefined || height === stored()) props.pictureHeight.preview(undefined)
+    else props.pictureHeight.commit(height)
+  }
+  const step = (event: KeyboardEvent): void => {
+    if (resizeBar(event) === undefined || (event.key !== 'ArrowUp' && event.key !== 'ArrowDown')) return
+    event.preventDefault()
+    event.stopPropagation()
+    const height = clampPictureHeight(stored() + (event.key === 'ArrowDown' ? canvasPaintTokens.node.previewEdge.keyStep : -canvasPaintTokens.node.previewEdge.keyStep))
+    if (height !== stored()) props.pictureHeight.commit(height)
+  }
+  const forwardWheel = (event: WheelEvent): void => {
+    event.preventDefault()
+    event.stopPropagation()
+    props.canvas.dispatchEvent(new WheelEvent('wheel', {
+      bubbles: true,
+      cancelable: true,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      deltaX: event.deltaX,
+      deltaY: event.deltaY,
+      deltaMode: event.deltaMode,
+      ctrlKey: event.ctrlKey,
+      metaKey: event.metaKey,
+    }))
+  }
+  const forwardContextMenu = (event: MouseEvent): void => {
+    const field = event.target instanceof Element ? event.target.closest('input, textarea, [contenteditable="true"]') : null
+    if (field === document.activeElement && field !== null && !field.matches(':disabled, [readonly]') &&
+        (!(field instanceof HTMLInputElement) || ['text', 'search', 'email', 'url', 'tel', 'password', 'number'].includes(field.type))) return
+    event.preventDefault()
+    event.stopPropagation()
+    props.canvas.dispatchEvent(new MouseEvent('contextmenu', {
+      bubbles: true, cancelable: true, clientX: event.clientX, clientY: event.clientY,
+      button: event.button, buttons: event.buttons, ctrlKey: event.ctrlKey,
+      metaKey: event.metaKey, shiftKey: event.shiftKey, altKey: event.altKey,
+    }))
+  }
+  return (
+    <div class="node-editor-space-overlay" data-node-id={props.item.nodeId} data-value-key={props.item.row.valueKey}
+      data-view-id={props.item.row.viewId}
+      style={overlayClipStyle({ ...props.rect, height: props.rect.height + grown() * props.scale }, props.canvas, props.covers)}
+      ref={(element) => {
+        element.addEventListener('wheel', forwardWheel, { capture: true, passive: false })
+        element.addEventListener('pointerdown', press, { capture: true })
+        element.addEventListener('contextmenu', forwardContextMenu, { capture: true })
+      }}
+      onPointerMove={move} onPointerUp={release} onPointerCancel={release} onLostPointerCapture={release} onKeyDown={step}>
+      <div class="node-editor-space-world" style={{
+        width: `${props.item.space.width}px`,
+        height: `${props.item.space.height + grown()}px`,
+        transform: `scale(${props.scale})`,
+        '--node-editor-picture-height': `${shown()}px`,
+      }}>
+        <CanvasEditorSpace {...(props.item.field.disabled ? { state: 'dimmed' } : {})} ref={(element) => {
+          element.style.inset = '0'
+        }}>
+          {props.children}
+        </CanvasEditorSpace>
+      </div>
+    </div>
+  )
+}
+
+/** Save target controls inside the shared fold-out editor space. */
+export function SaveTargetSpace(props: {
+  readonly value: Json | undefined
+  readonly parts?: SaveTargetParts | undefined
+  readonly wired: boolean
+  readonly readOnly?: boolean
+  readonly disabled?: boolean
+  readonly declared?: Json
+  readonly help?: string
+  readonly measured?: (height: number) => void
+  readonly preview?: (value: Json | undefined) => void
+  readonly fetchMounts: (() => Promise<MountSettings>) | undefined
+  readonly commit: (value: Json) => Promise<boolean>
+  readonly queue: () => void
+  readonly openStorage?: () => void
+}) {
+  const message = useAppMessage()
+  const [settings, setSettings] = createSignal<MountSettings>()
+  const [failed, setFailed] = createSignal(false)
+  const [mount, setMount] = createSignal<string | null>(null)
+  const [prefix, setPrefix] = createSignal('')
+  const [listOpen, setListOpen] = createSignal(false)
+  const [highlight, setHighlight] = createSignal<number>()
+  const [pending, setPending] = createSignal(false)
+  let mountButton: HTMLButtonElement | undefined
+  let prefixInput: HTMLInputElement | undefined
+  const sourceMount = () => props.parts === undefined ? isSaveTarget(props.value) ? props.value.mount : null : props.parts.mount.value
+  const sourcePrefix = () => props.parts === undefined ? isSaveTarget(props.value) || isProjectDefaultTarget(props.value) ? props.value.prefix : '' : props.parts.name.value
+  const mountWired = () => props.wired || props.parts?.mount.wired === true
+  const prefixWired = () => props.wired || props.parts?.name.wired === true
+  const mountBlocked = () => props.readOnly === true || props.disabled === true || mountWired() || props.parts?.mount.readOnly === true || props.parts?.mount.disabled === true
+  const prefixBlocked = () => props.readOnly === true || props.disabled === true || prefixWired() || props.parts?.name.readOnly === true || props.parts?.name.disabled === true
+  const mountUnknown = () => mountWired() && sourceMount() === undefined
+  const prefixUnknown = () => prefixWired() && sourcePrefix() === undefined
+  const resetMount = () => {
+    const value = sourceMount()
+    setMount(typeof value === 'string' ? value : null)
+  }
+  const resetPrefix = () => {
+    const name = sourcePrefix()
+    setPrefix(typeof name === 'string' ? name : '')
+  }
+  const reset = () => { resetMount(); resetPrefix() }
+  const blocked = createMemo(() => props.readOnly === true || props.disabled === true)
+  const fetchMounts = createMemo(() => props.fetchMounts)
+  const mountState = createMemo(() => JSON.stringify([sourceMount(), mountBlocked(), mountWired()]))
+  const prefixState = createMemo(() => JSON.stringify([sourcePrefix(), prefixBlocked(), prefixWired()]))
+  createEffect(on(mountState, () => { setListOpen(false); resetMount() }))
+  createEffect(on(prefixState, resetPrefix))
+  createEffect(on(fetchMounts, (fetch) => {
+    let live = true
+    setSettings(undefined)
+    setFailed(fetch === undefined)
+    void fetch?.().then((value) => { if (live) setSettings(value) }).catch(() => { if (live) setFailed(true) })
+    onCleanup(() => { live = false })
+  }))
+  const ready = () => settings()?.mounts.filter((entry) => entry.mode === 'readwrite' && entry.state === 'ready' && !entry.saveError).map((entry) => entry.id) ?? []
+  const noDefault = () => settings() !== undefined && !ready().includes(settings()!.activeOutputMount ?? '')
+  const projectMount = () => settings()?.activeOutputMount ?? message(noDefault() ? 'saveTargetWidget.noOutputMount' : 'saveTargetWidget.projectDefault')
+  const options = () => [
+    { id: '', label: message('saveTargetWidget.projectDefaultIs', { mount: projectMount() }), closedLabel: message('saveTargetWidget.projectDefault') },
+    ...ready().map((id) => ({ id, label: id })),
+    ...(mount() !== null && !ready().includes(mount()!) ? [{ id: mount()!, label: message('saveTargetWidget.notHere', { id: mount()! }), closedLabel: mount()!, unavailable: true }] : []),
+  ]
+  const draft = () => saveTargetDraft({ stored: props.value ?? null, mount: mount(), prefix: prefix(),
+    ready: settings() === undefined ? undefined : ready(), projectMount: projectMount() })
+  createEffect(() => {
+    const unchanged = mount() === sourceMount() && prefix() === sourcePrefix()
+    const valuePreview = props.wired || blocked() || mountUnknown() || prefixUnknown() || unchanged ? undefined
+      : { prefix: prefix(), ...(mount() === null ? {} : { mount: mount()! }) }
+    untrack(() => props.preview?.(valuePreview))
+  })
+  onCleanup(() => props.preview?.(undefined))
+  const mountProblem = () => mountUnknown() ? undefined : failed() ? message('mountWidget.error')
+    : settings() === undefined ? undefined
+      : noDefault() && draft().mountGone ? message('saveTargetWidget.notHereNoDefault', { id: mount() ?? '' })
+        : noDefault() && mount() === null ? message('saveTargetWidget.noDefaultMount')
+          : ready().length === 0 ? message('saveTargetWidget.noMounts')
+            : draft().mountGone ? message('saveTargetWidget.notHereSaving', { id: mount() ?? '', mount: projectMount() }) : undefined
+  const mountTone = () => mountUnknown() ? undefined : failed() || noDefault() && (mount() === null || draft().mountGone)
+    ? 'error' as const : draft().mountGone || settings() !== undefined && ready().length === 0 ? 'warning' as const : undefined
+  const mountGone = () => draft().mountGone
+  const mountStops = () => noDefault() && (mount() === null || mountGone())
+  const mountWords = () => ({ id: mount() ?? '', mount: projectMount() })
+  const mountNote = <Show when={mountProblem() !== undefined}>
+    <CanvasEditorNote tone={mountTone() === 'warning' ? 'warning' : 'problem'} details={{
+      label: message('runs.details'),
+      title: failed() ? message('mountWidget.error') : mountStops()
+        ? message(mountGone() ? settings()?.activeOutputMount === undefined ? 'saveTargetWidget.bothTitle' : 'saveTargetWidget.bothUnavailableTitle'
+          : 'saveTargetWidget.noDefaultTitle', mountWords())
+        : mountGone() ? message('saveTargetWidget.missingTitle', mountWords()) : message('saveTargetWidget.noMounts'),
+      body: message(mountStops() || !mountGone() ? 'saveTargetWidget.noDefaultBody' : 'saveTargetWidget.missingBody', mountWords()),
+      ...(mountGone() && !noDefault() && !mountBlocked() ? { action: { label: message('saveTargetWidget.useProjectDefault'), onClick: () => { prefixInput?.focus(); setMount(null) } } }
+        : props.openStorage === undefined ? {} : { action: { label: message('problems.action.modelStorage'), onClick: props.openStorage } }),
+    }}>{message(failed() ? 'saveTargetWidget.failedShort' : mountStops() ? 'saveTargetWidget.noDefaultShort'
+      : mountGone() ? 'saveTargetWidget.missingShort' : 'saveTargetWidget.noMountsShort', mountWords())}</CanvasEditorNote>
+  </Show>
+  const defaultTarget = () => isSaveTarget(props.declared) || isProjectDefaultTarget(props.declared) ? props.declared : undefined
+  const differs = () => {
+    if (props.parts !== undefined) return !prefixBlocked() && prefix() !== props.parts.name.declared || !mountBlocked() && mount() !== props.parts.mount.declared
+    const value = defaultTarget()
+    return value !== undefined && (prefix() !== value.prefix || mount() !== (isSaveTarget(value) ? value.mount : null))
+  }
+  const store = async (): Promise<boolean> => {
+    if (props.wired || blocked() || pending()) return false
+    if (props.parts !== undefined) {
+      const changes: Record<string, Json> = {}
+      if (!prefixBlocked() && prefix() !== sourcePrefix()) {
+        if (!isProjectDefaultTarget({ prefix: prefix() })) return false
+        changes['prefix'] = prefix()
+      }
+      if (!mountBlocked() && mount() !== sourceMount()) {
+        if (settings() === undefined || ready().length === 0 || mount() !== null && !ready().includes(mount()!)) return false
+        changes['mount'] = mount()
+      }
+      if (Object.keys(changes).length === 0) return true
+      setPending(true)
+      try { return await props.commit(changes) }
+      finally { setPending(false) }
+    }
+    const value = draft().store
+    if (value === undefined) return true
+    setPending(true)
+    try { return await props.commit(value) }
+    finally { setPending(false) }
+  }
+  const pick = (index: number) => {
+    const entry = options()[index]
+    if (entry === undefined || 'unavailable' in entry || mountBlocked()) return
+    setMount(entry.id || null)
+    setListOpen(false)
+    mountButton?.focus()
+  }
+  const openList = () => {
+    if (mountBlocked() || pending() || ready().length === 0) return
+    const all = options()
+    const picked = all.findIndex((entry) => entry.id === (mount() ?? '') && !('unavailable' in entry))
+    setHighlight(picked >= 0 ? picked : 0)
+    setListOpen(true)
+  }
+  return <div ref={(element) => {
+    const outside = (event: PointerEvent): void => {
+      if ((element.contains(document.activeElement) || listOpen()) && event.target instanceof Element &&
+        !element.contains(event.target) && !event.target.closest('.dinkster-canvas-editor-choice-list, .dinkster-canvas-editor-problem-note')) void store()
+    }
+    document.addEventListener('pointerdown', outside, true)
+    onCleanup(() => document.removeEventListener('pointerdown', outside, true))
+    if (props.measured === undefined) return
+    const observer = new ResizeObserver(() => props.measured?.(element.offsetHeight))
+    observer.observe(element)
+    onCleanup(() => observer.disconnect())
+  }} onFocusOut={(event) => {
+    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) { setListOpen(false); void store() }
+  }} onKeyDown={(event) => {
+    if (event.isComposing) return
+    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault(); event.stopPropagation()
+      setListOpen(false)
+      void store().then((stored) => { if (stored) props.queue() })
+      return
+    }
+    if (event.altKey && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+      event.preventDefault(); event.stopPropagation()
+      ;(document.activeElement === mountButton ? prefixInput : mountButton)?.focus()
+    } else if (!listOpen() && ['ArrowDown', ' '].includes(event.key) && event.target === mountButton) {
+      event.preventDefault(); event.stopPropagation(); openList()
+    } else if (event.key === 'Escape') {
+      event.preventDefault(); event.stopPropagation()
+      if (listOpen()) setListOpen(false)
+      else reset()
+    } else if (listOpen() && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+      event.preventDefault(); event.stopPropagation()
+      const all = options()
+      const step = event.key === 'ArrowDown' ? 1 : -1
+      for (let at = (highlight() ?? -1) + step; at >= 0 && at < all.length; at += step) {
+        if (!('unavailable' in all[at]!)) { setHighlight(at); break }
+      }
+    } else if (event.key === 'Enter' && event.target === mountButton && !listOpen()) {
+      event.preventDefault(); event.stopPropagation(); openList()
+    } else if (event.key === 'Enter' && (event.target === prefixInput || event.target === mountButton)) {
+      event.preventDefault(); event.stopPropagation()
+      if (listOpen()) pick(highlight() ?? 0)
+      else void store()
+    }
+  }}>
+    <CanvasTargetBox inNode frozen={props.wired || blocked() || pending()} help={props.help}
+      mountWired={props.parts?.mount.wired === true} prefixWired={props.parts?.name.wired === true}
+      mountReadOnly={props.parts?.mount.readOnly === true} prefixReadOnly={props.parts?.name.readOnly === true}
+      mountDisabled={props.parts?.mount.disabled === true} prefixDisabled={props.parts?.name.disabled === true}
+      mountText={mountUnknown() ? message('inNodeEditor.notKnown') : undefined}
+      words={{ mount: message('assets.fact.mount'), prefix: message('assets.fact.name'),
+        loading: message('saveTargetWidget.loading'), none: message('saveTargetWidget.none'), failed: message('saveTargetWidget.couldNotLoad') }}
+      mounts={failed() ? 'failed' : settings() === undefined ? 'loading' : ready().length === 0 ? 'none' : 'ready'}
+      options={options()} mount={mount() ?? ''} prefix={prefixUnknown() ? message('inNodeEditor.notKnown') : prefix()} listOpen={listOpen()} {...(highlight() === undefined ? {} : { highlight: highlight()! })}
+      onPrefix={(value) => { if (!prefixBlocked()) setPrefix(value) }} onToggleList={() => listOpen() ? setListOpen(false) : openList()} onHighlight={setHighlight}
+      onPick={pick}
+      mountProblem={mountNote}
+      {...(mountTone() === undefined ? {} : { tone: mountTone()! })}
+      {...(!props.wired && !blocked() && differs() ? {
+        reset: { label: message('saveTargetWidget.reset'), onClick: () => {
+          prefixInput?.focus()
+          if (props.parts !== undefined) {
+            if (!mountBlocked()) setMount(typeof props.parts.mount.declared === 'string' ? props.parts.mount.declared : null)
+            if (!prefixBlocked()) setPrefix(typeof props.parts.name.declared === 'string' ? props.parts.name.declared : '')
+          } else {
+            const value = defaultTarget()!
+            setMount(isSaveTarget(value) ? value.mount : null)
+            setPrefix(value.prefix)
+          }
+        } },
+      } : {})}
+      mountRef={(element) => { mountButton = element }}
+      prefixRef={(element) => {
+        prefixInput = element
+        if (!prefixBlocked()) queueMicrotask(() => { if (!prefixBlocked()) { element.focus(); element.select() } })
+      }}
+      {...(!prefixUnknown() && draft().prefixInvalid ? { prefixProblem: message('saveTargetWidget.invalid') } : {})} />
+  </div>
+}
+
+export type AudioClip = AssetRef & JsonObject
+
+/** What a recorder needs from its host: storing a take and writing the node's value. */
+export interface AudioRecordPorts {
+  /** Undefined when the backend cannot take uploads. */
+  readonly upload: ((file: File, signal: AbortSignal) => Promise<AudioClip>) | undefined
+  readonly fetchBytes: ((clip: AudioClip, signal: AbortSignal) => Promise<ArrayBuffer | undefined>) | undefined
+  /** Writes the node's value as one Undo step. */
+  readonly commit: (value: AudioClip | null) => void
+}
+
+export type AudioRecordStatus = 'idle' | 'waiting' | 'recording' | 'saving' | 'uploadFailed' | 'denied' | 'noMicrophone' | 'failed'
+
+const WAVE_SAMPLES = 48
+const SAMPLE_MS = 100
+const MAX_BYTES = 32 * 1024 * 1024
+
+const downsample = (samples: readonly number[], count: number): number[] => {
+  if (samples.length <= count) return [...samples]
+  return Array.from({ length: count }, (_, index) => {
+    const start = Math.floor((index * samples.length) / count)
+    const end = Math.max(start + 1, Math.floor(((index + 1) * samples.length) / count))
+    let peak = 0
+    for (let at = start; at < end; at += 1) peak = Math.max(peak, Math.abs(samples[at]!))
+    return index % 2 === 0 ? peak : -peak
+  })
+}
+
+/**
+ * One node's microphone recorder. The host keeps it by tab, node and value
+ * key, outside the editor's controls, so a take goes on while its editor is
+ * folded or off the screen. A take is stored when it stops and written to
+ * the node's value as one Undo step.
+ */
+export class AudioRecordController {
+  readonly status: () => AudioRecordStatus
+  private readonly setStatus: (status: AudioRecordStatus) => void
+  readonly seconds: () => number
+  private readonly setSeconds: (seconds: number) => void
+  readonly bytes: () => number
+  private readonly setBytes: (bytes: number) => void
+  readonly waveform: () => readonly number[]
+  private readonly setWaveform: (samples: readonly number[]) => void
+  readonly error: () => string | undefined
+  private readonly setError: (error: string | undefined) => void
+  readonly devices: () => readonly { readonly deviceId: string; readonly label: string }[]
+  private readonly setDevices: (devices: readonly { readonly deviceId: string; readonly label: string }[]) => void
+  readonly device: () => string
+  readonly setDevice: (deviceId: string) => void
+  readonly limit: () => number
+  readonly setLimit: (seconds: number) => void
+  /** How long the stored clip is, when this recorder made it. */
+  readonly clipSeconds: () => number | undefined
+  private readonly setClipSeconds: (seconds: number | undefined) => void
+  readonly playing: () => boolean
+  private readonly setPlaying: (playing: boolean) => void
+
+  private generation = 0
+  private stream: MediaStream | undefined
+  private recorder: MediaRecorder | undefined
+  private context: AudioContext | undefined
+  private ticker: ReturnType<typeof setInterval> | undefined
+  private take: File | undefined
+  private upload: AbortController | undefined
+  private audio: HTMLAudioElement | undefined
+  private audioUrl: string | undefined
+
+  constructor(private ports: AudioRecordPorts) {
+    ;[this.status, this.setStatus] = createSignal<AudioRecordStatus>('idle')
+    ;[this.seconds, this.setSeconds] = createSignal(0)
+    ;[this.bytes, this.setBytes] = createSignal(0)
+    ;[this.waveform, this.setWaveform] = createSignal<readonly number[]>([])
+    ;[this.error, this.setError] = createSignal<string>()
+    ;[this.devices, this.setDevices] = createSignal<readonly { readonly deviceId: string; readonly label: string }[]>([])
+    ;[this.device, this.setDevice] = createSignal('')
+    ;[this.limit, this.setLimit] = createSignal(60)
+    ;[this.clipSeconds, this.setClipSeconds] = createSignal<number>()
+    ;[this.playing, this.setPlaying] = createSignal(false)
+    navigator.mediaDevices?.addEventListener?.('devicechange', this.onDeviceChange)
+  }
+
+  /** The microphone list follows the devices the browser reports, with no button to look for them. */
+  private readonly onDeviceChange = (): void => {
+    void this.findMicrophones()
+  }
+
+  /** The host's latest ports: the node's value is written where it is now. */
+  setPorts(ports: AudioRecordPorts): void {
+    this.ports = ports
+  }
+
+  get canUpload(): boolean {
+    return this.ports.upload !== undefined
+  }
+
+  get hasProblem(): boolean {
+    return ['denied', 'noMicrophone', 'failed', 'uploadFailed'].includes(this.status())
+  }
+
+  async findMicrophones(): Promise<void> {
+    if (!navigator.mediaDevices?.enumerateDevices) return
+    const found = (await navigator.mediaDevices.enumerateDevices()).filter((device) => device.kind === 'audioinput')
+    this.setDevices(found.map((device) => ({ deviceId: device.deviceId, label: device.label })))
+    // A device that went away is no longer the chosen one.
+    if (!found.some((device) => device.deviceId === this.device())) this.setDevice('')
+    if (found.length === 0) {
+      this.setError(undefined)
+      this.setStatus('noMicrophone')
+    } else if (this.status() === 'noMicrophone') this.setStatus('idle')
+  }
+
+  async record(): Promise<void> {
+    const status = this.status()
+    if (status === 'waiting' || status === 'recording' || status === 'saving' || !this.canUpload) return
+    if (typeof MediaRecorder === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+      this.setError(undefined)
+      this.setStatus('noMicrophone')
+      return
+    }
+    this.stopPlaying()
+    const request = ++this.generation
+    this.take = undefined
+    this.setError(undefined)
+    this.setBytes(0)
+    this.setSeconds(0)
+    this.setWaveform([])
+    this.setStatus('waiting')
+    let opened: MediaStream
+    try {
+      const device = this.device()
+      opened = await navigator.mediaDevices.getUserMedia({ audio: device ? { deviceId: { exact: device } } : true })
+    } catch (reason) {
+      if (request !== this.generation) return
+      const name = reason instanceof Error ? reason.name : ''
+      this.setError(reason instanceof Error ? reason.message : String(reason))
+      this.setStatus(name === 'NotAllowedError' ? 'denied' : name === 'NotFoundError' ? 'noMicrophone' : 'failed')
+      return
+    }
+    if (request !== this.generation) {
+      for (const track of opened.getTracks()) track.stop()
+      return
+    }
+    this.stream = opened
+    const recorder = new MediaRecorder(opened)
+    this.recorder = recorder
+    const chunks: Blob[] = []
+    let bytes = 0
+    const samples: number[] = []
+    const context = typeof AudioContext === 'undefined' ? undefined : new AudioContext()
+    this.context = context
+    const analyser = context?.createAnalyser()
+    if (context !== undefined && analyser !== undefined) {
+      context.createMediaStreamSource(opened).connect(analyser)
+      // Made after the permission prompt, the context may start suspended and read silence.
+      void context.resume()
+    }
+    const frame = new Float32Array(analyser?.fftSize ?? 0)
+    const started = Date.now()
+    recorder.ondataavailable = (event) => {
+      if (request !== this.generation) return
+      bytes += event.data.size
+      if (event.data.size > 0) chunks.push(event.data)
+      this.setBytes(bytes)
+      if (bytes > MAX_BYTES) this.stop()
+    }
+    recorder.onerror = () => {
+      if (request !== this.generation) return
+      this.release()
+      this.setStatus('failed')
+    }
+    recorder.onstop = () => {
+      if (request !== this.generation) return
+      this.release()
+      if (bytes === 0) {
+        this.setStatus('failed')
+        return
+      }
+      const type = (recorder.mimeType || chunks[0]?.type || 'audio/webm').split(';', 1)[0]!.trim().toLowerCase()
+      const extension = type.includes('ogg') ? 'ogg' : type.includes('mp4') ? 'm4a' : 'webm'
+      this.take = new File([new Blob(chunks, { type })], `recording.${extension}`, { type })
+      this.setWaveform(downsample(samples, WAVE_SAMPLES))
+      this.setClipSeconds(this.seconds())
+      void this.store()
+    }
+    recorder.start(250)
+    this.setStatus('recording')
+    this.ticker = setInterval(() => {
+      const seconds = (Date.now() - started) / 1000
+      this.setSeconds(seconds)
+      if (analyser !== undefined) {
+        analyser.getFloatTimeDomainData(frame)
+        let peak = 0
+        for (const value of frame) peak = Math.max(peak, Math.abs(value))
+        samples.push(samples.length % 2 === 0 ? peak : -peak)
+        this.setWaveform(samples.slice(-WAVE_SAMPLES))
+      }
+      if (seconds >= this.limit()) this.stop()
+    }, SAMPLE_MS)
+  }
+
+  /** Ends the take; it is then stored and written to the node. */
+  stop(): void {
+    clearInterval(this.ticker)
+    this.ticker = undefined
+    if (this.recorder?.state === 'recording') this.recorder.stop()
+  }
+
+  /** Drops the take being recorded or the one that failed to upload; the node keeps its value. */
+  discard(): void {
+    this.generation += 1
+    this.upload?.abort()
+    if (this.recorder?.state === 'recording') this.recorder.stop()
+    this.release()
+    this.take = undefined
+    this.setWaveform([])
+    this.setError(undefined)
+    this.setStatus('idle')
+  }
+
+  /** Stores the finished take and writes it to the node's value. */
+  async store(): Promise<void> {
+    const take = this.take
+    const upload = this.ports.upload
+    if (take === undefined || upload === undefined) return
+    const request = this.generation
+    this.upload?.abort()
+    const abort = new AbortController()
+    this.upload = abort
+    this.setError(undefined)
+    this.setStatus('saving')
+    try {
+      const clip = await upload(take, abort.signal)
+      if (request !== this.generation || abort.signal.aborted) return
+      this.take = undefined
+      this.ports.commit(clip)
+      this.setStatus('idle')
+    } catch (reason) {
+      if (request !== this.generation || abort.signal.aborted) return
+      this.setError(failureMessage(reason, 'Recording could not be saved.'))
+      this.setStatus('uploadFailed')
+    }
+  }
+
+  /** Clears the node's value; the clip stays in the project's assets. */
+  remove(): void {
+    this.stopPlaying()
+    this.setWaveform([])
+    this.setClipSeconds(undefined)
+    this.ports.commit(null)
+  }
+
+  async play(clip: AudioClip): Promise<void> {
+    if (this.playing()) {
+      this.stopPlaying()
+      return
+    }
+    const fetchBytes = this.ports.fetchBytes
+    if (fetchBytes === undefined) return
+    const request = this.generation
+    this.setPlaying(true)
+    try {
+      const bytes = await fetchBytes(clip, new AbortController().signal)
+      if (request !== this.generation || !this.playing() || bytes === undefined) {
+        this.setPlaying(false)
+        return
+      }
+      this.audioUrl = URL.createObjectURL(new Blob([bytes], { type: clip.mediaType }))
+      const audio = new Audio(this.audioUrl)
+      this.audio = audio
+      audio.onended = () => this.stopPlaying()
+      await audio.play()
+    } catch {
+      this.stopPlaying()
+    }
+  }
+
+  stopPlaying(): void {
+    this.audio?.pause()
+    this.audio = undefined
+    if (this.audioUrl !== undefined) URL.revokeObjectURL(this.audioUrl)
+    this.audioUrl = undefined
+    this.setPlaying(false)
+  }
+
+  dispose(): void {
+    navigator.mediaDevices?.removeEventListener?.('devicechange', this.onDeviceChange)
+    this.discard()
+    this.stopPlaying()
+  }
+
+  private release(): void {
+    clearInterval(this.ticker)
+    this.ticker = undefined
+    for (const track of this.stream?.getTracks() ?? []) track.stop()
+    this.stream = undefined
+    this.recorder = undefined
+    void this.context?.close()
+    this.context = undefined
+  }
+}
+
+const clock = (seconds: number): string => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`
+
+const isClip = (value: Json | undefined): value is AudioClip =>
+  value !== null && audioRecordKind.valueSchema.validate(value)
+
+/** The recorder's controls in the node: the strip, the microphone, the limit and what is stored. */
+export function AudioRecordSpace(props: { readonly controller: AudioRecordController; readonly value: Json | undefined; readonly wired?: boolean; readonly readOnly?: boolean }) {
+  const message = useAppMessage()
+  const recorder = props.controller
+  createEffect(on(() => props.wired || props.readOnly, (blocked) => { if (blocked) recorder.discard() }))
+  const stored = () => isClip(props.value) ? props.value : undefined
+  const shown = (): AudioRecordStatus | 'ready' => props.wired ? stored() === undefined ? 'idle' : 'ready'
+    : recorder.status() === 'idle' && stored() !== undefined ? 'ready' : recorder.status()
+  const recording = () => recorder.status() === 'recording'
+  const busy = () => recorder.status() === 'waiting' || recorder.status() === 'saving'
+  const problem = () => !props.wired && recorder.hasProblem
+  const problemText = () => message(`inNodeAudio.short.${shown()}`)
+  const defaultLabel = () => message('inNodeAudio.defaultMicrophone')
+  const deviceLabel = (device: { readonly deviceId: string; readonly label: string }, index: number) =>
+    device.label || message('inNodeAudio.microphoneNumber', { number: index + 1 })
+  const choices = () => [defaultLabel(), ...recorder.devices().map(deviceLabel)]
+  const chosen = () => {
+    const index = recorder.devices().findIndex((device) => device.deviceId === recorder.device())
+    return index < 0 ? defaultLabel() : deviceLabel(recorder.devices()[index]!, index)
+  }
+  const actions = () => {
+    const status = shown()
+    if (status === 'ready') {
+      const clip = stored()!
+      return [
+        { label: message(recorder.playing() ? 'inNodeAudio.stopPlaying' : 'inNodeAudio.play'),
+          icon: recorder.playing() ? canvasEditorIcons.stop : canvasEditorIcons.play, onClick: () => void recorder.play(clip) },
+        { label: message('inNodeAudio.removeClip'), icon: canvasEditorIcons.remove, intent: 'remove' as const, disabled: props.wired === true || props.readOnly === true, onClick: () => recorder.remove() },
+      ]
+    }
+    if (status === 'uploadFailed') {
+      return [
+        { label: message('inNodeAudio.uploadAgain'), icon: canvasEditorIcons.retry, onClick: () => void recorder.store() },
+        { label: message('inNodeAudio.discardClip'), icon: canvasEditorIcons.remove, intent: 'remove' as const, onClick: () => recorder.discard() },
+      ]
+    }
+    if (status === 'recording') {
+      return [{ label: message('inNodeAudio.discardTake'), icon: canvasEditorIcons.remove, intent: 'remove' as const, onClick: () => recorder.discard() }]
+    }
+    return []
+  }
+  const detail = () => {
+    if (props.wired) return undefined
+    if (recording()) return `${clock(recorder.seconds())}, ${formatByteSize(recorder.bytes())}`
+    const seconds = recorder.clipSeconds()
+    return (shown() === 'ready' || shown() === 'uploadFailed') && seconds !== undefined ? clock(seconds) : undefined
+  }
+  return (
+    <>
+      <Show when={recorder.canUpload || props.wired}>
+        <CanvasRecorderStrip
+          recording={recording()}
+          roundLabel={message(recording() ? 'inNodeAudio.stop' : 'inNodeAudio.record')}
+          roundDisabled={props.wired || props.readOnly || busy()}
+          onRound={() => recording() ? recorder.stop() : void recorder.record()}
+          status={props.wired ? stored() === undefined ? message('inNodeEditor.notKnown') : '' : problem() ? '' : message(`inNodeAudio.status.${shown()}`)}
+          {...(detail() === undefined ? {} : { detail: detail()! })}
+          waveform={recorder.waveform()}
+          actions={actions()}
+        />
+        <CanvasEditorLine readOnly={props.readOnly} dimmed={props.wired || recording() || busy()}>
+          <CanvasEditorChoice label={message('inNodeAudio.microphone')} value={chosen()} options={choices()}
+            onOpen={() => void recorder.findMicrophones()}
+            onChange={(label) => {
+              const index = recorder.devices().findIndex((device, at) => deviceLabel(device, at) === label)
+              recorder.setDevice(index < 0 ? '' : recorder.devices()[index]!.deviceId)
+            }} />
+        </CanvasEditorLine>
+        <CanvasEditorLine readOnly={props.readOnly} dimmed={props.wired || recording() || busy()}>
+          <CanvasEditorNumber label={message('inNodeAudio.limit')} value={recorder.limit()} min={1} max={300}
+            onChange={(seconds) => recorder.setLimit(Math.round(seconds))} />
+        </CanvasEditorLine>
+      </Show>
+      <Show when={problem()} fallback={
+        <Show when={!recorder.canUpload && !props.wired} fallback={
+          <Show when={!props.wired || stored() !== undefined}>
+            <CanvasEditorNote tone={stored() === undefined ? 'muted' : undefined}>
+              {stored() === undefined ? message('inNodeAudio.nothingStored') : props.wired ? stored()!.name ?? stored()!.digest : message('inNodeAudio.stored', { name: stored()!.name ?? stored()!.digest })}
+            </CanvasEditorNote>
+          </Show>
+        }>
+          <CanvasEditorNote tone="warning" details={{ label: message('runs.details'), title: message('audioRecordWidget.native') }}>
+            {message('inNodeEditor.nativeShort')}
+          </CanvasEditorNote>
+        </Show>
+      }>
+        <CanvasEditorNote tone="problem" details={{ label: message('runs.details'), title: message(`inNodeAudio.problem.${shown()}`),
+          body: [recorder.error(), ...(!recorder.canUpload ? [message('audioRecordWidget.native')] : [])].filter(Boolean).join('\n') }}>
+          {problemText()}
+        </CanvasEditorNote>
+      </Show>
+    </>
+  )
+}
+
+/** Keeps one recorder per tab, node and value key for as long as the host lives. */
+export function createAudioRecorders(): {
+  readonly get: (key: string, ports: AudioRecordPorts) => AudioRecordController
+  readonly find: (key: string) => AudioRecordController | undefined
+} {
+  const [recorders, setRecorders] = createSignal<ReadonlyMap<string, AudioRecordController>>(new Map())
+  onCleanup(() => {
+    for (const recorder of recorders().values()) recorder.dispose()
+  })
+  return {
+    find: (key) => recorders().get(key),
+    get: (key, ports) => {
+      const existing = untrack(recorders).get(key)
+      if (existing !== undefined) {
+        existing.setPorts(ports)
+        return existing
+      }
+      const created = new AudioRecordController(ports)
+      setRecorders((current) => new Map(current).set(key, created))
+      return created
+    },
+  }
+}
+
+/** The 256 bins of a run's latest histogram for one curve of a node, by the curve input's id, when it sent one. */
+export function latestCurveHistogram(execution: ExecutionState | undefined, instancePath: readonly string[], nodeId: string, curve: string): readonly number[] | undefined {
+  if (!execution?.artifact) return undefined
+  const source = occurrenceKey({ instancePath: instancePath.map(asNodeId), node: asNodeId(nodeId) })
+  const frames = (execution.artifact.provenance.fromSource[source] ?? []).flatMap((runtimeId) => {
+    const frame = execution.previews[runtimeId]?.[curveHistogramStream(curve)]
+    return frame?.channel === CURVE_HISTOGRAM_PREVIEW_CHANNEL ? [frame] : []
+  }).sort((left, right) => right.timestamp - left.timestamp)
+  const payload = frames[0]?.payload
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return undefined
+  const histogram = (payload as Readonly<Record<string, unknown>>)['histogram']
+  return Array.isArray(histogram) && histogram.length === 256 && histogram.every((entry) =>
+    typeof entry === 'number' && Number.isSafeInteger(entry) && entry >= 0)
+    ? histogram as readonly number[]
+    : undefined
+}
+
+const stripOf = (colors: unknown): CanvasCurveStrip | undefined =>
+  Array.isArray(colors) && colors.length === 2 && colors.every((color) => typeof color === 'string')
+    ? [colors[0] as string, colors[1] as string]
+    : undefined
+
+/**
+ * The curve's controls in the node: the plot, the interpolation, the selected
+ * point's position and value, and Delete point. Each change is written to the
+ * node's value as one Undo step; a drag is one change, written when it ends.
+ * Which point is selected is the editor's own and is not stored.
+ */
+export function CurveSpace(props: {
+  readonly value: CurveValue | undefined
+  readonly wired?: boolean
+  readonly readOnly?: boolean
+  /** The curve widget's declared options, which name its strips. */
+  readonly options: Readonly<Record<string, unknown>>
+  /** The latest run's histogram bins for this curve, when it sent one. */
+  readonly histogram: readonly number[] | undefined
+  /** Whether the curve declares a histogram, and whether its input has a wire. */
+  readonly histogramInput: 'none' | 'unwired' | 'wired'
+  readonly commit: (value: CurveValue) => void
+}) {
+  const message = useAppMessage()
+  const [selected, setSelected] = createSignal<number>()
+  const [draft, setDraft] = createSignal<CurveValue>()
+  createEffect(on(() => props.wired || props.readOnly, (blocked) => { if (blocked) setDraft(undefined) }))
+  const curve = () => draft() ?? props.value ?? { points: [] }
+  const kinds = () => curveEditorInterpolations(props.options)
+  const interpolation = () => kinds().length === 1 ? kinds()[0]! : curve().interpolation ?? 'linear'
+  const points = () => curve().points
+  const point = () => {
+    const index = selected()
+    return index === undefined ? undefined : points()[index]
+  }
+  // A point taken away by Undo or by another change leaves nothing selected.
+  createEffect(() => {
+    const index = selected()
+    if (index !== undefined && index >= points().length) setSelected(undefined)
+  })
+  const store = (next: readonly CurvePoint[], nextInterpolation = interpolation()) => {
+    if (!props.wired && !props.readOnly) props.commit({ interpolation: nextInterpolation, points: next.map((item) => ({ position: item.position, value: item.value })) })
+  }
+  const bars = () => {
+    const bins = props.histogramInput === 'wired' ? props.histogram : undefined
+    const highest = bins === undefined ? 0 : Math.max(...bins)
+    return bins === undefined || highest === 0 ? undefined : bins.map((count) => count / highest)
+  }
+  /** The selected point moved to a typed place, kept between its neighbours. */
+  const place = (change: Partial<CurvePoint>) => {
+    const index = selected()
+    const current = point()
+    if (index === undefined || current === undefined) return
+    const before = points()[index - 1]?.position
+    const after = points()[index + 1]?.position
+    const gap = 1e-3
+    const position = Math.max(before === undefined ? 0 : before + gap, Math.min(after === undefined ? 1 : after - gap, change.position ?? current.position))
+    store(points().map((item, at) => at === index ? { position, value: change.value ?? current.value } : item))
+  }
+  const remove = (index: number) => {
+    if (points().length < 2) return
+    setSelected(undefined)
+    store(points().filter((_item, at) => at !== index))
+  }
+  const linear = () => message('inNodeCurve.linear')
+  const cubic = () => message('inNodeCurve.monotoneCubic')
+  const step = () => message('inNodeCurve.step')
+  return (
+    <>
+      <CanvasEditorPicture resizeLabel={message('inNodeEditor.pictureHeight')}
+        {...(props.wired && props.value === undefined ? { message: message('inNodeEditor.notKnown') } : {})}>
+        <CanvasCurvePlot
+          label={message('inNodeCurve.plot')}
+          {...(props.wired || props.readOnly ? {} : { tooltip: message('inNodeCurve.addPoint') })}
+          disabled={props.wired || props.readOnly}
+          points={points()}
+          sample={curveInterpolator({ ...curve(), interpolation: interpolation() })}
+          step={interpolation() === 'step'}
+          selected={selected()}
+          histogram={bars()}
+          inputStrip={stripOf(props.options['inputStrip'])}
+          outputStrip={stripOf(props.options['outputStrip'])}
+          onSelect={setSelected}
+          onMove={(index, moved) => {
+            setDraft({ interpolation: interpolation(), points: points().map((item, at) => at === index ? moved : item) })
+          }}
+          onMoveEnd={() => {
+            const moved = draft()
+            setDraft(undefined)
+            if (moved !== undefined) store(moved.points)
+          }}
+          onAdd={(added) => {
+            const next = [...points(), added].sort((left, right) => left.position - right.position)
+            if (next.some((item, at) => at > 0 && item.position === next[at - 1]!.position)) return
+            setSelected(next.indexOf(added))
+            store(next)
+          }}
+          onDelete={remove}
+        />
+      </CanvasEditorPicture>
+      <Show when={kinds().length > 1}>
+        <CanvasEditorLine readOnly={props.readOnly} dimmed={props.wired === true}>
+          <CanvasEditorChoice label={message('inNodeCurve.interpolation')} value={props.wired && props.value === undefined ? '' : interpolation() === 'step' ? step() : interpolation() === 'linear' ? linear() : cubic()}
+            options={kinds().map((kind) => kind === 'step' ? step() : kind === 'linear' ? linear() : cubic())}
+            onChange={(label) => store(points(), label === step() ? 'step' : label === linear() ? 'linear' : 'monotone_cubic')} />
+        </CanvasEditorLine>
+      </Show>
+      <CanvasEditorLine readOnly={props.readOnly} dimmed={props.wired || point() === undefined}>
+        <CanvasEditorNumber label={message('inNodeCurve.position')} value={point()?.position} min={0} max={1} step={0.01} precision={2}
+          onChange={(position) => place({ position })} />
+      </CanvasEditorLine>
+      <CanvasEditorLine readOnly={props.readOnly} dimmed={props.wired || point() === undefined}>
+        <CanvasEditorNumber label={message('inNodeCurve.value')} value={point()?.value} min={0} max={1} step={0.01} precision={2}
+          onChange={(value) => place({ value })} />
+      </CanvasEditorLine>
+      {/* The Delete key on a selected point does the same; a curve keeps at least one point. */}
+      <CanvasEditorButtons buttons={[{ label: message('inNodeCurve.deletePoint'), icon: canvasEditorIcons.remove, intent: 'remove',
+        disabled: props.wired || props.readOnly || selected() === undefined || points().length < 2, onClick: () => {
+          const index = selected()
+          if (index !== undefined) remove(index)
+        } }]} />
+      {/* A curve that declares a histogram has this line, wired or not: its input's pin stands on it.
+          It reads the same in every state; whether a run's histogram is known shows in the bars. */}
+      <Show when={props.histogramInput !== 'none'}>
+        <CanvasEditorNote>{message('inNodeCurve.histogram')}</CanvasEditorNote>
+      </Show>
+      {/* One note that wraps, never cut off; at the narrowest node it takes the two lines it is given. */}
+    </>
+  )
+}
+
+export type StoredFrame = AssetRef & JsonObject
+
+const isFrame = (value: Json | undefined): value is StoredFrame =>
+  value !== undefined && value !== null && webcamKind.valueSchema.validate(value)
+
+/** A stored picture's object URL while it is shown; nothing while it loads or when it cannot be read. */
+function useAssetUrl(asset: () => StoredFrame | undefined, fetchBytes: (() => ((asset: StoredFrame, signal: AbortSignal) => Promise<ArrayBuffer | undefined>) | undefined)) {
+  const [url, setUrl] = createSignal<string>()
+  createEffect(on(() => asset()?.digest, () => {
+    const shown = asset()
+    const fetch = fetchBytes()
+    setUrl(undefined)
+    if (shown === undefined || fetch === undefined) return
+    const abort = new AbortController()
+    let owned: string | undefined
+    void fetch(shown, abort.signal).then((bytes) => {
+      if (abort.signal.aborted || bytes === undefined) return
+      owned = URL.createObjectURL(new Blob([bytes], { type: shown.mediaType }))
+      setUrl(owned)
+    }).catch(() => undefined)
+    onCleanup(() => {
+      abort.abort()
+      if (owned !== undefined) URL.revokeObjectURL(owned)
+    })
+  }))
+  return url
+}
+
+/** What the webcam editor needs from its host. */
+export interface WebcamPorts {
+  /** Undefined when the backend cannot take uploads. */
+  readonly upload: ((file: File, signal: AbortSignal) => Promise<StoredFrame>) | undefined
+  readonly fetchBytes: ((frame: StoredFrame, signal: AbortSignal) => Promise<ArrayBuffer | undefined>) | undefined
+  /** The node's width and height for the frame, when its rows give them. */
+  readonly size: () => WebcamDimensions
+  /** Writes the node's value as one Undo step. */
+  readonly commit: (value: StoredFrame) => void
+}
+
+type CameraState = 'off' | 'starting' | 'live' | 'capturing' | 'error'
+
+/**
+ * The webcam's controls in the node: the picture, Start camera (or Capture
+ * frame and Stop while the camera is live) and what is stored. The camera
+ * runs only while these controls are shown, so folding the editor, leaving
+ * the screen or zooming out turns it off. A wired image is the wire's: the
+ * camera does not start, and the picture shows the last run's image.
+ */
+export function WebcamSpace(props: {
+  readonly value: Json | undefined
+  readonly ports: WebcamPorts
+  readonly measured?: (height: number) => void
+  readonly wired: boolean
+  readonly readOnly?: boolean
+  /** What the wire brought in the last run, when it is known. */
+  readonly carried: Json | undefined
+  /** Something is drawn in front of the editor; a live camera turns off. */
+  readonly covered: boolean
+}) {
+  const message = useAppMessage()
+  const [camera, setCamera] = createSignal<CameraState>('off')
+  const [error, setError] = createSignal<string>()
+  const [videoReady, setVideoReady] = createSignal(false)
+  let stream: MediaStream | undefined
+  let video: HTMLVideoElement | undefined
+  let abort: AbortController | undefined
+  let cameraRequest = 0
+  const stored = () => isFrame(props.value) ? props.value : undefined
+  const carried = () => isFrame(props.carried) ? props.carried : undefined
+  const shown = useAssetUrl(() => props.wired ? carried() : stored(), () => props.ports.fetchBytes)
+  const live = () => camera() === 'live' || camera() === 'capturing'
+  const release = () => {
+    cameraRequest++
+    setVideoReady(false)
+    abort?.abort()
+    abort = undefined
+    for (const track of stream?.getTracks() ?? []) track.stop()
+    stream = undefined
+    if (video !== undefined) video.srcObject = null
+  }
+  onCleanup(release)
+  const start = async () => {
+    if (props.wired || props.readOnly || camera() !== 'off' && camera() !== 'error') return
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setError(webcamError(new DOMException('Camera capture requires a secure browser context.', 'NotSupportedError')))
+      setCamera('error')
+      return
+    }
+    setError(undefined)
+    setCamera('starting')
+    const request = ++cameraRequest
+    try {
+      const opened = await navigator.mediaDevices.getUserMedia({ audio: false, video: true })
+      if (request !== cameraRequest || camera() !== 'starting') {
+        for (const track of opened.getTracks()) track.stop()
+        return
+      }
+      stream = opened
+      setCamera('live')
+    } catch (reason) {
+      if (request !== cameraRequest) return
+      setError(webcamError(reason))
+      setCamera('error')
+    }
+  }
+  const stop = () => {
+    release()
+    setCamera('off')
+  }
+  // Covered, the camera turns off as it does when its node leaves the screen.
+  createEffect(() => {
+    if ((props.covered || props.wired || props.readOnly) && untrack(camera) !== 'off' && untrack(camera) !== 'error') stop()
+  })
+  const capture = async () => {
+    const upload = props.ports.upload
+    if (props.readOnly || props.wired || camera() !== 'live' || video === undefined || upload === undefined) return
+    setCamera('capturing')
+    setError(undefined)
+    abort = new AbortController()
+    const signal = abort.signal
+    try {
+      const file = await frameFromVideo(video, props.ports.size())
+      const frame = await upload(file, signal)
+      if (signal.aborted) return
+      props.ports.commit(frame)
+      setCamera('live')
+    } catch (reason) {
+      if (signal.aborted) return
+      setError(reason instanceof RequestFailure ? failureMessage(reason, 'Frame could not be saved.') : webcamError(reason))
+      setCamera('live')
+    }
+  }
+  const pictureMessage = () => {
+    if (props.wired) return carried() === undefined ? message('inNodeWebcam.notKnown') : undefined
+    if (live() || camera() === 'starting') return undefined
+    return stored() === undefined ? message('inNodeWebcam.noFrame') : undefined
+  }
+  const note = () => {
+    if (props.wired) return carried() === undefined ? undefined : message('inNodeWebcam.lastRun')
+    return stored() === undefined ? message('inNodeWebcam.nothingStored') : message('inNodeWebcam.stored', { name: stored()!.name ?? stored()!.digest })
+  }
+  const noteTone = () => stored() === undefined ? 'muted' : undefined
+  const problem = () => !props.wired && (error() !== undefined || props.ports.upload === undefined)
+  const pictureHasContent = () => live() ? videoReady() : pictureMessage() === undefined && camera() !== 'starting' && shown() !== undefined
+  const problemNote = () => <CanvasEditorNote tone={error() === undefined ? 'warning' : 'problem'} details={{ label: message('runs.details'),
+    title: message(error() === undefined ? 'inNodeWebcam.native' : camera() === 'error' ? 'inNodeWebcam.unavailableTitle' : 'inNodeWebcam.captureFailedTitle'),
+    ...(error() === undefined ? {} : { body: [error(), ...(props.ports.upload === undefined ? [message('inNodeWebcam.native')] : [])].join('\n') }) }}>
+    {message(error() === undefined ? 'inNodeEditor.nativeShort' : camera() === 'error' ? 'inNodeWebcam.unavailableShort' : 'inNodeWebcam.captureFailedShort')}
+  </CanvasEditorNote>
+  return (
+    <>
+      <CanvasEditorPicture resizeLabel={message('inNodeEditor.pictureHeight')}
+        loading={camera() === 'starting'}
+        message={problem() && !pictureHasContent() ? problemNote() : pictureMessage()}>
+        <Show when={live()} fallback={
+          <Show when={pictureMessage() === undefined && camera() !== 'starting' ? shown() : undefined}>
+            {(url) => <img src={url()} alt={message('webcam.preview')} />}
+          </Show>
+        }>
+          <video ref={(element) => {
+            video = element
+            element.srcObject = stream ?? null
+            void element.play().catch(() => undefined)
+          }} onLoadedData={() => setVideoReady(true)} onEmptied={() => setVideoReady(false)} muted playsinline autoplay />
+        </Show>
+      </CanvasEditorPicture>
+      <CanvasEditorControls measured={props.measured}>
+      <CanvasEditorButtons buttons={live()
+        ? [
+            { label: message(camera() === 'capturing' ? 'webcam.capturing' : 'webcam.capture'), icon: canvasEditorIcons.capture,
+              pending: camera() === 'capturing', disabled: props.ports.upload === undefined, onClick: () => void capture() },
+            { label: message('inNodeWebcam.stop'), icon: canvasEditorIcons.stop, intent: 'remove', onClick: stop },
+          ]
+        : [{ label: message('inNodeWebcam.start'), icon: canvasEditorIcons.capture,
+            disabled: props.wired || props.readOnly || camera() === 'starting' || props.ports.upload === undefined, onClick: () => void start() }]} />
+      <Show when={problem() && pictureHasContent()}>{problemNote()}</Show>
+      <Show when={note()}>{(text) => <CanvasEditorNote tone={noteTone()}>{text()}</CanvasEditorNote>}</Show>
+      </CanvasEditorControls>
+    </>
+  )
+}
+
+export const CAMERA_ANGLE_PARTS = ['horizontal_angle', 'vertical_angle', 'zoom'] as const
+export type CameraAnglePart = typeof CAMERA_ANGLE_PARTS[number]
+
+/** One field of a camera angle: its number when known, and whether a wire decides it. */
+export interface CameraAngleField {
+  readonly value: number | undefined
+  readonly wired: boolean
+}
+
+const CAMERA_SIDES = ['front', 'frontRight', 'right', 'backRight', 'back', 'backLeft', 'left', 'frontLeft'] as const
+
+/** The camera's place in a few words: its side in steps of 45 degrees, its height, and its zoom. */
+export function cameraAngleWords(message: ReturnType<typeof useAppMessage>, horizontal: number, vertical: number, zoom: number): string {
+  const side = CAMERA_SIDES[Math.round((((horizontal % 360) + 360) % 360) / 45) % 8]!
+  // The heights are the node's own shot bands: low-angle, eye-level, elevated and high-angle.
+  const height = vertical < -15 ? 'below' : vertical < 15 ? 'level' : vertical < 45 ? 'littleAbove' : 'highAbove'
+  return message('inNodeCameraAngle.place', {
+    side: message(`inNodeCameraAngle.side.${side}`),
+    height: message(`inNodeCameraAngle.height.${height}`),
+    zoom: zoom.toFixed(1),
+  })
+}
+
+/**
+ * The camera angle's picture in the node, above the node's own three number
+ * fields: dragging the ring's dot writes horizontal_angle and the elevation's
+ * dot vertical_angle, each drag one change when it ends. A wired angle's dot
+ * is hollow at the value its wire brought and does not move, or missing
+ * before a run; the line under the picture names the camera's place.
+ */
+export function CameraAngleSpace(props: {
+  readonly fields: Readonly<Record<CameraAnglePart, CameraAngleField>>
+  readonly readOnly?: boolean
+  readonly commit: (part: 'horizontal_angle' | 'vertical_angle', value: number) => void
+}) {
+  const message = useAppMessage()
+  const [draft, setDraft] = createSignal<{ readonly part: 'horizontal_angle' | 'vertical_angle'; readonly value: number }>()
+  createEffect(() => { if (props.readOnly || props.fields.horizontal_angle.wired || props.fields.vertical_angle.wired) setDraft(undefined) })
+  const value = (part: CameraAnglePart): number | undefined => {
+    const moving = draft()
+    return moving !== undefined && moving.part === part ? moving.value : props.fields[part].value
+  }
+  const angle = (part: 'horizontal_angle' | 'vertical_angle') => ({ degrees: value(part), fixed: props.readOnly === true || props.fields[part].wired })
+  const place = () => {
+    const [horizontal, vertical, zoom] = CAMERA_ANGLE_PARTS.map(value)
+    return horizontal === undefined || vertical === undefined || zoom === undefined
+      ? undefined : cameraAngleWords(message, horizontal, vertical, zoom)
+  }
+  return (
+    <>
+      <CanvasEditorPicture resizeLabel={message('inNodeEditor.pictureHeight')}>
+        <CanvasAnglePicture label={message('cameraAngleWidget.preview')}
+          horizontal={{ ...angle('horizontal_angle'), degrees: place() === undefined ? undefined : value('horizontal_angle') }}
+          vertical={{ ...angle('vertical_angle'), degrees: place() === undefined ? undefined : value('vertical_angle') }}
+          onMove={(part, degrees) => setDraft({ part: part === 'horizontal' ? 'horizontal_angle' : 'vertical_angle', value: degrees })}
+          onMoveEnd={() => {
+            const moved = draft()
+            setDraft(undefined)
+            if (moved !== undefined && !props.readOnly && !props.fields[moved.part].wired && moved.value !== props.fields[moved.part].value) props.commit(moved.part, moved.value)
+          }} />
+      </CanvasEditorPicture>
+      <CanvasEditorNote tone={place() === undefined ? 'muted' : undefined}>{place() ?? message('inNodeCameraAngle.notKnown')}</CanvasEditorNote>
+    </>
+  )
+}

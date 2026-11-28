@@ -22,7 +22,7 @@ import {
 } from '../src/shared-worker-connection.js'
 import { SharedWorkerTabAuthority } from '../src/workspace-worker-authority.js'
 import { SharedWorkerTabConnection, type WorkspaceWorkerPortFactory } from '../src/workspace-worker-connection.js'
-import { CURVE_EDITOR_KIND } from '../src/editors.js'
+import { GLSL_EDITOR_KIND } from '../src/editors.js'
 import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 import { preparePersistenceValue } from '../src/workflow-persistence-value.js'
 
@@ -130,7 +130,7 @@ const primitive = (type: string, name: 'FLOAT' | 'BOOLEAN'): NodeSchema => ({
   category: 'test',
   source: 'v3',
   isOutputNode: false,
-  items: [
+  body: [
     {
       kind: 'input', id: 'value', type: { kind: 'concrete', name }, optional: false,
       ...(name === 'FLOAT' ? { widget: { widgetType: 'NUMBER', options: { step: 0.1 }, default: 0 } } : {}),
@@ -302,30 +302,38 @@ describe('AppState multi-window workspace', () => {
 
   it('converges create, reorder, close, and persistence snapshots across windows', async () => {
     const factory = authorityFactories()
-    const first = prepareWorkflowApp(new AppState())
-    const second = prepareWorkflowApp(new AppState())
+    const first = createEditableApp()
+    const second = createEditableApp()
+    first.pages.register({ id: 'example', title: 'Example', icon: () => undefined, component: () => null })
+    const page = first.pages.open('example')!
     await Promise.all([
       first.enableWorkspaceAuthority(factory.document, factory.workspace),
       second.enableWorkspaceAuthority(factory.document, factory.workspace),
     ])
+    expect(first.activeTabId.get()).toBe(page.id)
+    expect(second.pages.tabs().every((tab) => tab.editorKind !== 'page')).toBe(true)
 
     const created = first.createWorkflow()
     await new Promise<void>((resolve) => setTimeout(resolve, 0))
     expect(second.tabs.get().map((tab) => tab.id)).toContain(created.id)
+    first.pages.open('example')
 
     second.tabs.set([...second.tabs.get()].reverse())
     await new Promise<void>((resolve) => setTimeout(resolve, 0))
     expect(first.tabs.get().map((tab) => tab.id)).toEqual(second.tabs.get().map((tab) => tab.id))
+    expect(first.activeTabId.get()).toBe(page.id)
+    expect(first.pages.tabs().filter((tab) => tab.editorKind !== 'page').map((tab) => tab.id)).toEqual(second.tabs.get().map((tab) => tab.id))
 
     second.closeTab(created.id)
     await new Promise<void>((resolve) => setTimeout(resolve, 0))
     expect(first.tabs.get().some((tab) => tab.id === created.id)).toBe(false)
+    expect(first.activeTabId.get()).toBe(page.id)
     first.flushPersistTabs()
     second.flushPersistTabs()
     expect(first.tabs.get().map((tab) => tab.id)).toEqual(second.tabs.get().map((tab) => tab.id))
   })
 
-  it('preserves a local curve editor when another window publishes tab metadata', async () => {
+  it('preserves a local GLSL editor when another window publishes tab metadata', async () => {
     const factory = authorityFactories()
     const first = prepareWorkflowApp(new AppState())
     const second = prepareWorkflowApp(new AppState())
@@ -340,20 +348,20 @@ describe('AppState multi-window workspace', () => {
       tabId: tab.id,
       graphId: 'g0',
       nodeId: 'n1',
-      inputId: 'curve',
+      inputId: 'fragment_shader' as const,
       instancePath: [],
       openedStoredValue: undefined,
-      openedSchemaDefault: undefined,
-      openedValue: { points: [{ position: 0, value: 0 }] },
+      openedSchemaDefault: '',
+      openedValue: '',
     }
-    first.curveEditorTarget.set(target)
-    first.setTabEditorKind(tab.id, CURVE_EDITOR_KIND)
+    first.glslEditorTarget.set(target)
+    first.setTabEditorKind(tab.id, GLSL_EDITOR_KIND)
 
     second.createWorkflow()
     await drainTasks()
 
-    expect(first.tabs.get().find((candidate) => candidate.id === tab.id)?.editorKind).toBe(CURVE_EDITOR_KIND)
-    expect(first.curveEditorTarget.get()).toBe(target)
+    expect(first.tabs.get().find((candidate) => candidate.id === tab.id)?.editorKind).toBe(GLSL_EDITOR_KIND)
+    expect(first.glslEditorTarget.get()).toBe(target)
   })
 
 
@@ -434,11 +442,11 @@ describe('AppState multi-window workspace', () => {
     const app = prepareWorkflowApp(new AppState({ workspaceEvents: right }))
     const registry = buildDinksterRegistry(asConnectionId('local'), {
       schemaVersion: 1,
-      dinkster: { version: 'test', schemaWire: 1 },
+      dinkster: { version: 'test', schemaWire: 2 },
       nodes: {
         X: {
-          schemaVersion: 1, displayName: 'X', outputNode: true,
-          interface: [{ role: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] } }],
+          schemaVersion: 2, displayName: 'X', outputNode: true,
+          body: [{ kind: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] } }],
         },
       },
     })
@@ -719,6 +727,86 @@ describe('AppState multi-window workspace', () => {
     expect(other.doc.graphs.g0!.nodes.n1!.title).toBeUndefined()
   })
 
+  it('keeps an automatic numeric notice after shared acknowledgement, until a later edit', async () => {
+    const factory = authorityFactories()
+    const app = createEditableApp()
+    app.settings.set('automaticFixes.numberOutsideLimits', 'ask')
+    const backend = app.backends.get()[0]!
+    backend.registry.set(buildDinksterRegistry(backend.id, {
+      schemaVersion: 1, epoch: 1, dinkster: { version: 'test', schemaWire: 2 }, nodes: { X: {
+        body: [{ kind: 'input', id: 'amount', type: { kind: 'concrete', types: ['INT'] }, default: 0,
+          widget: { type: 'NUMBER', min: 0, max: 20, step: 4 } }],
+      } },
+    }))
+    const source = workflow()
+    await app.openDocument({ ...source, graphs: { ...source.graphs, g0: { ...source.graphs.g0!, nodes: {
+      n1: { ...source.graphs.g0!.nodes.n1!, values: { amount: 14 } },
+    } } } }, 'Numbers')
+    await app.enableWorkspaceAuthority(factory.document, factory.workspace)
+    const tab = app.activeTab()!
+    await app.applyProblemFixes(tab, app.scanTabNumberFixes(tab), true)
+    await (tab.store as unknown as { settle(): Promise<void> }).settle()
+    await drainTasks()
+    expect(tab.store.doc.graphs.g0!.nodes.n1!.values.amount).toBe(12)
+    expect(app.adjustmentNotices.get().get(tab.id)?.adjustments.map((item) => item.details)).toEqual([['amount: 14 to 12']])
+    expect(app.adjustmentNoticeState(tab.id)).toBe('ready')
+    const revision = tab.store.revision
+    for (const invocation of [
+      { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'amount', value: 12 } },
+      { command: 'node.setValues', params: { graphId: 'g0', nodeId: 'n1', values: { amount: 12 } } },
+      { command: 'batch', params: { invocations: [
+        { command: 'node.setValues', params: { graphId: 'g0', nodeId: 'n1', values: { amount: 12 } } },
+      ] } },
+    ]) {
+      expect((await app.dispatchTo(tab, invocation)).ok).toBe(true)
+      await (tab.store as unknown as { settle(): Promise<void> }).settle()
+      await drainTasks()
+      expect(tab.store.revision).toBe(revision)
+      expect(app.adjustmentNoticeState(tab.id)).toBe('ready')
+      expect(app.adjustmentNotices.get().get(tab.id)?.adjustments.map((item) => item.details)).toEqual([['amount: 14 to 12']])
+    }
+    expect((await app.dispatchEditTo(tab, { command: 'node.setValue', params: {
+      graphId: 'g0', nodeId: 'n1', inputId: 'amount', value: 8,
+    } })).ok).toBe(true)
+    await (tab.store as unknown as { settle(): Promise<void> }).settle()
+    await drainTasks()
+    expect(app.adjustmentNotices.get().has(tab.id)).toBe(false)
+  })
+
+  it('keeps an undone numeric correction suppressed when its document session is promoted', async () => {
+    const factory = authorityFactories()
+    const app = createEditableApp()
+    const backend = app.backends.get()[0]!
+    backend.registry.set(buildDinksterRegistry(backend.id, {
+      schemaVersion: 1, epoch: 1, dinkster: { version: 'test', schemaWire: 2 }, nodes: { X: {
+        body: [{ kind: 'input', id: 'amount', type: { kind: 'concrete', types: ['INT'] }, default: 0,
+          widget: { type: 'NUMBER', min: 0, max: 20, step: 4 } }],
+      } },
+    }))
+    const source = workflow()
+    await app.openDocument({ ...source, graphs: { ...source.graphs, g0: { ...source.graphs.g0!, nodes: {
+      n1: { ...source.graphs.g0!.nodes.n1!, values: { amount: 14 } },
+    } } } }, 'Numbers')
+    const local = app.activeTab()!
+    await vi.waitFor(() => expect(local.store.doc.graphs.g0!.nodes.n1!.values.amount).toBe(12))
+    const promotion = app.enableWorkspaceAuthority(factory.document, factory.workspace)
+    expect(app.undoAdjustments(local.id)).toBe(true)
+    await promotion
+    const promoted = app.activeTab()!
+    expect(promoted.store).not.toBe(local.store)
+    expect(promoted.store.doc.graphs.g0!.nodes.n1!.values.amount).toBe(14)
+    expect(app.scanTabNumberFixes(promoted).map((fix) => fix.valueKey)).toEqual([])
+    expect(app.scanTabProblemFixes(promoted, promoted.store.doc, { keptOnly: true }).map((fix) => fix.kind === 'number' ? fix.valueKey : fix.rule)).toEqual(['amount'])
+    expect(app.redoAdjustments(promoted.id)).toBe(true)
+    expect(promoted.store.doc.graphs.g0!.nodes.n1!.values.amount).toBe(12)
+    expect(app.undoAdjustments(promoted.id)).toBe(true)
+    expect((await app.dispatchEditTo(promoted, { command: 'node.setValue', params: {
+      graphId: 'g0', nodeId: 'n1', inputId: 'amount', value: 8,
+    } })).ok).toBe(true)
+    expect(promoted.store.doc.graphs.g0!.nodes.n1!.values.amount).toBe(8)
+    expect(app.scanTabProblemFixes(promoted, promoted.store.doc, { keptOnly: true })).toEqual([])
+  })
+
   it('keeps the shared session alive when a tab is replaced with new metadata', async () => {
     const factory = authorityFactories()
     const app = createEditableApp()
@@ -921,7 +1009,7 @@ describe('advancement plans survive workspace-authority promotion', () => {
   // the promoted session instead of silently dropping.
   const seedSchema: NodeSchema = {
     type: 'SeedTest', displayName: 'Seed Test', category: 'test', source: 'v3', isOutputNode: true,
-    items: [
+    body: [
       { kind: 'output', id: 'out', type: { kind: 'concrete', name: 'INT' } },
       { kind: 'input', id: 'up', type: { kind: 'concrete', name: 'INT' }, optional: false,
         widget: { widgetType: 'INT', options: { min: 10, max: 20, step: 3 }, default: 10, controller: 'after_generate' } },
@@ -946,6 +1034,7 @@ describe('advancement plans survive workspace-authority promotion', () => {
     app.registerSchemas([seedSchema])
     expect((await app.openDocument(seedFixture(), 'Promotion Seed'))).toEqual([])
     const tab = app.activeTab()!
+    await vi.waitFor(() => expect(tab.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: 10, down: 10 }))
     const result = compile({
       document: tab.store.doc, revision: 0, resolve: resolveSeed, scope: { kind: 'full' },
       connection: asConnectionId('local'), schemaHash: 'test',
@@ -960,7 +1049,7 @@ describe('advancement plans survive workspace-authority promotion', () => {
     expect(promoted.store).not.toBe(tab.store)
 
     app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })
-    await expect.poll(() => promoted.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: 14, down: 9 })
+    await expect.poll(() => promoted.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: 13, down: 8 })
   })
 
   it('preserves editor-role schema resolution in the promoted command registry', async () => {
@@ -968,7 +1057,7 @@ describe('advancement plans survive workspace-authority promotion', () => {
       ...seedSchema,
       type: 'SyntheticCompositor',
       editorRole: 'compositor',
-      items: [
+      body: [
         { kind: 'input', id: 'recipe', type: { kind: 'concrete', name: 'COMPOSITOR' }, optional: true,
           widget: { widgetType: 'COMPOSITOR', options: {} } },
       ],
@@ -1028,7 +1117,7 @@ describe('advancement plans survive workspace-authority promotion', () => {
     promoted.store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'seed', inputId: 'up', value: 11 } })
     await drainTasks()
     app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })
-    await expect.poll(() => promoted.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: 11, down: 9 })
+    await expect.poll(() => promoted.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: 11, down: 10 })
   })
 
   const comboRoute = '/remote/options'
@@ -1044,7 +1133,7 @@ describe('advancement plans survive workspace-authority promotion', () => {
   })
   const comboSchema: NodeSchema = {
     type: 'RefreshCombo', displayName: 'Refresh Combo', category: 'test', source: 'v3', isOutputNode: false,
-    items: [comboInput('up'), comboInput('down')],
+    body: [comboInput('up'), comboInput('down')],
   }
   const comboFixture = () => ({
     format: 'dinkster-workflow' as const, formatVersion: 1 as const, lineage: 'promotion-combo-test', root: 'g0',

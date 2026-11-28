@@ -2,10 +2,11 @@
  * Shared INT/FLOAT stepping semantics: the canvas edge-zone stepper and
  * queue-time controller advancement both derive from these helpers, so this
  * suite pins the single source - step defaults by widget kind, decimal
- * quantization, min/max clamping, and the randomize grids.
+ * quantization, the allowed-value walk (offset, limits, special values), and
+ * the randomize grids.
  */
 import { describe, expect, it } from 'vitest'
-import { numericStepConstraints, randomNumericValue, stepNumericValue } from '../src/index.js'
+import { correctNumericValue, dragNumericValue, formatWidgetValue, numericStepConstraints, randomNumericValue, stepNumericValue } from '../src/index.js'
 
 describe('numericStepConstraints', () => {
 
@@ -15,6 +16,26 @@ describe('numericStepConstraints', () => {
     expect(numericStepConstraints({ widgetType: 'FLOAT', options: { step: Number.NaN } }).step).toBe(0.1)
   })
 
+})
+
+describe('correctNumericValue', () => {
+  it('corrects stored numbers on the allowed grid, with lower ties and unchanged specials and decimals', () => {
+    const int = (options: Record<string, unknown>) => numericStepConstraints({ widgetType: 'INT', options })
+    const float = (options: Record<string, unknown>) => numericStepConstraints({ widgetType: 'FLOAT', options })
+    expect(correctNumericValue(14, int({ min: 0, max: 20, step: 4 }))).toBe(12)
+    expect(correctNumericValue(14.01, int({ min: 0, max: 20, step: 4 }))).toBe(16)
+    expect(correctNumericValue(-6, int({ offset: 1, step: 4 }))).toBe(-7)
+    expect(correctNumericValue(99, int({ min: 10, max: 20, offset: 1, step: 4 }))).toBe(17)
+    expect(correctNumericValue(-99, int({ min: 10, max: 20, offset: 1, step: 4 }))).toBe(13)
+    expect(correctNumericValue(2, int({ min: 2, max: 3, offset: 0, step: 4 }))).toBeUndefined()
+    expect(correctNumericValue(0, int({ min: 2, max: 3, offset: 0, step: 4, special: [{ value: 0, label: 'off' }] }))).toBe(0)
+    expect(correctNumericValue('9007199254740998', int({ min: '9007199254740993', max: '9007199254741003', step: 4 }))).toBe('9007199254740997')
+    expect(correctNumericValue(6, int({ min: 0, max: 20, step: 4, offsetUnknown: true }))).toBe(6)
+    expect(correctNumericValue(21, int({ min: 0, max: 20, step: 4, offsetUnknown: true }))).toBe(20)
+    expect(correctNumericValue(7.53, float({ min: 0, max: 10, step: 0.1 }))).toBe(7.53)
+    expect(correctNumericValue(12.5, float({ min: 0, max: 10, step: 0.1 }))).toBe(10)
+    expect(correctNumericValue(-1, float({ min: 0, max: 10, special: [{ value: -1, label: 'off' }] }))).toBe(-1)
+  })
 })
 
 describe('stepNumericValue', () => {
@@ -32,11 +53,51 @@ describe('stepNumericValue', () => {
     expect(stepNumericValue(0.85, 1, bounded)).toBe(0.9)
   })
 
-  it('steps integers by the declared step, clamped', () => {
+  it('steps integers to the next allowed value: min plus a multiple of step, inside the limits', () => {
     const int = numericStepConstraints({ widgetType: 'INT', options: { min: 10, max: 20, step: 3 } })
-    expect(stepNumericValue(11, 1, int)).toBe(14)
-    expect(stepNumericValue(19, 1, int)).toBe(20)
+    expect(stepNumericValue(13, 1, int)).toBe(16)
+    expect(stepNumericValue(11, 1, int)).toBe(13)
     expect(stepNumericValue(11, -1, int)).toBe(10)
+    // 20 is not on the step, so up from 19 has nowhere to go.
+    expect(stepNumericValue(19, 1, int)).toBe(19)
+    expect(stepNumericValue(20, -1, int)).toBe(19)
+  })
+
+  it('counts the step from offset and visits special values outside the limits', () => {
+    const plain = numericStepConstraints({ widgetType: 'INT', options: { min: 0, step: 8 } })
+    expect(stepNumericValue(13, 1, plain)).toBe(16)
+    expect(stepNumericValue(13, -1, plain)).toBe(8)
+    const offset = numericStepConstraints({ widgetType: 'INT', options: { step: 4, offset: 1 } })
+    expect(stepNumericValue(-7, 1, offset)).toBe(-3)
+    expect(stepNumericValue(-6, -1, offset)).toBe(-7)
+    const frames = numericStepConstraints({ widgetType: 'INT', options: { min: 1, step: 4, special: [{ value: 0, label: 'off' }] } })
+    expect(stepNumericValue(0, 1, frames)).toBe(1)
+    expect(stepNumericValue(1, -1, frames)).toBe(0)
+    expect(stepNumericValue(0, -1, frames)).toBe(0)
+    // While a worked-out offset is not known there is no grid: a step moves from the value, never onto min's grid.
+    const unknown = numericStepConstraints({ widgetType: 'INT', options: { min: 0, max: 20, step: 4, offsetUnknown: true } })
+    expect(stepNumericValue(6, 1, unknown)).toBe(10)
+    expect(stepNumericValue(6, -1, unknown)).toBe(2)
+    expect(stepNumericValue(18, 1, unknown)).toBe(18)
+  })
+
+  it('shows a special value by its label, and a drag that has not moved a step leaves it', () => {
+    const frames = { widgetType: 'INT', options: { min: 1, step: 4, special: [{ value: 0, label: 'off' }, { value: '18446744073709551615', label: 'all' }] } }
+    expect(formatWidgetValue(0, frames)).toBe('off')
+    expect(formatWidgetValue('18446744073709551615', frames)).toBe('all')
+    expect(formatWidgetValue(5, frames)).toBe('5')
+    const scale = { widgetType: 'FLOAT', options: { min: 0.5, max: 1, step: 0.1, special: [{ value: 0, label: 'off' }] } }
+    expect(formatWidgetValue(0, scale)).toBe('off')
+    expect(formatWidgetValue(0.5, scale)).toBe('0.5')
+    expect(dragNumericValue(0, 3, numericStepConstraints(frames))).toBe(0)
+    expect(dragNumericValue(0, 40, numericStepConstraints(frames))).toBe(40)
+  })
+
+  it('steps a decimal past a limit to the nearest special value beyond it', () => {
+    const scale = numericStepConstraints({ widgetType: 'FLOAT', options: { min: 0.5, max: 1, step: 0.1, special: [{ value: 0, label: 'off' }, { value: 2, label: 'auto' }] } })
+    expect(stepNumericValue(0.5, -1, scale)).toBe(0)
+    expect(stepNumericValue(0.95, 1, scale)).toBe(2)
+    expect(stepNumericValue(0.7, 1, scale)).toBe(0.8)
   })
 
   it('steps unbounded INT values across the JS safe-integer boundary', () => {
@@ -49,7 +110,7 @@ describe('stepNumericValue', () => {
 
   it('normalizes a fractional legacy INT value before stepping', () => {
     const int = numericStepConstraints({ widgetType: 'INT', options: { step: 3 } })
-    expect(stepNumericValue(10.6, 1, int)).toBe(14)
+    expect(stepNumericValue(10.6, 1, int)).toBe(12)
     expect(Number.isSafeInteger(stepNumericValue(10.6, 1, int))).toBe(true)
   })
 
@@ -146,5 +207,32 @@ describe('randomNumericValue', () => {
     // valid grid point is 0.2 - clamping to this max would be off-grid.
     const float = numericStepConstraints({ widgetType: 'FLOAT', options: { min: 0, max: 0.29999999999996, step: 0.1 } })
     expect(randomNumericValue(float, () => 0.999999)).toBe(0.2)
+  })
+})
+
+describe('dragNumericValue', () => {
+  const cfg = numericStepConstraints({ widgetType: 'FLOAT', options: { min: 0, max: 100, step: 0.01 } })
+
+  it('moves one step per 4 px near the press, then faster with distance, and back to the start value', () => {
+    expect(dragNumericValue(7, 40, cfg)).toBe(7.1)
+    expect(dragNumericValue(7, -40, cfg)).toBe(6.9)
+    expect(dragNumericValue(7, 3, cfg)).toBe(7)
+    // 25 + ((200 - 100) / 4)^2 = 650 steps at 200 px; 2,525 at 300 px.
+    expect(dragNumericValue(7, 200, cfg)).toBe(13.5)
+    expect(dragNumericValue(7, 300, cfg)).toBe(32.25)
+    expect(dragNumericValue(7, 0, cfg)).toBe(7)
+  })
+
+  it('is ten times faster with Shift and stays inside the limits', () => {
+    expect(dragNumericValue(7, 40, cfg, true)).toBe(8)
+    expect(dragNumericValue(7, 400, cfg)).toBe(63.5)
+    expect(dragNumericValue(7, 2000, cfg)).toBe(100)
+    expect(dragNumericValue(7, -2000, cfg)).toBe(0)
+  })
+
+  it('keeps 64-bit whole numbers exact', () => {
+    const seed = numericStepConstraints({ widgetType: 'INT', options: { min: 0, max: '18446744073709551615' } })
+    expect(dragNumericValue('18446744073709551600', 40, seed)).toBe('18446744073709551610')
+    expect(dragNumericValue('18446744073709551600', 400, seed)).toBe('18446744073709551615')
   })
 })

@@ -10,7 +10,9 @@ interface DinksterBridgeSceneNode {
   color?: string
   virtual?: { text: string; format: 'plain' | 'markdown' }
   unrecognized?: true
+  schemaPending?: true
   layout: {
+    title: string
     width: number
     height: number
     minWidth: number
@@ -19,6 +21,7 @@ interface DinksterBridgeSceneNode {
     minimized?: true
     preview?: { x: number; y: number; width: number; height: number; compact?: true }
     advancedGroup?: { y: number; height: number }
+    boxes?: ReadonlyArray<{ id: string; y: number; height: number; closed?: true }>
     rows: ReadonlyArray<{
       kind: string
       y: number
@@ -28,6 +31,11 @@ interface DinksterBridgeSceneNode {
       inputId?: string
       viewId?: string
       representationId?: string
+      /** Field rows: the input port (and members) the row edits. */
+      address?: { port: string; members?: readonly string[] }
+      /** Field rows shown on the subgraph node without a wire. */
+      subgraphMark?: { item: string; label: string }
+      familyOwner?: { graphId: string; nodeId: string; valueKey?: string }
       input?: { portId: string }
       output?: { portId: string }
       sectionId?: string
@@ -46,7 +54,7 @@ interface DinksterBridgeSceneNode {
       ghost?: true
       /** Materialized Autogrow member retaining family-growth styling. */
       familyMember?: true
-      address: { port: string; members?: readonly string[] }
+      address: { port: string }
       familyOwner?: { socketed?: true }
       /** Optional input (donut) / maybe-absent producer. */
       optional?: true
@@ -98,7 +106,7 @@ interface DinksterBridgeErrorEvent {
 /** Injectable lifecycle event: used by the reconnect spec to seed an
  * in-flight execution the server has never heard of ("ghost" run). */
 interface DinksterBridgeLifecycleEvent {
-  kind: 'started' | 'completed'
+  kind: 'started' | 'completed' | 'cancelled'
   execution: DinksterBridgeExecutionRef
   timestamp: number
 }
@@ -133,6 +141,7 @@ interface DinksterBridgeTab {
     /** Undo one revision; false when there is nothing to undo. */
     undo(): boolean
     redo(): boolean
+    historySnapshot(): { undo: readonly unknown[]; redo: readonly unknown[] }
     /** Dispatch a command invocation (perf specs drive the full loop). */
     dispatch(invocation: { command: string; params: unknown }): {
       ok: boolean
@@ -169,30 +178,10 @@ interface DinksterBridgeTab {
               from:
                 | { node: string; port: string }
                 | { reroute: string }
-                | { valueSource: string }
-                | { selector: string; candidate?: string }
-              to: { node: string; port: string } | { reroute: string } | { selector: string; candidate?: string }
+              to: { node: string; port: string } | { reroute: string }
             }
           >
           reroutes: Record<string, { id: string }>
-          valueSources?: Record<
-            string,
-            {
-              id: string
-              value: unknown
-              spec?: { widgetType?: string; options?: Record<string, unknown> }
-              title?: string
-            }
-          >
-          selectors?: Record<
-            string,
-            {
-              id: string
-              candidates: ReadonlyArray<{ id: string; title?: string }>
-              policy: { kind: 'fixed'; candidate: string } | { kind: 'random' }
-              title?: string
-            }
-          >
           nets: Record<
             string,
             {
@@ -204,8 +193,11 @@ interface DinksterBridgeTab {
           >
           nextOrdinal: number
           boundary?: {
-            inputs: ReadonlyArray<{ id: string; binds: { kind: string; node: string; port?: string; tap?: string } }>
-            outputs: ReadonlyArray<{ id: string; binds: { kind: string; node: string; port?: string; tap?: string } }>
+            body: ReadonlyArray<
+              | { kind: 'input' | 'output'; id: string; binds: { kind: string; node: string; port?: string; tap?: string } }
+              | { kind: 'section'; id: string; rows: readonly unknown[] }
+              | { kind: 'line'; rows: readonly unknown[] }
+            >
           }
         }
       >
@@ -250,8 +242,6 @@ interface DinksterBridgeTab {
               }
             >
             reroutes?: Record<string, { position: { x: number; y: number } }>
-            valueSources?: Record<string, { position: { x: number; y: number } }>
-            selectors?: Record<string, { position: { x: number; y: number } }>
             groups?: Record<
               string,
               {
@@ -284,6 +274,9 @@ interface DinksterTestBridge {
       | { ok: false; diagnostics: readonly unknown[] }
   } | undefined): void
   app: {
+    shell: {
+      activityBarVisible: { set(visible: boolean): void }
+    }
     store: {
       executions: {
         get(): Map<
@@ -293,6 +286,7 @@ interface DinksterTestBridge {
             ref: DinksterBridgeExecutionRef
             status: string
             errors: readonly unknown[]
+            warnings?: readonly { readonly message: string }[]
             artifactsHydrated: boolean
             artifact?: {
               prompt: Record<string, unknown>
@@ -322,6 +316,7 @@ interface DinksterTestBridge {
     }
     registry: { set(value: import('@dinkster/client').SchemaRegistry): void }
     tabs: { get(): readonly DinksterBridgeTab[] }
+    setTabEditorKind(tabId: string, editorKind: string): void
     editorSplits: { readonly layout: { get(): unknown; set(value: unknown): void } }
     readonly appViewEnabled: boolean
     panels: {
@@ -346,6 +341,7 @@ interface DinksterTestBridge {
     graphViewport(tabId: string, graphId: string): { x: number; y: number; scale: number } | undefined
     setGraphViewport(tabId: string, graphId: string, viewport: { x: number; y: number; scale: number }): void
     confirmStartupOwnership(): Promise<void>
+    enableWorkspaceAuthority(): Promise<void>
     activeTab(): DinksterBridgeTab | undefined
     createWorkflow(): DinksterBridgeTab
     renameTab(id: string, title: string): void
@@ -353,7 +349,7 @@ interface DinksterTestBridge {
     createRegion(tab: DinksterBridgeTab, graphId: string, position: { x: number; y: number }, kind: 'map' | 'fold' | 'while'):
       Promise<{ ok: boolean; diagnostics: readonly unknown[] }>
     closeTab(id: string): void
-    migrationNotices: { get(): ReadonlyMap<string, unknown> }
+    adjustmentNotices: { get(): ReadonlyMap<string, unknown> }
     dispatchTo(tab: DinksterBridgeTab, invocation: { command: string; params: unknown }):
       | { ok: boolean; diagnostics?: readonly unknown[] }
       | Promise<{ ok: boolean; diagnostics?: readonly unknown[] }>
@@ -493,10 +489,12 @@ interface DinksterTestBridge {
         label: string
         baseUrl: string
         protocol: 'v1' | 'dinkster'
-        connection: {
+        scopedClient: Pick<import('@dinkster/client').RefreshableScopedClient, 'remoteChoices'>
+        connection: Pick<import('@dinkster/client').DinksterConnection,
+          'fetchMountSettings' | 'fetchMountLocations' | 'fetchModelSettings' | 'retryMount'> & {
           status: { get(): string }
           ingest(event: Readonly<Record<string, unknown>> & { type: string }): void
-          onLiveCompletion(listener: (execution: DinksterBridgeExecutionRef) => void): () => void
+          onLiveTerminal(listener: (execution: DinksterBridgeExecutionRef) => void): () => void
         }
         schemaState: { get(): { status: string } }
         registry: { get(): {
@@ -522,6 +520,7 @@ interface DinksterTestBridge {
       }>
     }
     tabTargets: { get(): ReadonlyMap<string, string> }
+    logs: { get(): readonly { source: string; message: string }[] }
     setTabTarget(tabId: string, id: string): void
     removeBackend(id: string): void
     viewUrlForExecution(ref: DinksterBridgeExecutionRef, file: { filename: string }): string
@@ -547,7 +546,9 @@ interface DinksterTestBridge {
       /** Exact widget row under the idle pointer. */
       hoveredWidget?: { nodeId: string; valueKey: string }
     }
-    getBadges(): Readonly<Record<string, ReadonlyArray<{ id: string }>>>
+    getBadges(): Readonly<Record<string, ReadonlyArray<{ id: string; glyph?: string }>>>
+    /** Where each badge of a node is painted and hit, in world units. */
+    getNodeBadgeLayout(node: unknown): ReadonlyArray<{ badge: { id: string; placement?: string }; x: number; y: number; width: number; height: number }>
     getNodeOutputTexts(): Readonly<Record<string, { text: string; stale?: true; estimate?: true }>>
     /** Selection toolbox placement (undefined = hidden). */
     getToolboxLayout():
@@ -609,19 +610,19 @@ interface DinksterTestBridge {
       | {
           nodes: ReadonlySet<string>
           reroutes: ReadonlySet<string>
-          selectors: ReadonlySet<string>
-          selectorCandidates: ReadonlySet<string>
-          valueSources: ReadonlySet<string>
         }
       | undefined
-    /** Frozen-view execution resolutions: selector id -> recorded candidate. */
-    getSelectorResolutions(): ReadonlyMap<string, string> | undefined
     /** Active renderer capabilities. Lens ids never enter the render path. */
     getLensCapabilities(): {
       nodeBodyContent?: (node: DinksterBridgeSceneNode) =>
         ReadonlyArray<{ label: string; text: string; tone?: string }> | null
     }
-    getBadges(): Readonly<Record<string, readonly { id: string }[]>>
+    getBadges(): Readonly<Record<string, readonly { id: string; glyph?: string }[]>>
+    /** The strongest problem kind per row of each node. */
+    getRowMarks(): Readonly<Record<string, Readonly<Record<string, 'error' | 'warning'>>>>
+    /** The row drawn stronger because its line in the problem box is pointed at. */
+    getProblemRowHighlight(): { readonly nodeId: string; readonly row: string } | undefined
+    getDesignTokens(): { rowHeight: number; rowGeometry: { stepperZone: number; stepperLabelInset: number } }
     getScene(): {
       graphId: string
       nodes: readonly DinksterBridgeSceneNode[]
@@ -630,12 +631,9 @@ interface DinksterTestBridge {
         from:
           | { kind: 'port'; node: string; port: string }
           | { kind: 'reroute'; reroute: string }
-          | { kind: 'valueSource'; valueSource: string }
-          | { kind: 'selector'; selector: string; candidate?: string }
         to:
           | { kind: 'port'; node: string; port: string }
           | { kind: 'reroute'; reroute: string }
-          | { kind: 'selector'; selector: string; candidate?: string }
         x1: number
         y1: number
         x2: number
@@ -643,37 +641,13 @@ interface DinksterTestBridge {
         netId?: string
         netName?: string
         hidden?: true
+        boundary?: true
         mismatch?: true
       }>
       reroutes: ReadonlyArray<{
         id: string
         x: number
         y: number
-        typeName?: string
-      }>
-      valueSources: ReadonlyArray<{
-        id: string
-        x: number
-        y: number
-        width: number
-        height: number
-        title: string
-        valueText: string
-        specState: 'declared' | 'derived' | 'raw'
-        conflict: boolean
-        typeName?: string
-      }>
-      selectors: ReadonlyArray<{
-        id: string
-        x: number
-        y: number
-        width: number
-        height: number
-        headerHeight: number
-        title: string
-        candidates: ReadonlyArray<{ id: string; label: string; y: number; typeName?: string }>
-        activeCandidate?: string
-        random: boolean
         typeName?: string
       }>
       netStubs: ReadonlyArray<{
@@ -706,10 +680,12 @@ interface DinksterTestBridge {
         side: 'inputs' | 'outputs'
         x: number
         y: number
+        fields?: { node: { values: Readonly<Record<string, unknown>> } }
         layout: {
           width: number
           height: number
           headerHeight: number
+          rows: DinksterBridgeSceneNode['layout']['rows']
           pins: ReadonlyArray<{ portId: string; direction: 'in' | 'out'; y: number }>
         }
       }>
@@ -720,16 +696,12 @@ interface DinksterTestBridge {
   controller?: {
     getSelection(): ReadonlySet<string>
     getRerouteSelection(): ReadonlySet<string>
-    getValueSourceSelection(): ReadonlySet<string>
-    getSelectorSelection(): ReadonlySet<string>
     getGroupSelection(): ReadonlySet<string>
     selectAll(): void
     setSelection(
       nodeIds: Iterable<string>,
       linkIds?: Iterable<string>,
       rerouteIds?: Iterable<string>,
-      valueSourceIds?: Iterable<string>,
-      selectorIds?: Iterable<string>,
       groupIds?: Iterable<string>,
     ): void
   }
@@ -737,10 +709,8 @@ interface DinksterTestBridge {
     chains: number
     chainLength: number
     reroutes?: boolean
-    valueSources?: boolean
     nets?: boolean
     groups?: boolean
-    selectors?: boolean
   }): unknown
 }
 

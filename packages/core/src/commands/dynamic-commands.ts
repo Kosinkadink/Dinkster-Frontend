@@ -11,29 +11,30 @@
  *   node.setValue) so materialization is transactionally atomic with its
  *   cause - one undo step removes both.
  * - selection commands write a schema-authored dynamic choice (state.selected).
+ * - `dynamic.moveMember` reorders a reorderable group's stored members.
  *
- * Commands validate structure and copy inherited boundary state on write.
- * Shared replay carries a validated snapshot instead of consulting schemas.
- * The caller derives frames from the elaborated interface.
- *
- * Works identically for normal nodes and subgraph instances: an instance's
- * forwarded-family suffix state lives on the instance node in its parent
- * graph (keyed by the boundary item id), never on the definition - so
- * growing one instance can never leak into the shared definition or into
- * sibling instances (hazard F1/F5).
+ * Every command addresses its construct by flattened id ('items',
+ * 'items.item1.mode'); all state lives at that key of `NodeData.dynamic`.
+ * Commands validate structure only; the caller derives frames from the
+ * elaborated interface.
  */
 
 import { diag, type Diagnostic } from '../diagnostics.js'
 import type { DynamicPortState, GraphDef, Json, JsonObject, NodeData, WorkflowDocument } from '../format/document.js'
-import { isSubtreeBinding, MAX_DYNAMIC_STATE_DEPTH, resolveDynamicAddress } from '../format/document.js'
-import { validateGraphDefShape } from '../format/validate.js'
-import type { CommandDefinition, CommandExecutionContext } from './contract.js'
-import { isPortEndpoint, MAX_MEMBER_ORDINAL } from '../ids.js'
-import { addressOfElabKey } from '../schema/elaborate.js'
+import { resolveDynamicAddress } from '../format/document.js'
+import type { CommandDefinition } from './contract.js'
+import { isPortEndpoint, isWidgetTapRef, MAX_MEMBER_ORDINAL } from '../ids.js'
+import { DEFAULT_ELAB_BUDGET, elabInputsOf, elaborateInterface, selectorMembersOf, valueKeyOf } from '../schema/elaborate.js'
+import { documentPrimitiveResolver } from '../compile/compile.js'
+import { primitiveOf } from '../primitive.js'
+import { buildRerouteIndex, traceEndpoint } from '../reroute.js'
+import type { SchemaResolver } from '../schema/derive-boundary.js'
+import { schemaResolverForCommand } from './command-support.js'
+import { constructsOf } from '../schema/body.js'
+import type { ChoiceSpec, GroupSpec, TypeChoiceSpec } from '../schema/model.js'
 import { checkDocument, subgraphDefIdOf } from '../invariants.js'
-import { boundaryStateResolver } from '../compile/boundary-state.js'
-import { documentNodeResolver } from '../compile/compile.js'
-import { mergeDynamicScope } from '../compile/crossing.js'
+import { allNodesOf, storeStartState } from './start-state.js'
+import { boundaryItems } from '../format/document.js'
 
 const err = (code: string, message: string): Diagnostic => diag('error', 'command', code, message)
 
@@ -42,33 +43,6 @@ const isObj = (v: Json | undefined): v is JsonObject =>
 
 function graphOf(doc: WorkflowDocument, graphId: Json | undefined): GraphDef | undefined {
   return typeof graphId === 'string' ? doc.graphs[graphId] : undefined
-}
-
-/** Snapshot inherited state for deterministic shared replay; authored fields still win. */
-const prepareInheritedState: NonNullable<CommandDefinition['prepareForSharedReplay']> = (doc, params, context) => {
-  if (!isObj(params) || typeof params.nodeId !== 'string') return undefined
-  const graph = graphOf(doc, params.graphId)
-  const node = graph?.nodes[params.nodeId]
-  if (!graph || !node) return undefined
-  const dynamic = inheritedState(doc, graph, node, params, context)
-  const { inheritedDynamic: _ignored, ...authored } = params
-  return { ok: true, params: { ...authored, ...(dynamic !== undefined ? { inheritedDynamic: dynamic as unknown as Json } : {}) } }
-}
-
-const validateInheritedState: NonNullable<CommandDefinition['validateDispatch']> = (doc, params, context) => {
-  if (context.kind !== 'shared-replay' || !isObj(params) || params.inheritedDynamic === undefined) return []
-  const graph = graphOf(doc, params.graphId)
-  const node = typeof params.nodeId === 'string' ? graph?.nodes[params.nodeId] : undefined
-  if (!graph || !node) return []
-  const problems = validateGraphDefShape({ ...graph, nodes: { [node.id]: { ...node, dynamic: params.inheritedDynamic } } })
-  return problems.length ? [err('dynamic.invalidInheritedState', 'inherited boundary state is malformed')] : []
-}
-
-function inheritedState(doc: WorkflowDocument, graph: GraphDef, node: NodeData, params: JsonObject, context: CommandExecutionContext): NodeData['dynamic'] {
-  if (context.kind === 'shared-replay') return params.inheritedDynamic as NodeData['dynamic']
-  const resolve = context.schemaResolverFor?.(doc)
-  if (!resolve || subgraphDefIdOf(node.type) === undefined) return undefined
-  return boundaryStateResolver(doc, documentNodeResolver(doc, resolve))(graph.id, node).dynamic
 }
 
 /**
@@ -92,6 +66,7 @@ const maxMemberSuffix = (ids: Iterable<string>): number => {
 interface MaterializeFrameJson extends JsonObject {
   readonly construct: string
   readonly members: readonly string[]
+  readonly seq?: number
 }
 
 const isFrame = (v: Json | undefined): v is MaterializeFrameJson =>
@@ -101,63 +76,33 @@ const isFrame = (v: Json | undefined): v is MaterializeFrameJson =>
   Array.isArray(v.members) &&
   v.members.length > 0 &&
   v.members.every((m) => typeof m === 'string' && m.length > 0) &&
-  new Set(v.members).size === v.members.length
+  new Set(v.members).size === v.members.length &&
+  (v.seq === undefined || (typeof v.seq === 'number' && Number.isSafeInteger(v.seq) && v.seq >= 0 && v.seq <= MAX_MEMBER_ORDINAL))
 
 /**
- * Persist `frame.members` into one family scope (append missing, keep
- * order), bump `seq` past every suffix now in use, and recurse into the
- * LAST member's nested scope for the next frame. Appending preserves
- * elaboration order because synthetic members always elaborate AFTER
- * persisted ones - the caller lists them in interface order.
+ * Persist each frame's members into the state of its group, which is keyed
+ * by the group's flattened id: append the missing ones in order and advance
+ * `seq` past them, so a removed key is never offered again. Appending keeps
+ * the drawn order because offered members always come after stored ones.
  */
 function materializeScope(
   scope: Readonly<Record<string, DynamicPortState>> | undefined,
   frames: readonly MaterializeFrameJson[],
-  inherited?: Readonly<Record<string, DynamicPortState>>,
 ): Record<string, DynamicPortState> {
-  const frame = frames[0]!
-  const rest = frames.slice(1)
-  const state = mergeDynamicScope(inherited, scope)[frame.construct] ?? {}
-  const members = [...(state.members ?? [])]
-  let grew = false
-  for (const m of frame.members) {
-    if (members.includes(m)) continue
-    // A minted-shaped id whose suffix exceeds the 15-digit parse window
-    // would be invisible to the seq bump: the same address could then be
-    // offered again as a ghost. Reject it (CO7); dispatch converts the
-    // throw into an atomic rejection.
-    if (/^m\d+$/.test(m) && !/^m\d{1,15}$/.test(m))
-      throw new Error(`member id '${m}' is outside the mintable id space`)
-    members.push(m)
-    grew = true
+  let next: Record<string, DynamicPortState> = { ...scope }
+  for (const frame of frames) {
+    const state = next[frame.construct] ?? {}
+    const members = [...(state.members ?? [])]
+    for (const m of frame.members) if (!members.includes(m)) members.push(m)
+    const seq = Math.max(state.seq ?? 0, frame.seq ?? 0)
+    next = { ...next, [frame.construct]: { ...state, members, ...(seq > 0 ? { seq } : {}) } }
   }
-  // Exhausted family (seq beyond the mintable window, e.g. from a hostile
-  // or corrupted document): growing it could collide a persisted member
-  // with the next offered ghost, so growth is refused outright.
-  if (grew && (state.seq ?? 0) > MAX_MEMBER_ORDINAL)
-    throw new Error(`family '${frame.construct}' member id space exhausted (seq ${state.seq})`)
-  const seq = Math.max(state.seq ?? 0, maxMemberSuffix(members) + 1)
-  let memberState = state.memberState
-  if (rest.length > 0) {
-    const chain = frame.members[frame.members.length - 1]!
-    memberState = { ...memberState, [chain]: materializeScope(scope?.[frame.construct]?.memberState?.[chain], rest, memberState?.[chain]) }
-  }
-  return {
-    ...scope,
-    [frame.construct]: {
-      ...state,
-      members,
-      seq,
-      ...(memberState !== undefined ? { memberState } : {}),
-    },
-  }
+  return next
 }
 
 const dynamicMaterialize: CommandDefinition = {
   id: 'dynamic.materialize',
-  prepareForSharedReplay: prepareInheritedState,
-  validateDispatch: validateInheritedState,
-  run(doc, params, tx, context) {
+  run(doc, params, tx) {
     if (
       !isObj(params) ||
       typeof params.nodeId !== 'string' ||
@@ -171,11 +116,13 @@ const dynamicMaterialize: CommandDefinition = {
           'dynamic.materialize: params must be {graphId, nodeId, frames: [{construct, members[]}, ...]}',
         ),
       ]
-    if (params.frames.length > MAX_DYNAMIC_STATE_DEPTH)
+    // One frame per group on the target's path, so elaboration's depth
+    // budget bounds a well-formed frame list.
+    if (params.frames.length > DEFAULT_ELAB_BUDGET.maxDepth)
       return [
         err(
           'dynamic.tooDeep',
-          `dynamic.materialize: ${params.frames.length} frames exceed the nesting cap of ${MAX_DYNAMIC_STATE_DEPTH}`,
+          `dynamic.materialize: ${params.frames.length} frames exceed the nesting cap of ${DEFAULT_ELAB_BUDGET.maxDepth}`,
         ),
       ]
     const def = graphOf(doc, params.graphId)
@@ -184,7 +131,7 @@ const dynamicMaterialize: CommandDefinition = {
     if (!node) return [err('node.missing', `dynamic.materialize: unknown node '${params.nodeId}'`)]
 
     const frames = params.frames as readonly MaterializeFrameJson[]
-    const next = materializeScope(node.dynamic, frames, inheritedState(doc, def, node, params, context))
+    const next = materializeScope(node.dynamic, frames)
     // Idempotent: re-materializing persisted members records no transaction.
     if (JSON.stringify(next) === JSON.stringify(node.dynamic ?? {})) return []
     tx.set(['graphs', params.graphId as string, 'nodes', params.nodeId, 'dynamic'], next as unknown as Json)
@@ -193,89 +140,36 @@ const dynamicMaterialize: CommandDefinition = {
 }
 
 // ---------------------------------------------------------------------------
-// dynamic.selectOption {graphId, nodeId, ancestors: [{construct, member}...],
-//                       construct, option}
+// dynamic.selectOption {graphId, nodeId, construct, option}
 // ---------------------------------------------------------------------------
 
-interface AncestorJson extends JsonObject {
-  readonly construct: string
-  readonly member: string
-}
-
-const isAncestor = (v: Json | undefined): v is AncestorJson =>
-  isObj(v) &&
-  typeof v.construct === 'string' &&
-  v.construct.length > 0 &&
-  typeof v.member === 'string' &&
-  v.member.length > 0
-
-type SelectResult =
-  | { readonly ok: true; readonly scope: Record<string, DynamicPortState> }
-  | { readonly ok: false; readonly diagnostic: Diagnostic }
-
-/**
- * Edit the combo construct's state at the (possibly nested)
- * scope, creating missing containers beneath PERSISTED ancestors. Fails when
- * an ancestor member is not persisted: state must never exist beneath a
- * synthetic member (hazard N3) - batch dynamic.materialize first.
- */
-function editInScope(
+/** Edit the choice or editable-menu state stored at `construct`. */
+function editState(
   scope: Readonly<Record<string, DynamicPortState>> | undefined,
-  ancestors: readonly AncestorJson[],
   construct: string,
   update: { readonly selected: string | null } | { readonly options: readonly (string | number | boolean)[] },
-  inherited?: Readonly<Record<string, DynamicPortState>>,
-): SelectResult {
-  if (ancestors.length === 0) {
-    const state = ('options' in update ? mergeDynamicScope(inherited, scope)[construct] : scope?.[construct]) ?? {}
-    const next = { ...state }
-    if ('options' in update) (next as { options?: readonly (string | number | boolean)[] }).options = update.options
-    else if (update.selected === null) delete (next as { selected?: string }).selected
-    else (next as { selected?: string }).selected = update.selected
-    return { ok: true, scope: { ...scope, [construct]: next } }
-  }
-  const a = ancestors[0]!
-  const state = mergeDynamicScope(inherited, scope)[a.construct]
-  if (!state?.members?.includes(a.member))
-    return {
-      ok: false,
-      diagnostic: err(
-        'dynamic.unmaterializedAncestor',
-        `dynamic: ancestor member '${a.member}' of family '${a.construct}' is not materialized; batch dynamic.materialize first`,
-      ),
-    }
-  const inner = editInScope(scope?.[a.construct]?.memberState?.[a.member], ancestors.slice(1), construct, update, state.memberState?.[a.member])
-  if (!inner.ok) return inner
-  return {
-    ok: true,
-    scope: {
-      ...scope,
-      [a.construct]: {
-        ...state,
-        memberState: { ...state.memberState, [a.member]: inner.scope },
-      },
-    },
-  }
+): Record<string, DynamicPortState> {
+  const next: { -readonly [K in keyof DynamicPortState]: DynamicPortState[K] } = { ...scope?.[construct] }
+  if ('options' in update) next.options = update.options
+  else if (update.selected === null) delete next.selected
+  else next.selected = update.selected
+  return { ...scope, [construct]: next }
 }
 
 const dynamicSelectOption: CommandDefinition = {
   id: 'dynamic.selectOption',
-  prepareForSharedReplay: prepareInheritedState,
-  validateDispatch: validateInheritedState,
-  run(doc, params, tx, context) {
+  run(doc, params, tx) {
     if (
       !isObj(params) ||
       typeof params.nodeId !== 'string' ||
       typeof params.construct !== 'string' ||
       params.construct.length === 0 ||
-      typeof params.option !== 'string' ||
-      (params.ancestors !== undefined &&
-        (!Array.isArray(params.ancestors) || !params.ancestors.every(isAncestor)))
+      typeof params.option !== 'string'
     )
       return [
         err(
           'params.invalid',
-          'dynamic.selectOption: params must be {graphId, nodeId, ancestors?: [{construct, member}...], construct, option}',
+          'dynamic.selectOption: params must be {graphId, nodeId, construct, option}',
         ),
       ]
     const def = graphOf(doc, params.graphId)
@@ -283,83 +177,49 @@ const dynamicSelectOption: CommandDefinition = {
     const node = def.nodes[params.nodeId]
     if (!node) return [err('node.missing', `dynamic.selectOption: unknown node '${params.nodeId}'`)]
 
-    const ancestors = (params.ancestors ?? []) as readonly AncestorJson[]
-    if (ancestors.length + 1 > MAX_DYNAMIC_STATE_DEPTH)
-      return [
-        err(
-          'dynamic.tooDeep',
-          `dynamic.selectOption: nesting exceeds the cap of ${MAX_DYNAMIC_STATE_DEPTH}`,
-        ),
-      ]
-    const next = editInScope(node.dynamic, ancestors, params.construct, { selected: params.option }, inheritedState(doc, def, node, params, context))
-    if (!next.ok) return [next.diagnostic]
+    const next = editState(node.dynamic, params.construct, { selected: params.option })
     // Idempotent: re-selecting the current option records no transaction.
-    if (JSON.stringify(next.scope) === JSON.stringify(node.dynamic ?? {})) return []
-    tx.set(['graphs', params.graphId as string, 'nodes', params.nodeId, 'dynamic'], next.scope as unknown as Json)
+    if (JSON.stringify(next) === JSON.stringify(node.dynamic ?? {})) return []
+    tx.set(['graphs', params.graphId as string, 'nodes', params.nodeId, 'dynamic'], next as unknown as Json)
     return []
   },
 }
 
 const dynamicSetOptions: CommandDefinition = {
   id: 'dynamic.setOptions',
-  prepareForSharedReplay: prepareInheritedState,
-  validateDispatch: validateInheritedState,
-  run(doc, params, tx, context) {
+  run(doc, params, tx) {
     if (!isObj(params) || typeof params.nodeId !== 'string' ||
       typeof params.construct !== 'string' || params.construct.length === 0 ||
       !Array.isArray(params.options) || !params.options.every((option) =>
         typeof option === 'string' || typeof option === 'boolean' ||
-        typeof option === 'number' && Number.isFinite(option)) ||
-      (params.ancestors !== undefined && (!Array.isArray(params.ancestors) || !params.ancestors.every(isAncestor)))) {
-      return [err('params.invalid', 'dynamic.setOptions: params must be {graphId, nodeId, ancestors?, construct, options: scalar[]}')]
+        typeof option === 'number' && Number.isFinite(option))) {
+      return [err('params.invalid', 'dynamic.setOptions: params must be {graphId, nodeId, construct, options: scalar[]}')]
     }
     const def = graphOf(doc, params.graphId)
     if (!def) return [err('graph.missing', `dynamic.setOptions: unknown graph '${String(params.graphId)}'`)]
     const node = def.nodes[params.nodeId]
     if (!node) return [err('node.missing', `dynamic.setOptions: unknown node '${params.nodeId}'`)]
-    const ancestors = (params.ancestors ?? []) as readonly AncestorJson[]
-    if (ancestors.length + 1 > MAX_DYNAMIC_STATE_DEPTH)
-      return [err('dynamic.tooDeep', `dynamic.setOptions: nesting exceeds the cap of ${MAX_DYNAMIC_STATE_DEPTH}`)]
-    const next = editInScope(node.dynamic, ancestors, params.construct,
-      { options: params.options as readonly (string | number | boolean)[] }, inheritedState(doc, def, node, params, context))
-    if (!next.ok) return [next.diagnostic]
-    if (JSON.stringify(next.scope) === JSON.stringify(node.dynamic ?? {})) return []
-    tx.set(['graphs', params.graphId as string, 'nodes', params.nodeId, 'dynamic'], next.scope as unknown as Json)
+    const next = editState(node.dynamic, params.construct, { options: params.options as readonly (string | number | boolean)[] })
+    if (JSON.stringify(next) === JSON.stringify(node.dynamic ?? {})) return []
+    tx.set(['graphs', params.graphId as string, 'nodes', params.nodeId, 'dynamic'], next as unknown as Json)
     return []
   },
 }
 
 // ---------------------------------------------------------------------------
-// dynamic.labelMember {graphId, nodeId, ancestors?, construct, member, label}
+// dynamic.labelMember {graphId, nodeId, construct, member, label}
 // ---------------------------------------------------------------------------
 
 type LabelResult =
   | { readonly ok: true; readonly scope: Record<string, DynamicPortState> }
   | { readonly ok: false; readonly diagnostic: Diagnostic }
 
-function labelInScope(
+function labelMembers(
   scope: Readonly<Record<string, DynamicPortState>> | undefined,
-  ancestors: readonly AncestorJson[],
   construct: string,
   updates: Readonly<Record<string, string | null>>,
-  inherited?: Readonly<Record<string, DynamicPortState>>,
 ): LabelResult {
-  if (ancestors.length > 0) {
-    const ancestor = ancestors[0]!
-    const state = mergeDynamicScope(inherited, scope)[ancestor.construct]
-    if (!state?.members?.includes(ancestor.member)) {
-      return { ok: false, diagnostic: err('dynamic.unmaterializedAncestor',
-        `dynamic.labelMember: ancestor member '${ancestor.member}' of family '${ancestor.construct}' is not materialized`) }
-    }
-    const inner = labelInScope(scope?.[ancestor.construct]?.memberState?.[ancestor.member], ancestors.slice(1),
-      construct, updates, state.memberState?.[ancestor.member])
-    if (!inner.ok) return inner
-    return { ok: true, scope: {
-      ...scope,
-      [ancestor.construct]: { ...state, memberState: { ...state.memberState, [ancestor.member]: inner.scope } },
-    } }
-  }
-  const state = mergeDynamicScope(inherited, scope)[construct]
+  const state = scope?.[construct]
   if (state?.members === undefined) {
     return { ok: false, diagnostic: err('dynamic.unknownMember',
       `dynamic.labelMember: family '${construct}' is not materialized`) }
@@ -388,87 +248,143 @@ function labelInScope(
   } }
 }
 
-const dynamicLabelMember: CommandDefinition = {
-  id: 'dynamic.labelMember',
-  prepareForSharedReplay: prepareInheritedState,
-  validateDispatch: validateInheritedState,
-  run(doc, params, tx, context) {
-    if (!isObj(params) || typeof params.nodeId !== 'string' ||
-        typeof params.construct !== 'string' || params.construct.length === 0 ||
-        typeof params.member !== 'string' || params.member.length === 0 ||
-        (params.label !== null && (typeof params.label !== 'string' || params.label.trim().length === 0)) ||
-        (params.ancestors !== undefined && (!Array.isArray(params.ancestors) || !params.ancestors.every(isAncestor)))) {
-      return [err('params.invalid', 'dynamic.labelMember: params must be {graphId, nodeId, ancestors?, construct, member, label: string|null}')]
-    }
-    const def = graphOf(doc, params.graphId)
-    if (!def) return [err('graph.missing', `dynamic.labelMember: unknown graph '${String(params.graphId)}'`)]
-    const node = def.nodes[params.nodeId]
-    if (!node) return [err('node.missing', `dynamic.labelMember: unknown node '${params.nodeId}'`)]
-    const ancestors = (params.ancestors ?? []) as readonly AncestorJson[]
-    const label = typeof params.label === 'string' ? params.label.trim() : null
-    const next = labelInScope(node.dynamic, ancestors, params.construct, { [params.member]: label },
-      inheritedState(doc, def, node, params, context))
-    if (!next.ok) return [next.diagnostic]
-    if (JSON.stringify(next.scope) === JSON.stringify(node.dynamic ?? {})) return []
-    tx.set(['graphs', params.graphId as string, 'nodes', params.nodeId, 'dynamic'], next.scope as unknown as Json)
-    return []
-  },
+/**
+ * A Switch's branches renamed: each Choice wired to its Pick (directly,
+ * through reroutes or a named net) that holds an old name gets the new one,
+ * when every field it feeds then offers that name. Text primitives and
+ * values from outside the graph are not rewritten. `after` is the document
+ * with the new names.
+ */
+function choiceRenamesOf(
+  before: WorkflowDocument,
+  after: WorkflowDocument,
+  graphId: string,
+  nodeId: string,
+  construct: string,
+  resolve: SchemaResolver,
+): JsonObject[] {
+  const def = after.graphs[graphId]
+  const was = before.graphs[graphId]?.nodes[nodeId]
+  const now = def?.nodes[nodeId]
+  const schema = now && resolve(now.type)
+  const selector = schema?.selector
+  if (!def || !was || !now || !schema || selector?.names === undefined || selector.group !== construct) return []
+  const namesOf = (node: NodeData): Map<string, string> => {
+    const inputs = elabInputsOf(elaborateInterface(schema, node))
+    return new Map(selectorMembersOf(selector, inputs).map((member) => [member,
+      inputs.find((input) => valueKeyOf(input) === member)?.spec.displayName ?? member.slice(selector.group.length + 1)]))
+  }
+  const newNames = namesOf(now)
+  const renamed = new Map<string, string>()
+  for (const [member, name] of namesOf(was)) {
+    const next = newNames.get(member)
+    if (next !== undefined && next !== name) renamed.set(name, next)
+  }
+  if (renamed.size === 0) return []
+  const index = buildRerouteIndex(def)
+  const drivers = [
+    ...Object.values(def.links).filter((link) => isPortEndpoint(link.to) && link.to.node === nodeId && link.to.port === selector.input).map((link) => link.from),
+    ...Object.values(def.nets ?? {}).filter((net) => net.sinks.some((sink) => sink.node === nodeId && sink.port === selector.input)).map((net) => net.source),
+  ]
+  const resolvePrimitive = documentPrimitiveResolver(after, resolve)
+  const rewrites: JsonObject[] = []
+  for (const from of drivers) {
+    const trace = traceEndpoint(def, from, index)
+    if (trace.kind !== 'output') continue
+    const choice = def.nodes[trace.ref.node]
+    const choiceSchema = choice && resolve(choice.type)
+    const shape = choiceSchema && primitiveOf(choiceSchema)
+    if (!choice || !shape || shape.output.id !== trace.ref.port || shape.value.type.kind !== 'concrete' || shape.value.type.name !== 'COMBO') continue
+    const value = choice.values[shape.value.id]
+    const next = typeof value === 'string' ? renamed.get(value) : undefined
+    const offered = next === undefined ? undefined : resolvePrimitive(graphId, choice)?.spec?.options['options']
+    if (next !== undefined && Array.isArray(offered) && offered.includes(next) &&
+      !rewrites.some((rewrite) => rewrite['node'] === choice.id)) rewrites.push({ node: choice.id, valueKey: shape.value.id, value: next })
+  }
+  return rewrites
 }
 
-const dynamicLabelMembers: CommandDefinition = {
-  id: 'dynamic.labelMembers',
-  prepareForSharedReplay: prepareInheritedState,
-  validateDispatch: validateInheritedState,
-  run(doc, params, tx, context) {
-    if (!isObj(params) || typeof params.nodeId !== 'string' ||
-        typeof params.construct !== 'string' || params.construct.length === 0 ||
-        !isObj(params.labels) || Object.keys(params.labels).length === 0 ||
-        !Object.entries(params.labels).every(([member, label]) => member.length > 0 &&
-          (label === null || typeof label === 'string' && label.trim().length > 0)) ||
-        (params.ancestors !== undefined && (!Array.isArray(params.ancestors) || !params.ancestors.every(isAncestor)))) {
-      return [err('params.invalid', 'dynamic.labelMembers: params must be {graphId, nodeId, ancestors?, construct, labels: {member: string|null}}')]
-    }
+/** Rename members and, in the same undo step, the Choices that pick them by name. */
+function labelMembersCommand(
+  id: string,
+  updatesOf: (params: JsonObject) => Readonly<Record<string, string | null>> | undefined,
+  usage: string,
+): CommandDefinition {
+  const plan = (doc: WorkflowDocument, params: Json) => {
+    if (!isObj(params) || typeof params.nodeId !== 'string' || typeof params.construct !== 'string' || params.construct.length === 0)
+      return { error: err('params.invalid', usage) }
+    const updates = updatesOf(params)
+    if (updates === undefined) return { error: err('params.invalid', usage) }
     const def = graphOf(doc, params.graphId)
-    if (!def) return [err('graph.missing', `dynamic.labelMembers: unknown graph '${String(params.graphId)}'`)]
+    if (!def) return { error: err('graph.missing', `${id}: unknown graph '${String(params.graphId)}'`) }
     const node = def.nodes[params.nodeId]
-    if (!node) return [err('node.missing', `dynamic.labelMembers: unknown node '${params.nodeId}'`)]
-    const ancestors = (params.ancestors ?? []) as readonly AncestorJson[]
-    const labels = Object.fromEntries(Object.entries(params.labels).map(([member, label]) => [
-      member, typeof label === 'string' ? label.trim() : null,
-    ]))
-    const next = labelInScope(node.dynamic, ancestors, params.construct, labels,
-      inheritedState(doc, def, node, params, context))
-    if (!next.ok) return [next.diagnostic]
-    if (JSON.stringify(next.scope) === JSON.stringify(node.dynamic ?? {})) return []
-    tx.set(['graphs', params.graphId as string, 'nodes', params.nodeId, 'dynamic'], next.scope as unknown as Json)
-    return []
-  },
+    if (!node) return { error: err('node.missing', `${id}: unknown node '${params.nodeId}'`) }
+    const next = labelMembers(node.dynamic, params.construct, updates)
+    if (!next.ok) return { error: next.diagnostic }
+    const graphId = params.graphId as string
+    const after = { ...doc, graphs: { ...doc.graphs, [graphId]: { ...def, nodes: { ...def.nodes, [node.id]: { ...node, dynamic: next.scope } } } } } as WorkflowDocument
+    return { graphId, node, construct: params.construct, scope: next.scope, after }
+  }
+  return {
+    id,
+    run(doc, params, tx, context) {
+      const planned = plan(doc, params)
+      if ('error' in planned) return [planned.error]
+      if (JSON.stringify(planned.scope) === JSON.stringify(planned.node.dynamic ?? {})) return []
+      tx.set(['graphs', planned.graphId, 'nodes', planned.node.id, 'dynamic'], planned.scope as unknown as Json)
+      const resolve = schemaResolverForCommand(doc, context)
+      const given = (params as JsonObject)['choices']
+      const rewrites = Array.isArray(given) ? given.filter(isObj)
+        : resolve === undefined ? [] : choiceRenamesOf(doc, planned.after, planned.graphId, planned.node.id, planned.construct, resolve)
+      for (const rewrite of rewrites) {
+        const target = typeof rewrite['node'] === 'string' ? planned.after.graphs[planned.graphId]?.nodes[rewrite['node']] : undefined
+        if (target !== undefined && typeof rewrite['valueKey'] === 'string' && typeof rewrite['value'] === 'string')
+          tx.set(['graphs', planned.graphId, 'nodes', target.id, 'values', rewrite['valueKey']], rewrite['value'])
+      }
+      return []
+    },
+    prepareForSharedReplay(doc, params, context) {
+      const planned = plan(doc, params)
+      const resolve = schemaResolverForCommand(doc, context)
+      if ('error' in planned || resolve === undefined || (params as JsonObject)['choices'] !== undefined) return undefined
+      const choices = choiceRenamesOf(doc, planned.after, planned.graphId, planned.node.id, planned.construct, resolve)
+      return { ok: true, params: { ...(params as JsonObject), choices } }
+    },
+  }
 }
 
-// Slot specialization deliberately shares the combo scope walker: selected
-// has one persisted home, and ancestor/idempotence semantics must not drift.
-// Like every core command this remains schema-blind; elaboration diagnoses an
-// unknown key rather than commands coupling document edits to schema lookup.
+const dynamicLabelMember = labelMembersCommand('dynamic.labelMember', (params) => {
+  if (typeof params.member !== 'string' || params.member.length === 0 ||
+    (params.label !== null && (typeof params.label !== 'string' || params.label.trim().length === 0))) return undefined
+  return { [params.member]: typeof params.label === 'string' ? params.label.trim() : null }
+}, 'dynamic.labelMember: params must be {graphId, nodeId, construct, member, label: string|null}')
+
+const dynamicLabelMembers = labelMembersCommand('dynamic.labelMembers', (params) => {
+  if (!isObj(params.labels) || Object.keys(params.labels).length === 0 ||
+    !Object.entries(params.labels).every(([member, label]) => member.length > 0 &&
+      (label === null || typeof label === 'string' && label.trim().length > 0))) return undefined
+  return Object.fromEntries(Object.entries(params.labels).map(([member, label]) => [
+    member, typeof label === 'string' ? label.trim() : null,
+  ]))
+}, 'dynamic.labelMembers: params must be {graphId, nodeId, construct, labels: {member: string|null}}')
+
+// Slot specialization deliberately shares the choice editor: selected has one
+// persisted home, and idempotence semantics must not drift. Like every core
+// command this remains schema-blind; elaboration diagnoses an unknown key
+// rather than commands coupling document edits to schema lookup.
 const dynamicSpecializeSlot: CommandDefinition = {
   id: 'dynamic.specializeSlot',
-  prepareForSharedReplay: prepareInheritedState,
-  validateDispatch: validateInheritedState,
-  run(doc, params, tx, context) {
+  run(doc, params, tx) {
     if (!isObj(params) || typeof params.nodeId !== 'string' || typeof params.construct !== 'string' ||
-      params.construct.length === 0 || (params.variant !== null && typeof params.variant !== 'string') ||
-      (params.ancestors !== undefined && (!Array.isArray(params.ancestors) || !params.ancestors.every(isAncestor))))
-      return [err('params.invalid', 'dynamic.specializeSlot: params must be {graphId, nodeId, ancestors?: [{construct, member}...], construct, variant: string|null}')]
+      params.construct.length === 0 || (params.variant !== null && typeof params.variant !== 'string'))
+      return [err('params.invalid', 'dynamic.specializeSlot: params must be {graphId, nodeId, construct, variant: string|null}')]
     const def = graphOf(doc, params.graphId)
     if (!def) return [err('graph.missing', `dynamic.specializeSlot: unknown graph '${String(params.graphId)}'`)]
     const node = def.nodes[params.nodeId]
     if (!node) return [err('node.missing', `dynamic.specializeSlot: unknown node '${params.nodeId}'`)]
-    const ancestors = (params.ancestors ?? []) as readonly AncestorJson[]
-    if (ancestors.length + 1 > MAX_DYNAMIC_STATE_DEPTH)
-      return [err('dynamic.tooDeep', `dynamic.specializeSlot: nesting exceeds the cap of ${MAX_DYNAMIC_STATE_DEPTH}`)]
-    const next = editInScope(node.dynamic, ancestors, params.construct, { selected: params.variant as string | null }, inheritedState(doc, def, node, params, context))
-    if (!next.ok) return [next.diagnostic]
-    if (JSON.stringify(next.scope) === JSON.stringify(node.dynamic ?? {})) return []
-    tx.set(['graphs', params.graphId as string, 'nodes', params.nodeId, 'dynamic'], next.scope as unknown as Json)
+    const next = editState(node.dynamic, params.construct, { selected: params.variant as string | null })
+    if (JSON.stringify(next) === JSON.stringify(node.dynamic ?? {})) return []
+    tx.set(['graphs', params.graphId as string, 'nodes', params.nodeId, 'dynamic'], next as unknown as Json)
     return []
   },
 }
@@ -477,74 +393,74 @@ const dynamicSpecializeSlot: CommandDefinition = {
 // dynamic.compact {graphId, nodeId}
 // ---------------------------------------------------------------------------
 
-interface Address {
-  readonly port: string
-  readonly members: readonly string[]
+/** A group, by its flattened id, and one of its members that something references. */
+interface MemberReference {
+  readonly construct: string
+  readonly member: string
 }
-
-const pathStartsWith = (path: readonly string[], prefix: readonly string[]): boolean =>
-  prefix.length <= path.length && prefix.every((member, i) => path[i] === member)
 
 const portIsWithin = (port: string, construct: string): boolean =>
   port === construct || port.startsWith(`${construct}.`)
 
+/**
+ * Drop every member of every group that no reference names, and everything
+ * stored under it. Each group's state sits at its flattened id, so a
+ * reference keeps a member when the reference's group is this group or lies
+ * within it and the reference names that member key. A group that grows by
+ * hand keeps its first unused members up to its minimum.
+ */
 function compactScope(
   scope: Readonly<Record<string, DynamicPortState>>,
-  ancestors: readonly string[],
-  references: readonly Address[],
-  exempt: (construct: string, ancestors: readonly string[]) => boolean,
+  references: readonly MemberReference[],
+  constructs: ReadonlyMap<string, GroupSpec | ChoiceSpec | TypeChoiceSpec> | undefined,
 ): Record<string, DynamicPortState> {
   const result: Record<string, DynamicPortState> = {}
+  const removed: string[] = []
   for (const [construct, state] of Object.entries(scope)) {
-    if (state.members === undefined || exempt(construct, ancestors)) {
+    if (state.members === undefined) {
       result[construct] = state
       continue
     }
 
+    const kept = new Set(state.members.filter((member) =>
+      references.some((ref) => portIsWithin(ref.construct, construct) && ref.member === member)))
+    const group = constructs?.get(construct)
+    const minimum = group?.kind === 'group' && typeof group.grows === 'string' ? group.minMembers : 0
+    for (const member of state.members) {
+      if (kept.size >= minimum) break
+      kept.add(member)
+    }
     const members: string[] = []
-    const memberState: Record<string, Readonly<Record<string, DynamicPortState>>> = {}
     const memberLabels: Record<string, string> = {}
     for (const member of state.members) {
-      const path = [...ancestors, member]
-      const nested = state.memberState?.[member]
-      const compacted = nested === undefined ? undefined : compactScope(nested, path, references, exempt)
-      const directlyReferenced = references.some(
-        (ref) => portIsWithin(ref.port, construct) && pathStartsWith(ref.members, path),
-      )
-      // Selections and authored menus are user state; surviving members refer to
-      // this member. Seq-only family state is allocation metadata, not data.
-      const nestedReferenced =
-        compacted !== undefined &&
-        Object.values(compacted).some(
-          (child) => child.selected !== undefined || child.options !== undefined || (child.members?.length ?? 0) > 0,
-        )
-      if (!directlyReferenced && !nestedReferenced) continue
+      if (!kept.has(member)) {
+        removed.push(`${construct}.${member}.`)
+        continue
+      }
       members.push(member)
       if (state.memberLabels?.[member] !== undefined) memberLabels[member] = state.memberLabels[member]!
-      if (compacted !== undefined && Object.keys(compacted).length > 0) memberState[member] = compacted
     }
 
     // Keep seq even when the family empties: member ids must never be reused.
-    // Empty members/memberState containers are omitted as canonical form.
-    const { members: _members, memberLabels: _memberLabels, memberState: _memberState, ...rest } = state
-    const inferredSeq = Math.max(
-      state.seq ?? 0,
-      maxMemberSuffix([...(state.members ?? []), ...Object.keys(state.memberState ?? {})]) + 1,
-    )
+    // Empty members containers are omitted as canonical form.
+    const { members: _members, memberLabels: _memberLabels, ...rest } = state
+    const inferredSeq = Math.max(state.seq ?? 0, maxMemberSuffix(state.members) + 1)
     result[construct] = {
       ...rest,
       seq: inferredSeq,
       ...(members.length > 0 ? { members } : {}),
       ...(Object.keys(memberLabels).length > 0 ? { memberLabels } : {}),
-      ...(Object.keys(memberState).length > 0 ? { memberState } : {}),
     }
+  }
+  for (const construct of Object.keys(result)) {
+    if (removed.some((prefix) => construct.startsWith(prefix))) delete result[construct]
   }
   return result
 }
 
 const dynamicCompact: CommandDefinition = {
   id: 'dynamic.compact',
-  run(doc, params, tx) {
+  run(doc, params, tx, context) {
     if (!isObj(params) || typeof params.graphId !== 'string' || typeof params.nodeId !== 'string')
       return [err('params.invalid', 'dynamic.compact: params must be {graphId, nodeId}')]
     const def = graphOf(doc, params.graphId)
@@ -555,15 +471,16 @@ const dynamicCompact: CommandDefinition = {
     if (checkDocument(doc).some((diagnostic) =>
       diagnostic.code.startsWith('doc.occurrenceTopology.') || diagnostic.code === 'doc.dynamic.memberMissing')) return []
 
-    const references: Address[] = []
-    const add = (ref: { readonly node: string; readonly port: string; readonly members?: readonly string[] }): boolean => {
-      if (ref.node !== params.nodeId) return true
+    const references: MemberReference[] = []
+    const add = (ref: { readonly node: string; readonly port: string }): void => {
+      if (ref.node !== params.nodeId) return
       const resolved = resolveDynamicAddress(ref, node.dynamic)
       if (resolved.kind === 'resolved') references.push(...resolved.references)
-      return resolved.kind === 'resolved' || ref.members === undefined
     }
     for (const link of Object.values(def.links)) {
       if (isPortEndpoint(link.from)) add(link.from)
+      // A wire from a field's output uses the member the field is in.
+      else if (isWidgetTapRef(link.from)) add({ node: link.from.node, port: link.from.tap })
       if (isPortEndpoint(link.to)) add(link.to)
     }
     for (const net of Object.values(def.nets)) {
@@ -590,8 +507,7 @@ const dynamicCompact: CommandDefinition = {
       for (const link of Object.values(topology.links)) {
         for (const endpoint of [link.from, link.to]) {
           if (endpoint.kind === 'body') {
-            if (topology.bodyGraph === params.graphId && isPortEndpoint(endpoint.endpoint) && !add(endpoint.endpoint))
-              unresolvedOverlay = true
+            if (topology.bodyGraph === params.graphId && isPortEndpoint(endpoint.endpoint)) add(endpoint.endpoint)
             continue
           }
           let endpointParent = doc.graphs[doc.root]
@@ -609,58 +525,95 @@ const dynamicCompact: CommandDefinition = {
             continue
           }
           if (endpointParent.id === params.graphId && endpoint.occurrence.node === params.nodeId) {
-            if (!add({
-              node: endpoint.occurrence.node,
-              port: endpoint.address.port,
-              ...(endpoint.address.members ? { members: endpoint.address.members } : {}),
-            })) unresolvedOverlay = true
+            add({ node: endpoint.occurrence.node, port: endpoint.address.port })
           }
         }
       }
     }
     if (unresolvedOverlay) return []
 
-    const familyBindings: Address[] = []
-    const subtreeBindings: Address[] = []
-    for (const item of [...(def.boundary?.inputs ?? []), ...(def.boundary?.outputs ?? [])]) {
+    for (const item of [...(boundaryItems(def.boundary, 'inputs') ?? []), ...(boundaryItems(def.boundary, 'outputs') ?? [])]) {
       for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
-        if (binding.node !== params.nodeId) continue
-        if (binding.kind === 'family')
-          familyBindings.push({ port: binding.port, members: binding.members ?? [] })
-        else if (isSubtreeBinding(binding))
-          subtreeBindings.push({ port: binding.port, members: binding.members ?? [] })
-        else if (binding.kind === 'port') add(binding)
+        if (binding.kind === 'port') add(binding)
+        else if (binding.kind === 'widgetTap') add({ node: binding.node, port: binding.tap })
       }
     }
     for (const key of Object.keys(node.values)) {
-      const address = addressOfElabKey(key)
-      if (address?.members !== undefined) {
-        references.push({ port: address.port, members: address.members })
-      } else {
-        const resolved = resolveDynamicAddress({ port: key }, node.dynamic)
-        if (resolved.kind === 'resolved') references.push(...resolved.references)
-      }
-    }
-    // Wire-15 persists nested selector/slot state in flattened dot-scoped
-    // keys. That state is member-owned evidence even when no link/value is
-    // present, so retain every ancestor family it addresses.
-    for (const [key, state] of Object.entries(node.dynamic)) {
-      if (state.selected === undefined) continue
       const resolved = resolveDynamicAddress({ port: key }, node.dynamic)
       if (resolved.kind === 'resolved') references.push(...resolved.references)
     }
-
-    // A family-forwarded construct may have instance suffix state elsewhere,
-    // so compacting it cannot be proven safe without schema/instance data.
-    const exempt = (construct: string, ancestors: readonly string[]): boolean =>
-      familyBindings.some(
-        (binding) => binding.port === construct && pathStartsWith(ancestors, binding.members) && ancestors.length === binding.members.length,
-      ) || subtreeBindings.some(
-        (binding) => (construct === binding.port || construct.startsWith(`${binding.port}.`)) && pathStartsWith(ancestors, binding.members),
-      )
-    const next = compactScope(node.dynamic, [], references, exempt)
+    // A chosen key or an authored menu stored at a flattened id under a
+    // member is member-owned evidence even when no link or value is present,
+    // so retain every group it lies within. A required choice on its start
+    // key is what adding the member would give again, so it is not use.
+    const schema = context.kind === 'initial' ? context.schemaResolverFor?.(doc)?.(node.type) : undefined
+    const constructs = schema === undefined ? undefined : constructsOf(schema, node.dynamic)
+    for (const [key, state] of Object.entries(node.dynamic)) {
+      if (state.selected === undefined && state.options === undefined) continue
+      const choice = constructs?.get(key)
+      if (state.options === undefined && choice?.kind === 'choice' && choice.required && choice.leader === undefined &&
+        state.selected === (choice.default ?? choice.options[0]?.key)) continue
+      const resolved = resolveDynamicAddress({ port: key }, node.dynamic)
+      if (resolved.kind === 'resolved') references.push(...resolved.references)
+    }
+    const next = compactScope(node.dynamic, references, constructs)
     if (JSON.stringify(next) === JSON.stringify(node.dynamic)) return []
     tx.set(['graphs', params.graphId, 'nodes', params.nodeId, 'dynamic'], next as unknown as Json)
+    return []
+  },
+}
+
+/**
+ * dynamic.moveMember {graphId, nodeId, construct, member, index}: move one
+ * stored member of a reorderable group to `index` in its stored order. Keys,
+ * values, labels and `seq` stay, so a wire or a promoted row keeps pointing
+ * at the same member; a member's shown number and the order a run receives
+ * follow its new position.
+ */
+const dynamicMoveMember: CommandDefinition = {
+  id: 'dynamic.moveMember',
+  run(doc, params, tx, context) {
+    if (!isObj(params) || typeof params.graphId !== 'string' || typeof params.nodeId !== 'string' ||
+      typeof params.construct !== 'string' || params.construct.length === 0 ||
+      typeof params.member !== 'string' || typeof params.index !== 'number' || !Number.isSafeInteger(params.index))
+      return [err('params.invalid', 'dynamic.moveMember: params must be {graphId, nodeId, construct, member, index}')]
+    const def = graphOf(doc, params.graphId)
+    if (!def) return [err('graph.missing', `dynamic.moveMember: unknown graph '${params.graphId}'`)]
+    const node = def.nodes[params.nodeId]
+    if (!node) return [err('node.missing', `dynamic.moveMember: unknown node '${params.nodeId}'`)]
+    // A shared session's rebase replays a move that was already checked.
+    if (context.kind === 'initial') {
+      const schema = context.schemaResolverFor?.(doc)?.(node.type)
+      const group = schema === undefined ? undefined : constructsOf(schema, node.dynamic).get(params.construct)
+      if (group?.kind !== 'group' || group.reorderable !== true || typeof group.grows !== 'string')
+        return [err('dynamic.notReorderable', `dynamic.moveMember: '${params.construct}' is not a group whose members can be reordered`)]
+    }
+    const state = node.dynamic?.[params.construct]
+    const members = [...(state?.members ?? [])]
+    const from = members.indexOf(params.member)
+    if (from < 0) return [err('dynamic.memberMissing', `dynamic.moveMember: '${params.construct}' has no stored member '${params.member}'`)]
+    if (params.index < 0 || params.index >= members.length)
+      return [err('params.invalid', `dynamic.moveMember: index ${params.index} is outside 0..${members.length - 1}`)]
+    if (from === params.index) return []
+    members.splice(from, 1)
+    members.splice(params.index, 0, params.member)
+    tx.set(['graphs', params.graphId, 'nodes', params.nodeId, 'dynamic'],
+      { ...node.dynamic, [params.construct]: { ...state, members } } as unknown as Json)
+    return []
+  },
+}
+
+/**
+ * dynamic.storeStartState {}: store the start key of every required choice,
+ * and the minimum members of every group that grows by hand, in the
+ * document that has nothing stored. Run when a document meets its
+ * schemas; every other command does this for the nodes it changes.
+ */
+const dynamicStoreStartState: CommandDefinition = {
+  id: 'dynamic.storeStartState',
+  run(doc, _params, tx, context) {
+    const resolve = context.kind === 'initial' ? context.schemaResolverFor?.(doc) : undefined
+    if (resolve !== undefined) storeStartState(tx, resolve, allNodesOf(doc))
     return []
   },
 }
@@ -673,4 +626,6 @@ export const DYNAMIC_COMMANDS: readonly CommandDefinition[] = [
   dynamicLabelMembers,
   dynamicSpecializeSlot,
   dynamicCompact,
+  dynamicMoveMember,
+  dynamicStoreStartState,
 ]

@@ -18,7 +18,7 @@ import {
   dispatchAppCommandKey,
 } from '../src/App.js'
 import { ActivityBarButton, DockZoneHost, FloatingPanelHost, IconBar, ShellResizeHandle } from '../src/ShellChrome.js'
-import { CanvasViewControls } from '../src/CanvasHost.js'
+import { CanvasCornerControls, CanvasViewControls, type CanvasCornerMenu } from '../src/CanvasChrome.js'
 import { ContextMenu } from '../src/ContextMenu.js'
 import { APP_EDITOR_KIND, GRAPH_EDITOR_KIND } from '../src/editors.js'
 import { AppState, workflowExportFilename } from '../src/app-state.js'
@@ -69,7 +69,7 @@ function menuFixture(saveDisabled = false) {
   return { root, save, keybindings, dispose }
 }
 
-function canvasViewControlsFixture(appViewEnabled = true) {
+function canvasViewControlsFixture(appViewEnabled = true, lens = { id: 'standard', label: 'Standard' }) {
   const root = document.createElement('div')
   document.body.append(root)
   const [activeView, setActiveView] = createSignal<string>(GRAPH_EDITOR_KIND)
@@ -89,7 +89,7 @@ function canvasViewControlsFixture(appViewEnabled = true) {
       disabled={false}
       activeView={activeView()}
       appViewEnabled={appViewEnabled}
-      activeLens={{ id: 'standard', label: 'Standard' }}
+      activeLens={lens}
       lenses={[
         { id: 'standard', label: 'Standard', description: 'Default graph presentation.' },
         { id: 'types', label: 'Types', description: 'Show type details.' },
@@ -131,7 +131,7 @@ describe('icon bar', () => {
     expect(bar.querySelector('.sidebar-account > [data-testid="account"]')).not.toBeNull()
     const settingsButton = bar.querySelector<HTMLButtonElement>('[data-testid="settings-button"]')!
     expect(settingsButton.classList.contains('sidebar-settings-button')).toBe(true)
-    expect(settingsButton.dataset['tooltipDetail']).toBe('Ctrl+,')
+    expect(settingsButton.dataset['tooltipShortcut']).toBe('Ctrl+,')
     click(settingsButton)
     expect(settings).toHaveBeenCalledTimes(1)
     expect(place).not.toHaveBeenCalled()
@@ -153,13 +153,25 @@ describe('canvas view controls', () => {
     dispose()
   })
 
-  it('shows the active view name and lists both views', () => {
+  it('names the active view on its icon button and lists both views', () => {
     const { root, setViewMenuOpen, dispose } = canvasViewControlsFixture()
-    expect(root.querySelector('[data-testid="views-switcher"]')?.textContent).toContain('Graph')
+    expect(root.querySelector('[data-testid="views-switcher"]')?.textContent).toBe('')
+    expect(root.querySelector('[data-testid="views-switcher"]')?.getAttribute('aria-label')).toBe('View: Graph')
     setViewMenuOpen(true)
     const items = [...root.querySelectorAll('.view-menu [role="menuitemradio"]')]
-    expect(items.map((item) => item.textContent?.trim())).toEqual(['Graph', 'App view'])
+    expect(items.map((item) => item.textContent?.trim())).toEqual(['Graph', 'App'])
     dispose()
+  })
+
+  it('shows the lens name on the lens button only while it is not Standard', () => {
+    const standard = canvasViewControlsFixture()
+    expect(standard.root.querySelector('[data-testid="lens-switcher"]')?.textContent).toBe('')
+    expect(standard.root.querySelector('[data-testid="lens-switcher"]')?.getAttribute('aria-label')).toBe('Lens: Standard')
+    standard.dispose()
+    const types = canvasViewControlsFixture(true, { id: 'types', label: 'Types' })
+    expect(types.root.querySelector('[data-testid="lens-switcher"]')?.textContent).toBe('Types')
+    expect(types.root.querySelector('[data-testid="lens-switcher"]')?.getAttribute('data-lens-named')).toBe('true')
+    types.dispose()
   })
 
   it('switches the editor kind and updates the active view name', () => {
@@ -167,7 +179,7 @@ describe('canvas view controls', () => {
     setViewMenuOpen(true)
     click([...root.querySelectorAll('.view-menu [role="menuitemradio"]')][1]!)
     expect(selectView).toHaveBeenCalledWith(APP_EDITOR_KIND)
-    expect(root.querySelector('[data-testid="views-switcher"]')?.textContent).toContain('App')
+    expect(root.querySelector('[data-testid="views-switcher"]')?.getAttribute('aria-label')).toBe('View: App')
     dispose()
   })
 
@@ -196,7 +208,7 @@ describe('canvas view controls', () => {
 
     setLocale('de-DE')
 
-    expect(root.querySelector('[data-testid="views-switcher"]')?.textContent).toContain('[Diagrammansicht]')
+    expect(root.querySelector('[data-testid="views-switcher"]')?.getAttribute('aria-label')).toContain('[Diagrammansicht]')
     expect(root.querySelector('[data-testid="views-switcher"]')?.getAttribute('data-tooltip-label')).toBeNull()
     expect(root.querySelector('.view-menu')).toBe(viewMenu)
     expect(document.activeElement).toBe(graphItem)
@@ -220,6 +232,76 @@ describe('canvas view controls', () => {
   })
 })
 
+describe('canvas corner controls', () => {
+  it('steps the zoom with minus and plus or the Zoom in and Zoom out rows, leaving the menu open; types a percentage over the number; Reset closes it', () => {
+    const root = document.createElement('div')
+    document.body.append(root)
+    const [menu, setMenu] = createSignal<CanvasCornerMenu | undefined>('zoom')
+    const [zoom, setZoom] = createSignal(0.374)
+    const zoomTo = vi.fn()
+    const zoomBy = vi.fn((factor: number) => setZoom((value) => value * factor))
+    const dispose = render(() => (
+      <CanvasCornerControls
+        size="small"
+        minimapVisible
+        settings={{}}
+        zoom={zoom()}
+        menu={menu()}
+        shortcuts={{ zoomIn: 'alt+=', zoomOut: 'alt+-' }}
+        onToggleMinimap={() => {}}
+        onToggleSetting={() => {}}
+        onOpenMenu={setMenu}
+        onCloseMenu={() => setMenu(undefined)}
+        onFit={() => {}}
+        onZoomBy={zoomBy}
+        onZoomTo={zoomTo}
+      />
+    ), root)
+    const row = () => root.querySelector('[data-testid="canvas-zoom-row"]')!
+    const zoomOut = row().querySelector<HTMLButtonElement>('[aria-label="Zoom out"]')!
+    expect(zoomOut.dataset['tooltipShortcut']).toBe('alt+-')
+    click(zoomOut)
+    click(row().querySelector('[aria-label="Zoom out"]')!)
+    expect(zoomBy).toHaveBeenCalledTimes(2)
+    expect(zoomBy).toHaveBeenLastCalledWith(1 / 1.2)
+    expect(menu()).toBe('zoom')
+    expect(row().querySelector('.dinkster-canvas-closed-row-value')?.textContent).toBe('26%')
+    const zoomInRow = root.querySelector('[data-testid="canvas-zoom-in"]')!
+    expect([...zoomInRow.querySelectorAll('kbd')].map((key) => key.textContent)).toEqual(['Alt+='])
+    click(zoomInRow)
+    expect(zoomBy).toHaveBeenLastCalledWith(1.2)
+    expect(menu()).toBe('zoom')
+    expect(row().querySelector('.dinkster-canvas-closed-row-value')?.textContent).toBe('31%')
+    expect(row().querySelector('.dinkster-canvas-closed-row-open')?.getAttribute('aria-label')).toBe('Zoom: 31%')
+    zoomInRow.dispatchEvent(new KeyboardEvent('keydown', { key: '6', bubbles: true }))
+    expect(root.querySelector<HTMLInputElement>('[data-testid="canvas-zoom-input"]')!.value).toBe('6')
+    setMenu(undefined)
+    setMenu('zoom')
+    expect(root.querySelector('[data-testid="canvas-zoom-input"]')).toBeNull()
+
+    click(row().querySelector('.dinkster-canvas-closed-row-open')!)
+    const field = root.querySelector<HTMLInputElement>('[data-testid="canvas-zoom-input"]')!
+    expect(field.value).toBe('31')
+    field.value = '150'
+    field.dispatchEvent(new Event('input', { bubbles: true }))
+    field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    expect(zoomTo).toHaveBeenCalledWith(1.5)
+    expect(menu()).toBeUndefined()
+
+    setMenu('zoom')
+    expect(root.querySelector('[data-testid="canvas-zoom-input"]')).toBeNull()
+    row().querySelector('.dinkster-canvas-closed-row-open')!.dispatchEvent(new KeyboardEvent('keydown', { key: '8', bubbles: true }))
+    expect(root.querySelector<HTMLInputElement>('[data-testid="canvas-zoom-input"]')!.value).toBe('8')
+    setMenu(undefined)
+    setMenu('zoom')
+    click(root.querySelector('[data-testid="canvas-zoom-reset"]')!)
+    expect(zoomTo).toHaveBeenLastCalledWith(1)
+    expect(menu()).toBeUndefined()
+    dispose()
+    root.remove()
+  })
+})
+
 describe('Dinkster app menu', () => {
   it('updates registered command and setting labels from the active locale catalog', () => {
     registerCatalog('de-DE', {
@@ -239,15 +321,15 @@ describe('Dinkster app menu', () => {
     app.dispose()
   })
 
-  it('shows current shortcut bindings, including overrides, and omits unbound hints', () => {
+  it('shows current shortcut bindings as keys, including overrides, and omits unbound shortcuts', () => {
     const { root, keybindings, dispose } = menuFixture()
     keybindings.set('edit.undo', 'Meta+U')
     keybindings.set('view.fitSelection', null)
     click(root.querySelector('[data-testid="dinkster-menu-button"]')!)
 
-    expect(root.querySelector('[data-item-id="workflow.open"] .menu-hint')?.textContent).toBe('ctrl+o')
-    expect(root.querySelector('[data-item-id="edit.undo"] .menu-hint')?.textContent).toBe('meta+u')
-    expect(root.querySelector('[data-item-id="view.fitSelection"] .menu-hint')).toBeNull()
+    expect([...root.querySelectorAll('[data-item-id="workflow.open"] kbd')].map((key) => key.textContent)).toEqual(['Ctrl+O'])
+    expect([...root.querySelectorAll('[data-item-id="edit.undo"] kbd')].map((key) => key.textContent)).toEqual(['Cmd+U'])
+    expect(root.querySelector('[data-item-id="view.fitSelection"] kbd')).toBeNull()
     dispose()
   })
 
@@ -276,6 +358,55 @@ describe('Dinkster app menu', () => {
     expect(root.querySelector('[data-testid="context-menu"]')).toBeNull()
     await new Promise<void>((resolve) => queueMicrotask(resolve))
     expect(document.activeElement).toBe(root.querySelector('[data-testid="dinkster-menu-button"]'))
+    dispose()
+  })
+
+  it('hides menu-button help while open and restores hover and focus help after closing', async () => {
+    const { root, dispose } = menuFixture()
+    const button = root.querySelector('[data-testid="dinkster-menu-button"]') as HTMLButtonElement
+    const controller = new TooltipController(() => 0)
+    controller.register({ id: 'dom', resolve: (target) => ({ lines: [(target as { label: string }).label] }) })
+    const detach = attachDomTooltips(root, controller)
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+    for (const opening of ['pointer', 'keyboard']) {
+      button.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }))
+      button.focus()
+      await settle()
+      expect(controller.visible?.lines).toEqual(['Dinkster'])
+      if (opening === 'pointer') {
+        button.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+        click(button)
+      } else button.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+      await settle()
+      expect(root.querySelector('[data-testid="context-menu"]')).not.toBeNull()
+      expect(controller.visible).toBeUndefined()
+
+      button.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, relatedTarget: document.body }))
+      button.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, relatedTarget: document.body }))
+      await settle()
+      expect(controller.visible).toBeUndefined()
+      button.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, relatedTarget: document.body }))
+      root.querySelector('[data-testid="context-menu"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      await settle()
+      expect(root.querySelector('[data-testid="context-menu"]')).toBeNull()
+      expect(document.activeElement).toBe(button)
+      expect(controller.visible).toBeUndefined()
+      button.blur()
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab' }))
+      button.focus()
+      await settle()
+      expect(controller.visible?.lines).toEqual(['Dinkster'])
+
+      button.blur()
+      button.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, relatedTarget: document.body }))
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+      expect(controller.visible).toBeUndefined()
+      button.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, relatedTarget: document.body }))
+      await settle()
+      expect(controller.visible?.lines).toEqual(['Dinkster'])
+    }
+    detach()
     dispose()
   })
 
@@ -399,6 +530,44 @@ describe('Dinkster app menu', () => {
 })
 
 describe('canvas context menu availability', () => {
+  it.each([
+    ['en', 'Clear unused slots', 'Clear unused slots on 2 nodes'],
+    ['zh', '\u6e05\u9664\u672a\u4f7f\u7528\u7684\u63d2\u69fd', '\u6e05\u9664 2 \u4e2a\u8282\u70b9\u4e0a\u672a\u4f7f\u7528\u7684\u63d2\u69fd'],
+  ])('renders clear-unused-slot labels for single and multiple eligible nodes in %s', (locale, single, multiple) => {
+    setLocale(locale)
+    const registry = createMenuRegistry()
+    for (const contribution of coreMenuContributions()) registry.register(contribution)
+    const doc = {
+      graphs: { g0: { id: 'g0', name: 'root', nodes: {
+        n1: { id: 'n1', type: 'Stack', values: {}, dynamic: { items: { members: ['m0'], seq: 1 } } },
+        n2: { id: 'n2', type: 'Stack', values: {}, dynamic: { items: { members: ['m4'], seq: 5 } } },
+        n3: { id: 'n3', type: 'Plain', values: {} },
+      }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 3 } },
+      view: { graphs: { g0: { nodes: {} } } },
+    } as unknown as WorkflowDocument
+    for (const nodes of [['n1'], ['n1', 'n3'], ['n1', 'n2', 'n3']]) {
+      const groups = resolveNodeMenuGroups(registry, canvasMenuContext({
+        doc, namedNets: true, graphId: 'g0', target: { kind: 'node', nodeId: 'n1' },
+        selection: { nodes, links: [], reroutes: [] }, worldX: 10, worldY: 20,
+      }), false)
+      const root = document.createElement('div')
+      document.body.append(root)
+      const dispose = render(() => <ContextMenu
+        menu={{ x: 10, y: 20, worldX: 10, worldY: 20, groups }}
+        onInvoke={() => undefined} onClose={() => undefined}
+      />, root)
+      try {
+        const item = root.querySelector('[data-item-id="core.node.compactDynamic"]')!
+        expect(item.textContent?.trim()).toBe(nodes.includes('n2') ? multiple : single)
+        expect(item.getAttribute('aria-disabled')).toBe('false')
+        expect(root.textContent).not.toContain('Remove unused dynamic inputs')
+      } finally {
+        dispose()
+        root.remove()
+      }
+    }
+  })
+
   it('marks create empty subgraph aria-disabled and refuses invocation for a frozen tab', () => {
     const registry = createMenuRegistry()
     for (const contribution of coreMenuContributions()) registry.register(contribution)
@@ -411,7 +580,7 @@ describe('canvas context menu availability', () => {
       namedNets: true,
       graphId: 'g0',
       target: { kind: 'canvas' },
-      selection: { nodes: [], links: [], reroutes: [], valueSources: [], selectors: [] },
+      selection: { nodes: [], links: [], reroutes: [] },
       worldX: 10,
       worldY: 20,
     }), false, false)
@@ -623,7 +792,7 @@ describe('workflow file commands', () => {
     prepareWorkflowApp(app)
     const schema: NodeSchema = {
       type: 'test.asset-download', displayName: 'Asset download', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'input', id: 'a', type: { kind: 'asset', element: { kind: 'concrete', name: 'DATA' } }, optional: false }],
+      body: [{ kind: 'input', id: 'a', type: { kind: 'asset', element: { kind: 'concrete', name: 'DATA' } }, optional: false }],
     }
     backend.registry.set({ connection: backend.id, schemas: new Map([[schema.type, schema]]),
       hash: 'asset-download', diagnostics: [], resolve: (type) => type === schema.type ? schema : undefined })
@@ -847,7 +1016,7 @@ describe('workflow file commands', () => {
       category: 'test',
       source: 'v3',
       isOutputNode: false,
-      items: [],
+      body: [],
     }
     const backend = app.backends.get()[0]!
     backend.registry.set({
@@ -1029,11 +1198,11 @@ describe('shared shell panel chrome', () => {
     const { host, dispose } = floatingPanel({ panel: {
       indicator: () => count() === 0
         ? undefined
-        : { count: count(), severity: 'info', label: 'Queue ready' },
+        : { count: count(), severity: 'warning', label: '1 problem' },
     } })
     const badge = () => host.querySelector('[data-testid="panel-indicator"]')
-    expect(badge()?.getAttribute('data-severity')).toBe('info')
-    expect(badge()?.querySelector('.visually-hidden')?.textContent).toBe('Queue ready')
+    expect(badge()?.getAttribute('data-severity')).toBe('warning')
+    expect(badge()?.querySelector('.visually-hidden')?.textContent).toBe('1 problem')
     setCount(0)
     expect(badge()).toBeNull()
     dispose()
@@ -1565,6 +1734,11 @@ describe('DockZoneHost', () => {
       />
     ), root)
     const tablist = root.querySelector('[role="tablist"]')!
+    ;(tablist as HTMLElement).style.padding = '4px'
+    const tabs = root.querySelectorAll<HTMLElement>('[role="tab"]')
+    tabs.forEach((tab, index) => {
+      vi.spyOn(tab, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 72 + index * 12, 32))
+    })
     let clientWidth = 100
     Object.defineProperty(tablist, 'clientWidth', { configurable: true, get: () => clientWidth })
     const remeasure = async (clipped: boolean): Promise<void> => {
@@ -1670,6 +1844,30 @@ describe('DockZoneHost', () => {
 })
 
 describe('left rail tooltip hover session', () => {
+  it('keeps keyboard help when the pointer leaves an unrelated canvas without a session', () => {
+    const root = document.createElement('div')
+    const target = document.createElement('button')
+    target.dataset['tooltipLabel'] = 'Search Dinkster'
+    const canvas = document.createElement('canvas')
+    root.append(target, canvas)
+    document.body.append(root)
+    const controller = new TooltipController(() => 500)
+    controller.register({ id: 'dom', resolve: (target) => ({ lines: [(target as { label: string }).label] }) })
+    const detach = attachDomTooltips(root, controller)
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab' }))
+    target.focus()
+    window.dispatchEvent(new KeyboardEvent('keyup', { key: 'Tab' }))
+    expect(controller.visible?.lines).toEqual(['Search Dinkster'])
+
+    canvas.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, relatedTarget: null }))
+    expect(document.activeElement).toBe(target)
+    expect(controller.visible?.lines).toEqual(['Search Dinkster'])
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    expect(controller.visible).toBeUndefined()
+    detach()
+  })
+
   it('keeps the original delay deadline while moving between adjacent pending targets', () => {
     vi.useFakeTimers()
     const controller = new TooltipController(() => 500)
@@ -1708,6 +1906,7 @@ describe('left rail tooltip hover session', () => {
     library!.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }))
     expect(controller.visible?.lines).toEqual(['Library\nBrowse saved workflows'])
     library!.dispatchEvent(new PointerEvent('pointerout', { bubbles: true }))
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab' }))
     pack!.focus()
     expect(controller.visible?.lines).toEqual(['Pack'])
     pack!.blur()
@@ -1859,6 +2058,34 @@ describe('stateful tooltip labels', () => {
     return controller
   }
 
+  it('shows hover-only help on rest, dismisses it on press, and never restores it from focus', () => {
+    vi.useFakeTimers()
+    const root = document.createElement('div')
+    const plot = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    plot.setAttribute('tabindex', '0')
+    plot.dataset['tooltipLabel'] = 'Double-click to add a point'
+    plot.dataset['tooltipTrigger'] = 'hover'
+    root.append(plot)
+    document.body.append(root)
+    const controller = labelController()
+    const detach = attachDomTooltips(root, controller)
+    try {
+      plot.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }))
+      vi.runOnlyPendingTimers()
+      expect(controller.visible?.lines).toEqual(['Double-click to add a point'])
+      plot.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+      plot.focus()
+      plot.dispatchEvent(new FocusEvent('focusin', { bubbles: true }))
+      expect(controller.visible).toBeUndefined()
+      plot.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, relatedTarget: document.body }))
+      plot.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, relatedTarget: document.body }))
+      vi.runOnlyPendingTimers()
+      expect(controller.visible?.lines).toEqual(['Double-click to add a point'])
+      plot.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, relatedTarget: document.body }))
+      expect(controller.visible).toBeUndefined()
+    } finally { detach(); vi.useRealTimers() }
+  })
+
   it('re-reads the label when the shown control rewrites it after activation', async () => {
     const root = document.createElement('div')
     const toggle = document.createElement('button')
@@ -1868,8 +2095,8 @@ describe('stateful tooltip labels', () => {
     const controller = labelController()
     const detach = attachDomTooltips(root, controller)
 
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab' }))
     toggle.focus()
-    toggle.dispatchEvent(new FocusEvent('focusin', { bubbles: true }))
     expect(controller.visible?.lines).toEqual(['Hide minimap'])
     toggle.dataset['tooltipLabel'] = 'Show minimap'
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -1886,8 +2113,8 @@ describe('stateful tooltip labels', () => {
     const controller = labelController()
     const detach = attachDomTooltips(root, controller)
 
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab' }))
     toggle.focus()
-    toggle.dispatchEvent(new FocusEvent('focusin', { bubbles: true }))
     expect(controller.visible?.lines).toEqual(['Assets'])
     delete toggle.dataset['tooltipLabel']
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -1904,8 +2131,8 @@ describe('stateful tooltip labels', () => {
     const controller = labelController()
     const detach = attachDomTooltips(root, controller)
 
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab' }))
     toggle.focus()
-    toggle.dispatchEvent(new FocusEvent('focusin', { bubbles: true }))
     expect(controller.visible?.lines).toEqual(['Assets'])
     toggle.remove() // no attribute mutation: only the tree watch sees this
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -1922,8 +2149,8 @@ describe('stateful tooltip labels', () => {
     const controller = labelController()
     const detach = attachDomTooltips(root, controller)
 
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab' }))
     toggle.focus()
-    toggle.dispatchEvent(new FocusEvent('focusin', { bubbles: true }))
     expect(controller.visible?.lines).toEqual(['Hide minimap'])
     toggle.blur()
     toggle.dispatchEvent(new FocusEvent('focusout', { bubbles: true }))

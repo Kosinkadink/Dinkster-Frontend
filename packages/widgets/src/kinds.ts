@@ -20,8 +20,10 @@ import type {
   WidgetSpec,
   WidgetView,
   IntegerWidgetValue,
+  SaveTarget,
+  ProjectDefaultTarget,
 } from '@dinkster/core'
-import { diag, EMPTY_COMPOSITOR_RECIPE, formatWidgetValue, isCanonicalUnsafeInteger, isComboValue, isCompositorRecipe, isIntegerWidgetValue, isPrimitiveListWidgetValue, normalizedComboOptions, numericStepConstraints, numericStepPrecision, t } from '@dinkster/core'
+import { isSaveTarget, isProjectDefaultTarget, comboOptionLabel, diag, EMPTY_COMPOSITOR_RECIPE, formatWidgetValue, isCanonicalUnsafeInteger, isComboValue, isCompositorRecipe, isIntegerWidgetValue, isPrimitiveListWidgetValue, normalizedComboOptions, numericStepConstraints, numericStepPrecision, specialValueLabel, t } from '@dinkster/core'
 
 // ---------------------------------------------------------------------------
 // Kind helpers
@@ -63,6 +65,8 @@ const num = (v: unknown, fallback: number): number =>
   typeof v === 'number' && Number.isFinite(v) ? v : fallback
 
 function rangeDiags(value: number, spec: WidgetSpec, type: string): Diagnostic[] {
+  // A declared special value is allowed outside the limits.
+  if (specialValueLabel(value, spec) !== undefined) return []
   const out: Diagnostic[] = []
   const min = spec.options['min']
   const max = spec.options['max']
@@ -84,6 +88,7 @@ function integerRangeDiags(value: IntegerWidgetValue, spec: WidgetSpec): Diagnos
   }
   const out: Diagnostic[] = []
   const numeric = BigInt(value)
+  if (specialValueLabel(numeric, spec) !== undefined) return out
   const min = spec.options['min']
   const max = spec.options['max']
   if ((Number.isSafeInteger(min) || isCanonicalUnsafeInteger(min)) && numeric < BigInt(min as number | string)) {
@@ -107,6 +112,14 @@ export const intKind: WidgetKind<IntegerWidgetValue> = {
     : isIntegerWidgetValue(spec.options['min']) ? spec.options['min'] : 0,
   validate: (value, spec) => integerRangeDiags(value, spec),
   defaultView: (spec) => spec.options['display'] === 'color' ? 'core.integerColor' : 'core.number',
+  representations: (spec) => spec.options['display'] === 'color' ? {
+    default: 'color',
+    userSwitchable: true,
+    representations: [
+      { id: 'color', displayName: 'Color', widget: { ...spec } },
+      { id: 'number', displayName: 'Number', widget: { ...spec, options: { ...spec.options, display: 'number' } } },
+    ],
+  } : undefined,
 }
 
 /**
@@ -151,6 +164,15 @@ export const imageCompareKind: WidgetKind<null> = {
   defaultView: () => 'core.imageCompare',
 }
 
+/** The painter: an editor row that writes a mask file; it has no value of its own. */
+export const painterKind: WidgetKind<Json> = {
+  type: 'PAINTER',
+  valueSchema: { version: 1, validate: (value): value is Json => value === null || isAssetRef(value) },
+  defaultValue: () => null,
+  validate: () => [],
+  defaultView: () => 'core.painter',
+}
+
 export const cameraAngleKind: WidgetKind<string> = {
   type: 'CAMERA_ANGLE_VIEW',
   valueSchema: stringSchema,
@@ -159,28 +181,16 @@ export const cameraAngleKind: WidgetKind<string> = {
   defaultView: () => 'core.cameraAngle',
 }
 
-export const resolutionKind: WidgetKind<null> = {
-  type: 'RESOLUTION_PREVIEW',
-  valueSchema: { version: 1, validate: (value): value is null => value === null },
-  defaultValue: () => null,
-  validate: () => [],
-  defaultView: () => 'core.resolution',
-}
+export { isSaveTarget, isProjectDefaultTarget } from '@dinkster/core'
 
-type SaveTarget = { mount: string; prefix: string }
-
-export const isSaveTarget = (value: unknown): value is SaveTarget => {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
-  const target = value as Record<string, unknown>
-  return Object.keys(target).length === 2 && typeof target['mount'] === 'string' && /^[a-z0-9][a-z0-9-]*$/.test(target['mount'])
-    && typeof target['prefix'] === 'string' && target['prefix'] !== '' && !target['prefix'].includes('\\')
-    && target['prefix'].split('/').every((segment) => !['', '.', '..'].includes(segment))
-}
-
-export const saveTargetKind: WidgetKind<SaveTarget | null> = {
+export const saveTargetKind: WidgetKind<SaveTarget | ProjectDefaultTarget | null> = {
   type: 'SAVE_TARGET',
-  valueSchema: { version: 1, validate: (value): value is SaveTarget | null => value === null || isSaveTarget(value) },
-  defaultValue: (spec) => isSaveTarget(spec.default) ? { ...spec.default } : null,
+  valueSchema: {
+    version: 1,
+    validate: (value): value is SaveTarget | ProjectDefaultTarget | null =>
+      value === null || isSaveTarget(value) || isProjectDefaultTarget(value),
+  },
+  defaultValue: (spec) => isSaveTarget(spec.default) || isProjectDefaultTarget(spec.default) ? { ...spec.default } : null,
   validate: () => [],
   defaultView: () => 'core.saveTarget',
 }
@@ -248,6 +258,11 @@ export const comboKind: WidgetKind<Json> = {
     const options = normalizedComboOptions(spec)
     if (options.length === 0 && !Array.isArray(spec.options['options'])) return []
     if (options.some((option) => option.value === value)) return []
+    // A list a lookup gave is help for editing: the stored choice is kept and
+    // marked, and the run decides whether it is valid.
+    if (spec.looked?.options !== undefined) {
+      return [diag('warning', 'schema', 'widget.COMBO.unknownOption', `'${String(value)}' is not in the list the pack gave for these inputs`)]
+    }
     return spec.remote
       ? [diag('warning', 'schema', 'widget.COMBO.unknownOption', `'${String(value)}' is not in the last-known option snapshot (the remote list may have changed)`)]
       : [diag('error', 'schema', 'widget.COMBO.unknownOption', `'${String(value)}' is not in the option list`)]
@@ -295,22 +310,19 @@ export const colorKind: WidgetKind<string> = {
   defaultView: () => 'core.color',
 }
 
-export const colorsKind: WidgetKind<string[]> = {
-  type: 'COLORS',
-  valueSchema: { version: 1, validate: (value: unknown): value is string[] => Array.isArray(value) && value.every((item) => typeof item === 'string') },
-  defaultValue: (spec) => colorsKind.valueSchema.validate(spec.default) ? [...spec.default] : [],
-  validate: () => [],
-  defaultView: () => 'core.colors',
-}
-
 export interface CurvePoint {
   readonly position: number
   readonly value: number
 }
 
 export interface CurveValue {
-  readonly interpolation?: 'linear' | 'monotone_cubic'
+  readonly interpolation?: 'linear' | 'monotone_cubic' | 'step'
   readonly points: readonly CurvePoint[]
+}
+
+export function curveEditorInterpolations(options: Readonly<Record<string, unknown>>): readonly NonNullable<CurveValue['interpolation']>[] {
+  return options['interpolations'] as readonly NonNullable<CurveValue['interpolation']>[] | undefined
+    ?? ['linear', 'monotone_cubic', 'step']
 }
 
 const hasExactKeys = (value: object, keys: readonly string[]): boolean => {
@@ -321,7 +333,7 @@ const hasExactKeys = (value: object, keys: readonly string[]): boolean => {
 export function isCurveValue(value: unknown): value is CurveValue {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
   const curve = value as Partial<CurveValue>
-  if (curve.interpolation !== undefined && curve.interpolation !== 'linear' && curve.interpolation !== 'monotone_cubic') return false
+  if (curve.interpolation !== undefined && curve.interpolation !== 'linear' && curve.interpolation !== 'monotone_cubic' && curve.interpolation !== 'step') return false
   if (!hasExactKeys(value, curve.interpolation === undefined ? ['points'] : ['interpolation', 'points'])) return false
   if (!Array.isArray(curve.points) || curve.points.length < 1 || curve.points.length > 4096) return false
   let previous = -Infinity
@@ -482,6 +494,7 @@ export function curveInterpolator(curve: CurveValue): (position: number) => numb
     }
     const left = points[low]!
     const right = points[high]!
+    if (curve.interpolation === 'step') return left.value
     const span = right.position - left.position
     const amount = Number.isFinite(span)
       ? (position - left.position) / span
@@ -643,6 +656,13 @@ function compactRow(
   if (!state.readonly) ctx.hitRegion(0, 0, 1, 1, action)
 }
 
+/** An item's text on a row's one painted line: its line breaks read as spaces. */
+const oneLine = (text: string): string => text.replace(/\r\n|[\r\n]/gu, ' ')
+
+/** A list's readout: its count, then each item on its own line with its position. */
+const positioned = (count: string, items: readonly string[]): string[] =>
+  [count, ...items.map((item, index) => `${index + 1}. ${item}`)]
+
 const fmt = (v: unknown): string =>
   typeof v === 'number' ? (Number.isInteger(v) ? String(v) : v.toFixed(3).replace(/0+$/, '').replace(/\.$/, '.0')) : String(v ?? '')
 
@@ -696,13 +716,17 @@ function drawCompactNumber(
     ctx.rect(0, 0, fraction, 1, { role: 'numericRangeFill', fraction })
   }
   const label = (spec.options['display_name'] as string | undefined) ?? ''
-  compactRow(ctx, label, formatted, state, 'widget.edit')
+  // An empty number shows its hint when it declares one, otherwise nothing.
+  const empty = value === null || value === undefined
+  const hint = spec.options['placeholder']
+  compactRow(ctx, label, empty ? (typeof hint === 'string' ? hint : '') : formatted, state, 'widget.edit',
+    empty && typeof hint === 'string')
 }
 
 export const numberView: WidgetView<IntegerWidgetValue> = {
   ...makeCompactView<IntegerWidgetValue>('core.number', 'INT'),
   drawCompact(ctx, value, spec, state) {
-    drawCompactNumber(ctx, value, spec, state, String(value))
+    drawCompactNumber(ctx, value, spec, state, formatWidgetValue(value, spec))
   },
 }
 export const floatNumberView: WidgetView<number> = {
@@ -758,7 +782,23 @@ export const markdownView: WidgetView<string> = {
   ...makeCompactView<string>('core.markdown', 'MARKDOWN'),
   drawCompact(ctx, value, spec, state) {
     const label = (spec.options['display_name'] as string | undefined) ?? ''
-    compactRow(ctx, label, formatWidgetValue(value, spec).split('\n')[0] ?? '', state, 'widget.edit')
+    // The source as stored, never rendered: its first line with visible
+    // text, then how many lines it has, counting blank ones and a CRLF as
+    // one break. `suffix` stays whole while the line is shortened; `count`
+    // stands alone when too little of the line would remain.
+    const lines = (typeof value === 'string' ? value : formatWidgetValue(value, spec)).split(/\r\n|[\r\n]/u)
+    const first = lines.find((line) => /\S/u.test(line))
+    if (first === undefined) {
+      compactRow(ctx, label, 'Empty', state, 'widget.edit', true)
+      return
+    }
+    if (lines.length === 1) {
+      compactRow(ctx, label, first, state, 'widget.edit')
+      return
+    }
+    const count = t('widgetSummary.lines', { count: lines.length })
+    const suffix = ` (${count})`
+    compactRow(ctx, label, first + suffix, state, 'widget.edit', false, { suffix, count })
   },
 }
 /** Multiline preview: canonical lines are emitted independently for row clipping. */
@@ -798,6 +838,10 @@ export const selectView: WidgetView<Json> = {
   ...makeCompactView<Json>('core.select', 'COMBO'),
   drawCompact(ctx, value, spec, state) {
     const label = (spec.options['display_name'] as string | undefined) ?? ''
+    if (value === '' && typeof spec.options['placeholder'] === 'string') {
+      compactRow(ctx, label, spec.options['placeholder'], state, 'widget.edit', true)
+      return
+    }
     ctx.rect(1, 0, 0, 1, { role: 'comboChevron' })
     compactRow(ctx, label, formatWidgetValue(value, spec), state, 'widget.edit')
   },
@@ -806,29 +850,64 @@ export const multiSelectView: WidgetView<string[]> = {
   ...makeCompactView<string[]>('core.multiSelect', 'MULTI_COMBO'),
   drawCompact(ctx, value, spec, state) {
     const label = (spec.options['display_name'] as string | undefined) ?? ''
-    compactRow(ctx, label, `${value.length} selected`, state, 'widget.edit')
+    if (value.length === 0) {
+      compactRow(ctx, label, t('widgetSummary.noSelections'), state, 'widget.edit', true)
+      return
+    }
+    // Stored order, duplicates and values missing from the options all stay;
+    // `items` lets the painter show as many as fit and count the rest, and
+    // `count` stands alone when not even the first one fits.
+    const items = multiSelectLabels(value, spec).map(oneLine)
+    compactRow(ctx, label, items.join(', '), state, 'widget.edit', false,
+      { items, count: t('widgetSummary.selected', { count: value.length }) })
   },
+  readout: (value, spec) => value.length === 0
+    ? [t('widgetSummary.noSelections')]
+    : positioned(t('widgetSummary.selected', { count: value.length }), multiSelectLabels(value, spec)),
 }
+
+/** Each stored choice by its option's label; a value no longer offered keeps its own text. */
+function multiSelectLabels(value: readonly Json[], spec: WidgetSpec): string[] {
+  return value.map((item) => typeof item === 'string' || typeof item === 'number'
+    ? comboOptionLabel(item, spec)
+    : String(item))
+}
+
+/**
+ * A number is written as stored, in the shortest text that reads back as
+ * the same number, never rounded to the element's step; an empty string
+ * shows as "" so it cannot pass for a missing item.
+ */
+const listItemText = (item: Json): string => typeof item === 'number'
+  ? String(item)
+  : typeof item === 'string' ? (item === '' ? '""' : item) : JSON.stringify(item)
+
 export const listView: WidgetView<Json[]> = {
   ...makeCompactView<Json[]>('core.list', 'LIST'),
   drawCompact(ctx, value, spec, state) {
     const label = (spec.options['display_name'] as string | undefined) ?? ''
-    compactRow(ctx, label, JSON.stringify(value), state, 'widget.edit')
+    if (!Array.isArray(value) || value.length === 0) {
+      compactRow(ctx, label, Array.isArray(value) ? 'Empty' : JSON.stringify(value), state, 'widget.edit', Array.isArray(value))
+      return
+    }
+    // `items` lets the painter show as many values as fit and count the
+    // rest; `count` stands alone when not even the first one fits.
+    const items = value.map((item) => oneLine(listItemText(item)))
+    compactRow(ctx, label, items.join(', '), state, 'widget.edit', false,
+      { items, count: t('widgetSummary.items', { count: value.length }) })
   },
+  readout: (value) => !Array.isArray(value) ? [JSON.stringify(value)]
+    : value.length === 0 ? ['Empty']
+    : positioned(t('widgetSummary.items', { count: value.length }), value.map(listItemText)),
 }
 export const colorView: WidgetView<string> = {
   ...makeCompactView<string>('core.color', 'COLOR'),
   drawCompact(ctx, value, spec, state) {
     const label = (spec.options['display_name'] as string | undefined) ?? ''
-    ctx.rect(0, 0, 1, 1, { role: 'widgetBackground', focused: state.focused, connected: state.connected })
-    ctx.text(0, 0, label, { role: 'widgetLabel', width: 0.42 })
-    // A compact square leaves the remaining row for the exact stored text;
-    // alpha remains visible even though canvas fill colors also consume it.
-    ctx.rect(0, 0.2, 0.12, 0.6, { fill: value, fixedAspect: 'square' })
-    ctx.text(1, 0, value, {
-      role: 'widgetValue', align: 'right', width: 1, reserveLeft: 16, truncated: state.truncated ?? false,
-    })
-    if (!state.readonly) ctx.hitRegion(0, 0, 1, 1, 'widget.edit')
+    // `swatch` asks the painter for a square of the color directly before its
+    // code; text that is not a color code gets no square.
+    compactRow(ctx, label, value, state, 'widget.edit', false,
+      /^#(?:[\da-f]{3,4}|[\da-f]{6}|[\da-f]{8})$/i.test(value) ? { swatch: value } : {})
   },
 }
 export function integerColorHex(value: unknown): string | undefined {
@@ -846,37 +925,42 @@ export const integerColorView: WidgetView<IntegerWidgetValue> = {
   },
 }
 
-export const colorsView: WidgetView<string[]> = {
-  ...makeCompactView<string[]>('core.colors', 'COLORS'),
-  drawCompact(ctx, value, _spec, state) {
-    ctx.rect(0, 0, 1, 1, { role: 'widgetBackground', focused: state.focused, connected: state.connected })
-    for (const [index, color] of value.slice(0, 4).entries()) {
-      ctx.rect(index * 0.14, 0.2, 0.12, 0.6, { fill: color, fixedAspect: 'square' })
-    }
-    ctx.text(1, 0, `${value.length} colors`, { role: 'widgetValue', align: 'right', width: 1, reserveLeft: 64, truncated: state.truncated ?? false })
-    if (!state.readonly) ctx.hitRegion(0, 0, 1, 1, 'widget.edit')
-  },
-}
 export const curveView: WidgetView<Json> = {
   id: 'core.curve',
   kind: 'CURVE',
   isCompatible: () => true,
   measure: () => ({ rows: 2 }),
+  readout(value, spec) {
+    if (!isCurveValue(value)) return []
+    const kinds = curveEditorInterpolations(spec.options)
+    const interpolation = kinds.length === 1 ? kinds[0] : value.interpolation ?? 'linear'
+    return [`${value.points.length} ${value.points.length === 1 ? 'point' : 'points'}, ${t(interpolation === 'step' ? 'inNodeCurve.step' : interpolation === 'linear' ? 'inNodeCurve.linear' : 'inNodeCurve.monotoneCubic')}`]
+  },
   drawCompact(ctx, value, spec, state) {
-    const curve = isCurveValue(value) ? value : curveKind.defaultValue(spec) as unknown as CurveValue
     ctx.rect(0, 0, 1, 2, { role: 'widgetBackground', focused: state.focused, connected: state.connected })
-    const points = curve.points
-    const minX = points[0]?.position ?? 0
-    const maxX = points.at(-1)?.position ?? 1
-    const spanX = maxX - minX || 1
-    const interpolate = curveInterpolator(curve)
-    for (let index = 0; index < 64; index += 1) {
-      const fraction = index / 63
-      const sample = interpolate(minX + fraction * spanX)
-      ctx.rect(fraction, 1.8 - Math.max(0, Math.min(1, sample)) * 1.6, 0.02, 0.08,
-        { role: 'curveSample' })
+    // A wire decides a connected curve: what it brought is drawn, and nothing before a run.
+    const stored = isCurveValue(value) ? value
+      : state.connected ? undefined : curveKind.defaultValue(spec) as unknown as CurveValue
+    const kinds = curveEditorInterpolations(spec.options)
+    const curve = stored === undefined ? undefined : kinds.length === 1 ? { ...stored, interpolation: kinds[0]! } : stored
+    const points = curve?.points ?? []
+    const interpolate = curve === undefined ? undefined : curveInterpolator(curve)
+    const samples = interpolate === undefined ? []
+      : Array.from({ length: 64 }, (_, index) => Math.max(0, Math.min(1, interpolate(index / 63))))
+    // The sketch spans the plot's range, 0 to 1, so the held ends show.
+    samples.forEach((sample, index) => ctx.rect(index / 63, 1.8 - sample * 1.6, 0.02, 0.08, { role: 'curveSample' }))
+    // The folded square of the raised look: the plot in small, with its points.
+    ctx.rect(0, 0, 1, 2, {
+      role: 'curveSketch',
+      interpolation: curve?.interpolation ?? 'linear',
+      samples,
+      points: points.map((point) => [point.position, point.value]),
+      held: points.length === 0 ? [] : [points[0]!.position, points[points.length - 1]!.position],
+    })
+    ctx.text(1, 0, `${points.length} ${points.length === 1 ? 'point' : 'points'}`, { role: 'widgetValue', align: 'right', width: 1 })
+    if (curve !== undefined) {
+      ctx.text(0, 1, t(curve.interpolation === 'step' ? 'inNodeCurve.step' : (curve.interpolation ?? 'linear') === 'linear' ? 'inNodeCurve.linear' : 'inNodeCurve.monotoneCubic'), { role: 'curveJoin' })
     }
-    ctx.text(1, 0, `${points.length} ${points.length === 1 ? 'point' : 'points'} - ${curve.interpolation ?? 'linear'}`, { role: 'widgetValue', align: 'right', width: 1 })
     if (!state.readonly) ctx.hitRegion(0, 0, 1, 2, 'widget.edit')
   },
 }
@@ -894,99 +978,239 @@ export const compositorView: WidgetView<Json> = {
       : 'Run to load layers', { role: 'widgetValue', align: 'right', width: 1 })
   },
 }
+/** What an empty asset row asks for, from the asset's declared kind or accepted media. */
+function emptyAssetText(spec: WidgetSpec): string {
+  const accept = Array.isArray(spec.options['accept']) ? spec.options['accept'].filter((item): item is string => typeof item === 'string') : []
+  const family = spec.kind?.startsWith('model/') === true ? 'model'
+    : spec.kind?.startsWith('media/') === true ? spec.kind.slice('media/'.length)
+    : accept.length > 0 && accept.every((item) => item.startsWith(`${accept[0]!.split('/', 1)[0]}/`)) ? accept[0]!.split('/', 1)[0]
+    : undefined
+  return family === 'image' || family === 'mask' ? 'Choose image'
+    : family === 'audio' ? 'Choose audio'
+    : family === 'video' ? 'Choose video'
+    : family === 'model' ? 'Choose model'
+    : 'Choose file'
+}
+
 export const assetView: WidgetView<Json> = {
   ...makeCompactView<Json>('core.asset', 'ASSET'),
   drawCompact(ctx, value, spec, state) {
     const label = (spec.options['display_name'] as string | undefined) ?? ''
-    const sourceName = spec.selection === true && typeof value === 'string'
-    const text = sourceName ? value : isAssetRef(value)
-      ? value.name
-      : isAssetRefList(value) && value.length > 0
-        ? value.length === 1 ? value[0]!.name : `${value.length} assets`
-        : 'no asset'
-    const populated = sourceName || isAssetRef(value) || (isAssetRefList(value) && value.length > 0)
+    if (isAssetRefList(value) && value.length > 1) {
+      // Every file counts, repeated names too: as many names as fit, in
+      // stored order, then how many more, or the count alone.
+      const items = value.map((asset) => oneLine(asset.name))
+      compactRow(ctx, label, items.join(', '), state, 'widget.edit', false,
+        { items, count: t('widgetSummary.assets', { count: value.length }) })
+      return
+    }
+    const text = assetText(value, spec)
+    const populated = (spec.selection === true && typeof value === 'string') || isAssetRef(value)
+      || (isAssetRefList(value) && value.length > 0)
     compactRow(ctx, label, text, state, 'widget.edit', !populated)
   },
+  readout: (value, spec) => isAssetRefList(value) && value.length > 1
+    ? positioned(t('widgetSummary.assets', { count: value.length }), value.map((asset) => asset.name))
+    : [assetText(value, spec)],
+}
+
+/** One asset's name, a model selection as written, or what an empty row asks for. */
+function assetText(value: Json, spec: WidgetSpec): string {
+  return spec.selection === true && typeof value === 'string' ? value
+    : isAssetRef(value) ? value.name
+    : isAssetRefList(value) && value.length > 0 ? value[0]!.name
+    : emptyAssetText(spec)
 }
 export const audioRecordView: WidgetView<Json> = {
   ...makeCompactView<Json>('core.audioRecord', 'AUDIO_RECORD'),
   drawCompact(ctx, value, spec, state) {
     compactRow(ctx, (spec.options['display_name'] as string | undefined) ?? '',
-      isAssetRef(value) ? value.name : 'no recording', state, 'widget.edit', !isAssetRef(value))
+      isAssetRef(value) ? value.name : 'No clip', state, 'widget.edit', !isAssetRef(value))
   },
 }
 export const webcamView: WidgetView<Json> = {
   ...makeCompactView<Json>('core.webcam', 'WEBCAM'),
   drawCompact(ctx, value, spec, state) {
     compactRow(ctx, (spec.options['display_name'] as string | undefined) ?? '',
-      isAssetRef(value) ? value.name : 'no camera frame', state, 'widget.edit', !isAssetRef(value))
+      isAssetRef(value) ? value.name : 'No frame', state, 'widget.edit', !isAssetRef(value))
   },
 }
 export const mountView: WidgetView<Json> = {
   ...makeCompactView<Json>('core.mount', 'MOUNT'),
   drawCompact(ctx, value, spec, state) {
+    // A mount is a choice among mounts, so it is drawn as a choice row.
+    ctx.rect(1, 0, 0, 1, { role: 'comboChevron' })
     compactRow(ctx, (spec.options['display_name'] as string | undefined) ?? '',
       typeof value === 'string' ? value : t('mountWidget.default'), state, 'widget.edit')
   },
 }
 export const load3dView: WidgetView<Json> = {
   ...makeCompactView<Json>('core.load3d', 'LOAD_3D'),
+  // The value has no fixed shape that names a model or a camera, so the row
+  // says what it opens rather than describing the object.
   drawCompact(ctx, _value, spec, state) {
     compactRow(ctx, (spec.options['display_name'] as string | undefined) ?? '',
-      '3D viewport', state, 'widget.edit')
+      t('load3dWidget.open'), state, 'widget.edit', false, { labelFirst: true })
   },
+  readout: () => [],
 }
+
+/** A crop region's two forms, longest first; undefined when the stored region is not valid. */
+function boundingBoxForms(value: Json, spec: WidgetSpec): readonly [string, string] | undefined {
+  if (!boundingBoxKind.valueSchema.validate(value) || boundingBoxKind.validate(value, spec).length > 0) return undefined
+  const [x, y, width, height] = [value.x, value.y, value.width, value.height].map(String) as [string, string, string, string]
+  return [t('widgetSummary.boundingBox', { x, y, width, height }), `${x}, ${y} / ${width} x ${height}`]
+}
+
 export const boundingBoxView: WidgetView<BoundingBox> = {
   ...makeCompactView<BoundingBox>('core.boundingBox', 'BOUNDING_BOX'),
   drawCompact(ctx, value, spec, state) {
+    // `shorter` is tried when the labeled form does not fit. An invalid
+    // region keeps its stored numbers and its problem; it is never shown as
+    // a default rectangle.
+    const forms = boundingBoxForms(value, spec)
     compactRow(ctx, (spec.options['display_name'] as string | undefined) ?? '',
-      boundingBoxKind.valueSchema.validate(value)
-        ? `${value.x}, ${value.y} / ${value.width} x ${value.height}` : t('boundingBoxWidget.invalid'),
-      state, 'widget.edit')
+      forms?.[0] ?? t('widgetSummary.invalid'), state, 'widget.edit', false,
+      forms === undefined ? {} : { shorter: [forms[1]] })
   },
+  readout: (value, spec) => [boundingBoxForms(value, spec)?.[0] ?? t('widgetSummary.invalid')],
 }
 export const imageCompareView: WidgetView<null> = {
   ...makeCompactView<null>('core.imageCompare', 'IMAGECOMPARE'),
   drawCompact(ctx, _value, spec, state) {
     compactRow(ctx, (spec.options['display_name'] as string | undefined) ?? '',
-      t('imageCompareWidget.open'), state, 'widget.edit')
+      t('imageCompareWidget.open'), state, 'widget.edit', false, { labelFirst: true })
+  },
+  readout: () => [],
+}
+export const painterView: WidgetView<Json> = {
+  ...makeCompactView<Json>('core.painter', 'PAINTER'),
+  drawCompact(ctx, _value, spec, state) {
+    compactRow(ctx, (spec.options['display_name'] as string | undefined) ?? '',
+      t('painterWidget.open'), state, 'widget.edit')
   },
 }
 export const cameraAngleView: WidgetView<string> = {
   ...makeCompactView<string>('core.cameraAngle', 'CAMERA_ANGLE_VIEW'),
+  // Its editor reads the angle and zoom from other fields; this row's own
+  // string means nothing to a reader.
   drawCompact(ctx, _value, spec, state) {
     compactRow(ctx, (spec.options['display_name'] as string | undefined) ?? '',
-      t('cameraAngleWidget.title'), state, 'widget.edit')
+      t('cameraAngleWidget.open'), state, 'widget.edit', false, { labelFirst: true })
   },
+  readout: () => [],
 }
-export const resolutionView: WidgetView<null> = {
-  ...makeCompactView<null>('core.resolution', 'RESOLUTION_PREVIEW'),
-  drawCompact(ctx, _value, spec, state) {
-    compactRow(ctx, (spec.options['display_name'] as string | undefined) ?? '',
-      t('resolutionWidget.title'), state, 'widget.edit')
-  },
+/**
+ * What the host tells a closed save target row about this machine's
+ * mounts, under the SAVE_TARGET key of the row's host facts: the project's
+ * default output mount and the ready writable mounts.
+ */
+export interface SaveTargetFacts {
+  readonly projectMount?: string
+  readonly ready: readonly string[]
 }
-export const saveTargetView: WidgetView<SaveTarget | null> = {
-  ...makeCompactView<SaveTarget | null>('core.saveTarget', 'SAVE_TARGET'),
+
+const saveTargetFacts = (facts: Readonly<Record<string, Json>> | undefined): SaveTargetFacts | undefined => {
+  const entry = facts?.['SAVE_TARGET']
+  if (!isJsonObject(entry)) return undefined
+  const ready = entry['ready']
+  if (!Array.isArray(ready) || !ready.every((id) => typeof id === 'string')) return undefined
+  const projectMount = entry['projectMount']
+  return { ready: ready as string[], ...(typeof projectMount === 'string' ? { projectMount } : {}) }
+}
+
+/**
+ * The closed save target row. A target on Project default names the mount
+ * it means here in italics, "Project default" while that is not known, or
+ * "no output mount" when the project has none; a stored mount this machine
+ * lacks is struck through, followed by the mount the run uses in italics,
+ * if there is one. An empty target reads as Project default with the
+ * input's default name when it declares one.
+ */
+export const saveTargetView: WidgetView<SaveTarget | ProjectDefaultTarget | null> = {
+  ...makeCompactView<SaveTarget | ProjectDefaultTarget | null>('core.saveTarget', 'SAVE_TARGET'),
   drawCompact(ctx, value, spec, state) {
-    compactRow(ctx, (spec.options['display_name'] as string | undefined) ?? '',
-      value === null ? t('saveTargetWidget.title') : `${value.mount}/${value.prefix}`, state, 'widget.edit')
+    const label = (spec.options['display_name'] as string | undefined) ?? ''
+    const facts = saveTargetFacts(state.hostFacts)
+    const projectMount = facts?.projectMount ?? t(facts === undefined ? 'saveTargetWidget.projectDefault' : 'saveTargetWidget.noOutputMount')
+    const declared = isSaveTarget(spec.default) || isProjectDefaultTarget(spec.default) ? spec.default : undefined
+    const shown: SaveTarget | ProjectDefaultTarget | null = value === null && declared !== undefined ? { prefix: declared.prefix } : value
+    const named = isSaveTarget(shown) ? shown : undefined
+    if (facts !== undefined && (named === undefined || !facts.ready.includes(named.mount))) {
+      const severity = facts.projectMount === undefined ? 'error' : named === undefined ? undefined : 'warning'
+      if (severity !== undefined) ctx.rect(0, 0, 1, 1, { role: 'widgetProblem', severity })
+    }
+    if (shown === null) {
+      compactRow(ctx, label, t('saveTargetWidget.default'), state, 'widget.edit', true)
+      return
+    }
+    if (named !== undefined && (facts === undefined || facts.ready.includes(named.mount))) {
+      compactRow(ctx, label, `${named.mount}/${named.prefix}`, state, 'widget.edit', false,
+        { shorter: named.prefix.includes('/') ? [`${named.mount}/.../${named.prefix.split('/').at(-1)}`] : [] })
+      return
+    }
+    compactRow(ctx, label, named !== undefined ? `${named.mount}/${named.prefix}` : `${projectMount}/${shown.prefix}`, state, 'widget.edit', false, {
+      parts: [
+        ...(named !== undefined ? [{ text: named.mount, look: 'gone' }] : []),
+        { text: projectMount, look: 'resolved' },
+        { text: `/${shown.prefix}` },
+      ],
+    })
+  },
+  readout(value, spec) {
+    const declared = isSaveTarget(spec.default) || isProjectDefaultTarget(spec.default) ? spec.default : undefined
+    const shown = value === null && declared !== undefined ? { prefix: declared.prefix } : value
+    return [shown === null ? t('saveTargetWidget.default')
+      : `${isSaveTarget(shown) ? shown.mount : t('saveTargetWidget.projectDefault')}/${shown.prefix}`]
   },
 }
+
+/**
+ * A video edit's summary: its stored trim and crop numbers when every one a
+ * section names is present, and the section names alone as the shorter
+ * form. Nothing is worked out from the source video, and fields this view
+ * does not know are never shown.
+ */
+function videoEditForms(value: Json, spec: WidgetSpec): { readonly text: string; readonly shorter?: string; readonly empty?: true } {
+  const edit = isJsonObject(value) ? value : {}
+  if (edit.trim === undefined && edit.crop === undefined) return { text: 'No edits', empty: true }
+  if (videoEditKind.validate(edit, spec).length > 0) return { text: t('widgetSummary.invalid') }
+  const trim = isJsonObject(edit.trim) ? edit.trim : undefined
+  const crop = isJsonObject(edit.crop) ? edit.crop : undefined
+  const names = edit.trim === undefined ? t('widgetSummary.crop')
+    : edit.crop === undefined ? t('widgetSummary.trim') : t('widgetSummary.trimAndCrop')
+  const trimDetail = trim?.start_time !== undefined && trim.duration !== undefined
+    ? t('widgetSummary.trimDetail', { start: String(trim.start_time), duration: String(trim.duration) })
+    : undefined
+  const cropDetail = crop?.x !== undefined && crop.y !== undefined && crop.width !== undefined && crop.height !== undefined
+    ? t('widgetSummary.cropDetail', { x: String(crop.x), y: String(crop.y), width: String(crop.width), height: String(crop.height) })
+    : undefined
+  if (trimDetail === undefined && cropDetail === undefined) return { text: names }
+  const parts = [
+    edit.trim === undefined ? undefined : trimDetail ?? t('widgetSummary.trim'),
+    edit.crop === undefined ? undefined : cropDetail ?? t('widgetSummary.crop'),
+  ].filter((part) => part !== undefined)
+  // A later part continues the sentence the first one starts.
+  const text = parts.map((part, index) => index === 0 ? part : part.charAt(0).toLocaleLowerCase() + part.slice(1))
+    .join('; ')
+  return { text, shorter: names }
+}
+
 export const videoEditView: WidgetView<Json> = {
   ...makeCompactView<Json>('core.videoEdit', 'VIDEO_EDIT'),
   drawCompact(ctx, value, spec, state) {
-    const edit = isJsonObject(value) ? value : {}
-    const sections = [edit.trim === undefined ? undefined : 'trim', edit.crop === undefined ? undefined : 'crop'].filter(Boolean)
+    const forms = videoEditForms(value, spec)
     compactRow(
       ctx,
       (spec.options['display_name'] as string | undefined) ?? '',
-      sections.length === 0 ? 'no edits' : sections.join(' + '),
+      forms.text,
       state,
       'widget.edit',
-      sections.length === 0,
+      forms.empty === true,
+      forms.shorter === undefined ? {} : { shorter: [forms.shorter] },
     )
   },
+  readout: (value, spec) => [videoEditForms(value, spec).text],
 }
 
 const mediaPreviewRenderer = (
@@ -1028,11 +1252,11 @@ export const widgetRegistrationDoors = (registry: WidgetRegistry): WidgetRegistr
 
 export function registerCoreWidgets(doors: WidgetRegistrationDoors): void {
   for (const kind of [intKind, floatKind, stringKind, booleanKind, comboKind, multiComboKind,
-    listKind, colorKind, curveKind, compositorKind, assetKind, mountKind, load3dKind, videoEditKind, buttonKind, markdownKind, colorsKind, audioRecordKind, webcamKind, boundingBoxKind, imageCompareKind, cameraAngleKind, resolutionKind, saveTargetKind]) {
+    listKind, colorKind, curveKind, compositorKind, assetKind, mountKind, load3dKind, videoEditKind, buttonKind, markdownKind, audioRecordKind, webcamKind, boundingBoxKind, imageCompareKind, painterKind, cameraAngleKind, saveTargetKind]) {
     doors.widgetKind(kind.type, kind as WidgetKind)
   }
   for (const view of [numberView, floatNumberView, floatSliderView, lineView, textView, toggleView, selectView,
-    multiSelectView, listView, colorView, integerColorView, curveView, compositorView, assetView, mountView, load3dView, videoEditView, buttonView, markdownView, colorsView, audioRecordView, webcamView, boundingBoxView, imageCompareView, cameraAngleView, resolutionView, saveTargetView]) {
+    multiSelectView, listView, colorView, integerColorView, curveView, compositorView, assetView, mountView, load3dView, videoEditView, buttonView, markdownView, audioRecordView, webcamView, boundingBoxView, imageCompareView, painterView, cameraAngleView, saveTargetView]) {
     doors.widgetView(view.id, view as WidgetView)
   }
   for (const renderer of [imagePreviewRenderer, videoPreviewRenderer, model3dPreviewRenderer]) {

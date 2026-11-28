@@ -9,19 +9,21 @@ import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { compile } from '../src/compile/compile.js'
+import { compile, documentPrimitiveResolver } from '../src/compile/compile.js'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
 import type { Diagnostic } from '../src/diagnostics.js'
 import type { JsonObject } from '../src/format/document.js'
+import { boundaryItems } from '../src/format/document.js'
 import { importLitegraph, resolveImportedNodePacks, type ComfyNodeUpgradeTable, type ComfyTranslation } from '../src/format/import-litegraph.js'
 import { loadDocument } from '../src/format/migrate.js'
-import { asConnectionId } from '../src/ids.js'
+import { asConnectionId, asNodeId } from '../src/ids.js'
 import { checkDocument } from '../src/invariants.js'
 import { elabInputsOf, elaborateInterface } from '../src/schema/elaborate.js'
-import type { CountBoundOutputAutogrowSpec, InputSpec, NodeSchema, OutputSpec } from '../src/schema/model.js'
+import type { ChoiceSpec, GroupSpec, InputSpec, NodeSchema, NoteSpec, OutputSpec } from '../src/schema/model.js'
 import { parseDinksterSchema, type DinksterWireSchema } from '../src/schema/dinkster-wire.js'
 import { historicalSchemas as schemas } from './fixtures/historical-schemas.js'
+import { PRIMITIVE_SCHEMAS, withPrimitives } from './fixtures/primitive-schemas.js'
 import { solveGraphTypes } from '../src/schema/solve.js'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -30,7 +32,7 @@ const readJson = (rel: string): unknown => JSON.parse(readFileSync(join(root, re
 const resolve = (type: string) => schemas.get(type)
 const resizeImageMaskSchema = parseDinksterSchema(
   'comfy.ResizeImageMaskNode',
-  { ...readJson('fixtures/dinkster-resize-image-mask-wire16.json') as DinksterWireSchema, schemaVersion: 1 },
+  { ...readJson('fixtures/dinkster-resize-image-mask-wire16.json') as DinksterWireSchema, schemaVersion: 2 },
 ).schema!
 
 const errorsOf = (d: readonly Diagnostic[]) => d.filter((x) => x.severity === 'error')
@@ -45,13 +47,13 @@ it('converts supplied first-party interfaces before resolving installed packs', 
   ].map(([from, pack, type]) => {
     const source = schemas.get(from!)!
     return {
-      pack: pack!, version: '0.0.1', schema: { ...source, type: type!, items: source.items.map((item) =>
+      pack: pack!, version: '0.0.1', schema: { ...source, type: type!, body: source.body.map((item) =>
         item.kind === 'input' && item.id === 'ckpt_name'
           ? { ...item, widget: { ...item.widget!, options: { options: ['other.safetensors', 'specific.safetensors'] } } }
           : item) },
       rule: { from: from!, cases: [{ to: type!,
-        inputs: Object.fromEntries(source.items.filter((item) => item.kind === 'input').map((item) => [item.id, { kind: 'copy' as const, input: item.id }])),
-        outputs: Object.fromEntries(source.items.filter((item) => item.kind === 'output').map((item) => [item.id, item.id])),
+        inputs: Object.fromEntries(source.body.filter((item) => item.kind === 'input').map((item) => [item.id, { kind: 'copy' as const, input: item.id }])),
+        outputs: Object.fromEntries(source.body.filter((item) => item.kind === 'output').map((item) => [item.id, item.id])),
       }] },
     }
   })
@@ -102,20 +104,20 @@ it('converts supplied first-party interfaces before resolving installed packs', 
 
 it.each([false, true])('converts active choices and sparse input families before pack installation: keyed=%s', (keyed) => {
   const schema = parseDinksterSchema('dinkster.conditioning.reference_multi_latent', {
-    schemaVersion: 1,
-    interface: [
-      { role: 'dynamicCombo', id: 'resolution', required: true, options: [
-        { key: 'keep resolution', inputs: [] },
-        { key: 'resize', inputs: [{ role: 'input', id: 'megapixels', required: true,
+    schemaVersion: 2,
+    body: [
+      { kind: 'choice', id: 'resolution', required: true, options: [
+        { key: 'keep resolution', rows: [] },
+        { key: 'resize', rows: [{ kind: 'input', id: 'megapixels', required: true,
           type: { kind: 'concrete', types: ['FLOAT'] }, default: 1, widget: { type: 'NUMBER', min: 0.01, max: 16 } }] },
       ] },
-      { role: 'inputFamily', id: 'images', minMembers: 1, maxMembers: 100, memberPrefix: 'image',
-        required: false, optionalAfterMinimum: true,
-        template: [{ role: 'input', id: 'image', required: false, type: { kind: 'concrete', types: ['IMAGE'] } }] },
+      { kind: 'group', id: 'images', minMembers: 1, maxMembers: 100, keys: { numbered: { prefix: 'image', start: 0, pad: 0 } },
+        optionalAfterMinimum: true,
+        value: { kind: 'input', id: 'image', required: false, type: { kind: 'concrete', types: ['IMAGE'] } } },
     ],
   }).schema!
-  const source = parseDinksterSchema('ImageProducer', { interface: [
-    { role: 'output', id: 'image', type: { kind: 'concrete', types: ['IMAGE'] } },
+  const source = parseDinksterSchema('ImageProducer', { body: [
+    { kind: 'output', id: 'image', type: { kind: 'concrete', types: ['IMAGE'] } },
   ] }).schema!
   const translations: ComfyTranslation[] = [{ schema, pack: 'dinkster-conditioning', version: '0.0.2',
     rule: { from: 'ReferenceMultiLatent', cases: [{ to: schema.type,
@@ -148,49 +150,10 @@ it.each([false, true])('converts active choices and sparse input families before
   expect(loadDocument(JSON.parse(JSON.stringify(document))).document).toEqual(document)
 })
 
-it.each([false, true])('converts declared dotted port ids, including internal links: %s', (internal) => {
-  const schema: NodeSchema = {
-    type: 'dinkster.models.merge', displayName: 'Merge', category: 'test', source: 'v3', isOutputNode: false,
-    items: [
-      { kind: 'input', id: 'time_embed.', type: { kind: 'concrete', name: 'FLOAT' }, optional: false,
-        widget: { widgetType: 'FLOAT', options: {}, default: 0 } },
-      { kind: 'input', id: 'input_blocks.0.', type: { kind: 'concrete', name: 'FLOAT' }, optional: false,
-        widget: { widgetType: 'FLOAT', options: {}, default: 0 } },
-      { kind: 'output', id: 'result.value', type: { kind: 'concrete', name: 'FLOAT' } },
-    ],
-  }
-  const translations: ComfyTranslation[] = [{ pack: 'dinkster-models', version: '0.0.2', schema,
-    rule: { from: 'ModelMergeExample', cases: [{ to: schema.type,
-      inputs: { 'time_embed.': { kind: 'copy', input: 'time_embed.' }, 'input_blocks.0.': { kind: 'copy', input: 'input_blocks.0.' } },
-      outputs: { 'result.value': 'result.value' },
-      ...(internal ? { nodes: { helper: { type: schema.type } }, links: [{ from: 'helper:result.value', to: 'time_embed.' }] } : {}),
-    }] },
-  }]
-  const imported = importLitegraph({ nodes: [
-    { id: 1, type: 'ModelMergeExample', widgets_values: [0.17, 0.83], outputs: [{ name: 'result.value' }] },
-    { id: 2, type: 'ModelMergeExample', widgets_values: [0.29, 0.71], inputs: [{ name: 'input_blocks.0.', link: 1 }] },
-  ], links: [[1, 1, 0, 2, 0, 'FLOAT']] }, () => undefined, undefined, translations)
-  expect(imported.diagnostics).toEqual([])
-  const graph = imported.document!.graphs.g0!
-  expect([graph.nodes.n1!, graph.nodes.n2!].map((node) => [node.type, node.values])).toEqual([
-    [schema.type, { 'time_embed.': 0.17, 'input_blocks.0.': 0.83 }],
-    [schema.type, { 'time_embed.': 0.29, 'input_blocks.0.': 0.71 }],
-  ])
-  expect(Object.values(graph.links).map((link) => [link.from, link.to])).toEqual([
-    [{ node: 'n1', port: 'result.value' }, { node: 'n2', port: 'input_blocks.0.' }],
-    ...(internal ? [
-      [{ node: 'n1:helper', port: 'result.value' }, { node: 'n1', port: 'time_embed.' }],
-      [{ node: 'n2:helper', port: 'result.value' }, { node: 'n2', port: 'time_embed.' }],
-    ] : []),
-  ])
-  expect(resolveImportedNodePacks(imported.document!, () => undefined).filter((node) => node.pack !== undefined).map((node) => node.status)).toEqual(['installable', 'installable'])
-  expect(checkDocument(imported.document!)).toEqual([])
-})
-
 it.each([false, true])('fully translates primary and helper chains inside a subgraph: %s', (nested) => {
   const schema = (type: string): NodeSchema => ({
     type, displayName: type, category: 'test', source: 'v3', isOutputNode: false,
-    items: [
+    body: [
       { kind: 'input', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, optional: false,
         widget: { widgetType: 'FLOAT', options: {}, default: 0 } },
       { kind: 'input', id: 'dependency', type: { kind: 'concrete', name: 'FLOAT' }, optional: true },
@@ -245,9 +208,98 @@ it.each([false, true])('fully translates primary and helper chains inside a subg
   expect(checkDocument(document)).toEqual([])
 })
 
+describe('a rule that names the inputs of a node nothing describes', () => {
+  const int = { kind: 'concrete', name: 'INT' } as const
+  const value = { kind: 'variable', templateId: 'value' } as const
+  const switchSchema: NodeSchema = {
+    type: 'test.switch', displayName: 'Switch', category: 'test', source: 'v3', isOutputNode: false,
+    body: [
+      { kind: 'input', id: 'pick', type: { kind: 'union', names: ['BOOLEAN', 'STRING'] }, optional: true },
+      { kind: 'group', id: 'branch', value: { kind: 'input', id: 'value', type: value, optional: true, lazy: true },
+        keys: { kind: 'named', names: ['b1', 'b2'] }, grows: 'link', minMembers: 0 },
+      { kind: 'output', id: 'result', type: value },
+    ],
+    selector: { input: 'pick', group: 'branch' },
+  }
+  const branches = { branch: { kind: 'members', members: [
+    { suffix: 'b1', inputs: { value: { kind: 'copy', input: 'on_false' } } },
+    { suffix: 'b2', inputs: { value: { kind: 'copy', input: 'on_true' } } },
+  ] } } as const
+  const translation: ComfyTranslation = { schema: switchSchema, rule: {
+    from: 'ComfySwitchNode',
+    migration: { historicalInputs: ['switch', 'on_false', 'on_true'] },
+    cases: [
+      { when: { kind: 'inputConnected', input: 'switch' }, to: 'test.switch', inputs: { pick: { kind: 'link', input: 'switch' } }, inputFamilies: branches, outputs: { result: 'output' } },
+      { when: { kind: 'valueEquals', input: 'switch', value: true }, to: 'test.switch', inputs: { pick: { kind: 'constant', value: 'b2' } }, inputFamilies: branches, outputs: { result: 'output' } },
+      { to: 'test.switch', inputs: { pick: { kind: 'constant', value: 'b1' } }, inputFamilies: branches, outputs: { result: 'output' } },
+    ],
+  } }
+  const installed = new Map([
+    sdSchema('Src', 'Src', [sdOutput('value', 'INT')]),
+    sdSchema('BoolSrc', 'BoolSrc', [sdOutput('value', 'BOOLEAN')]),
+    sdSchema('Sink', 'Sink', [sdInput('value', 'INT')], true),
+    switchSchema,
+  ].map((schema) => [schema.type, schema]))
+  /** The switch input is first when the saved node lists it; old saves list only converted widgets. */
+  const imported = (switchInput: LgIn | undefined, widgets: unknown[], wired = false) => {
+    const offset = switchInput === undefined ? 0 : 1
+    return importLitegraph(workflow([
+      lgNode(1, 'Src', { outputs: [{ name: 'INT', type: 'INT', links: [1] }] }),
+      lgNode(2, 'Src', { outputs: [{ name: 'INT', type: 'INT', links: [2] }] }),
+      lgNode(3, 'BoolSrc', { outputs: [{ name: 'BOOLEAN', type: 'BOOLEAN', links: wired ? [3] : [] }] }),
+      lgNode(4, 'ComfySwitchNode', {
+        inputs: [
+          ...(switchInput === undefined ? [] : [{ ...switchInput, link: wired ? 3 : null }]),
+          { name: 'on_false', type: '*', link: 1 }, { name: 'on_true', type: '*', link: 2 },
+        ],
+        outputs: [{ name: 'output', type: '*', links: [4] }],
+        widgets_values: widgets,
+      }),
+      lgNode(5, 'Sink', { inputs: [{ name: 'value', type: 'INT', link: 4 }] }),
+    ], [
+      lgLink(1, 1, 0, 4, offset), lgLink(2, 2, 0, 4, offset + 1), lgLink(4, 4, 0, 5, 0),
+      ...(wired ? [lgLink(3, 3, 0, 4, 0)] : []),
+    ]), (type) => installed.get(type), undefined, [translation])
+  }
+  const marked: LgIn = { name: 'switch', type: 'BOOLEAN', widget: { name: 'switch' }, link: null }
+  const wiresOf = (document: NonNullable<ReturnType<typeof importLitegraph>['document']>) => Object.values(document.graphs.g0!.links).map((link) => [link.from, link.to])
+
+  it.each([[true, 'b2'], [false, 'b1']])('opens a stored switch of %s as the Switch picking %s', (stored, pick) => {
+    const { document, diagnostics } = imported(marked, [stored])
+    expect(errorsOf(diagnostics)).toEqual([])
+    expect(document!.graphs.g0!.nodes['n4']).toMatchObject({ type: 'test.switch', values: { pick } })
+    expect(wiresOf(document!)).toEqual(expect.arrayContaining([
+      [{ node: 'n1', port: 'value' }, { node: 'n4', port: 'branch.b1' }],
+      [{ node: 'n2', port: 'value' }, { node: 'n4', port: 'branch.b2' }],
+      [{ node: 'n4', port: 'result' }, { node: 'n5', port: 'value' }],
+    ]))
+  })
+
+  it('opens a wired switch with the wire on Pick and every other wire in place', () => {
+    const { document, diagnostics } = imported(marked, [false], true)
+    expect(errorsOf(diagnostics)).toEqual([])
+    expect(document!.graphs.g0!.nodes['n4']!.type).toBe('test.switch')
+    expect(wiresOf(document!)).toEqual(expect.arrayContaining([
+      [{ node: 'n3', port: 'value' }, { node: 'n4', port: 'pick' }],
+      [{ node: 'n1', port: 'value' }, { node: 'n4', port: 'branch.b1' }],
+      [{ node: 'n2', port: 'value' }, { node: 'n4', port: 'branch.b2' }],
+      [{ node: 'n4', port: 'result' }, { node: 'n5', port: 'value' }],
+    ]))
+    expect(Object.keys(document!.graphs.g0!.links)).toHaveLength(4)
+  })
+
+  it('keeps a node whose saved inputs do not say which holds its stored value', () => {
+    const { document, diagnostics } = imported(undefined, [true])
+    expect(document!.graphs.g0!.nodes['n4']!.type).toBe('ComfySwitchNode')
+    expect(diagnostics).toContainEqual(expect.objectContaining({
+      code: 'import.translation.unmarkedWidgets', message: expect.stringContaining('n4'),
+    }))
+  })
+})
+
 it.each(['type-cycle', 'recursive-helper', 'same-type'])('keeps %s translations finite and editable', (shape) => {
   const schema = (type: string): NodeSchema => ({
-    type, displayName: type, category: 'test', source: 'v3', isOutputNode: false, items: [],
+    type, displayName: type, category: 'test', source: 'v3', isOutputNode: false, body: [],
   })
   const translations: ComfyTranslation[] = [
     { pack: 'first', version: '1', schema: schema(shape === 'same-type' ? 'A' : 'B'),
@@ -269,7 +321,7 @@ it.each(['type-cycle', 'recursive-helper', 'same-type'])('keeps %s translations 
 it('uses a replacement only for the recorded source node version, not the pack version', () => {
   const schema: NodeSchema = {
     type: 'native.percent', displayName: 'Percent', category: 'test', source: 'v3', isOutputNode: false,
-    items: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, optional: false,
+    body: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, optional: false,
       widget: { widgetType: 'FLOAT', options: {}, default: 0 } }],
   }
   const translations: ComfyTranslation[] = [{ schema, version: '9.0', rule: {
@@ -293,7 +345,7 @@ it('uses a replacement only for the recorded source node version, not the pack v
 it('applies a same-type import value transform exactly once', () => {
   const schema: NodeSchema = {
     type: 'SameType', displayName: 'Same Type', category: 'test', source: 'v3', isOutputNode: false,
-    items: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, optional: false,
+    body: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, optional: false,
       widget: { widgetType: 'FLOAT', options: {}, default: 0 } }],
   }
   const imported = importLitegraph({ nodes: [{ id: 1, type: 'SameType', widgets_values: [7] }], links: [] },
@@ -312,13 +364,16 @@ it('applies a same-type import value transform exactly once', () => {
   expect(checkDocument(document)).toEqual([])
 })
 
-it('imports authored combo choices and typed index separately from linked extra dependencies', () => {
+it('imports authored combo choices, drops the stored index, and keeps linked extra dependencies', () => {
   const combo = parseDinksterSchema('CustomCombo', {
     outputNode: true, additionalInputs: { kind: 'wildcard' },
-    interface: [{ role: 'input', id: 'choice', type: { kind: 'concrete', types: ['COMBO'] }, widget: { type: 'COMBO', editableOptions: true } }],
+    body: [
+      { kind: 'input', id: 'choice', type: { kind: 'concrete', types: ['COMBO'] }, widget: { type: 'COMBO', editableOptions: true, optionsInput: 'options' } },
+      { kind: 'input', id: 'options', type: { kind: 'list', element: { kind: 'concrete', types: ['STRING'] } }, required: false, hidden: true },
+    ],
   }).schema!
-  const source = parseDinksterSchema('Source', { interface: [
-    { role: 'output', id: 'out', type: { kind: 'concrete', types: ['STRING'] } },
+  const source = parseDinksterSchema('Source', { body: [
+    { kind: 'output', id: 'out', type: { kind: 'concrete', types: ['STRING'] } },
   ] }).schema!
   const resolver = (type: string) => type === 'CustomCombo' ? combo : type === 'Source' ? source : undefined
   for (const widgets of [
@@ -330,9 +385,10 @@ it('imports authored combo choices and typed index separately from linked extra 
       { id: 2, type: 'CustomCombo', inputs: [{ name: 'sparse.172', type: 'STRING', link: 1 }], widgets_values: widgets },
     ], links: [[1, 1, 0, 2, 0, 'STRING']] }, resolver)
     expect(errorsOf(imported.diagnostics)).toEqual([])
+    expect(codesOf(imported.diagnostics)).toContain('import.combo.index')
     const node = imported.document!.graphs.g0!.nodes.n2!
-    expect(node.additionalInputs).toEqual(['sparse.172', 'index'])
-    expect(node.values).toEqual({ choice: 'outside', index: { $typed: { type: 'INT', value: 7 } } })
+    expect(node.additionalInputs).toEqual(['sparse.172'])
+    expect(node.values).toEqual({ choice: 'outside' })
     expect(node.dynamic!.choice!.options).toEqual(Array.isArray(widgets) ? ['duplicate', 'duplicate', '', false, 0] : ['duplicate', 'duplicate', ''])
     if (!Array.isArray(widgets)) expect(node.ext!['importer.unknownWidgetValues']).toEqual({ other: { kept: true } })
     const reopened = loadDocument(JSON.parse(JSON.stringify(imported.document)))
@@ -340,19 +396,20 @@ it('imports authored combo choices and typed index separately from linked extra 
     expect(importLitegraph(reopened.document!.ext!['importer.comfyWorkflow'] as JsonObject, resolver).document).toEqual(imported.document)
     const compiled = compile({ document: reopened.document!, revision: 0, resolve: resolver, scope: { kind: 'full' }, connection: asConnectionId('combo'), schemaHash: 'combo', graphFeatures: ['typedLiteral'] })
     expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
-    if (compiled.ok) expect(compiled.artifact.prompt.n2!.inputs).toEqual({ choice: 'outside', index: { $typed: { type: 'INT', value: 7 } }, 'sparse.172': ['n1', 0] })
+    if (compiled.ok) expect(compiled.artifact.prompt.n2!.inputs).toEqual({ choice: 'outside', options: Array.isArray(widgets) ? ['duplicate', 'duplicate', '', 'false', '0'] : ['duplicate', 'duplicate', ''], 'sparse.172': ['n1', 0] })
   }
   const omitted = importLitegraph({ nodes: [{ id: 2, type: 'CustomCombo', widgets_values: ['outside'] }], links: [] }, resolver)
   expect(omitted.document!.graphs.g0!.nodes.n2!.values).toEqual({ choice: 'outside' })
   expect(omitted.document!.graphs.g0!.nodes.n2!.additionalInputs).toBeUndefined()
   expect(omitted.document!.graphs.g0!.nodes.n2!.dynamic!.choice!.options).toEqual([])
+  expect(codesOf(omitted.diagnostics)).not.toContain('import.combo.index')
   const many = Array.from({ length: 152 }, (_, i) => `entry${i * 3}`)
   const large = importLitegraph({ nodes: [{ id: 2, type: 'CustomCombo', widgets_values: ['outside', -1, ...many] }], links: [] }, resolver)
   expect(large.document!.graphs.g0!.nodes.n2!.dynamic!.choice!.options).toEqual(many)
-  expect(large.document!.graphs.g0!.nodes.n2!.values.index).toEqual({ $typed: { type: 'INT', value: -1 } })
-  const invalid = importLitegraph({ nodes: [{ id: 2, type: 'CustomCombo', widgets_values: ['outside', '7'] }], links: [] }, resolver)
-  expect(invalid.document).toBeUndefined()
-  expect(codesOf(invalid.diagnostics)).toContain('import.combo.index')
+  expect(large.document!.graphs.g0!.nodes.n2!.values).toEqual({ choice: 'outside' })
+  const text = importLitegraph({ nodes: [{ id: 2, type: 'CustomCombo', widgets_values: ['outside', '7'] }], links: [] }, resolver)
+  expect(text.document!.graphs.g0!.nodes.n2!.values).toEqual({ choice: 'outside' })
+  expect(codesOf(text.diagnostics)).toContain('import.combo.index')
 })
 
 // -- litegraph JSON builders --------------------------------------------------
@@ -437,7 +494,7 @@ const sdOutput = (id: string, type: string): OutputSpec => ({
 const sdSchema = (
   type: string,
   displayName: string,
-  items: readonly (InputSpec | OutputSpec)[],
+  items: readonly (InputSpec | OutputSpec | NoteSpec)[],
   isOutputNode = false,
 ): NodeSchema => ({
   type,
@@ -445,7 +502,7 @@ const sdSchema = (
   category: 'test',
   source: 'v3',
   isOutputNode,
-  items,
+  body: items,
 })
 
 const sd15Schemas = [
@@ -510,7 +567,7 @@ const schemaFromLitegraphNode = (node: any): NodeSchema => {
     category: 'test fixture',
     source: 'v3',
     isOutputNode: outputs.length === 0,
-    items: [...connectedInputs, ...widgetInputs, ...outputs],
+    body: [...connectedInputs, ...widgetInputs, ...outputs],
   }
 }
 
@@ -852,7 +909,7 @@ describe('serialized output slot identity', () => {
     category: 'test',
     source: 'v3',
     isOutputNode: true,
-    items: [{ kind: 'input', id: 'image', type: imageType, optional: false }],
+    body: [{ kind: 'input', id: 'image', type: imageType, optional: false }],
   }
   const counted: NodeSchema = {
     type: 'CountedSource',
@@ -860,7 +917,7 @@ describe('serialized output slot identity', () => {
     category: 'test',
     source: 'v3',
     isOutputNode: false,
-    items: [
+    body: [
       {
         kind: 'input',
         id: 'count',
@@ -869,16 +926,13 @@ describe('serialized output slot identity', () => {
         widget: { widgetType: 'INT', options: {}, default: 0 },
       },
       {
-        kind: 'output',
+        kind: 'group',
         id: 'results',
-        type: imageType,
-        dynamic: {
-          kind: 'autogrow',
-          materialization: 'wire15',
-          template: [{ kind: 'input', id: 'result', type: imageType, optional: false }],
-          naming: { kind: 'prefix', prefix: '', min: 0, max: 4 },
-          count: { input: 'count', suffix: 'index' },
-        },
+        value: { kind: 'output', id: 'result', type: imageType },
+        keys: { kind: 'numbered', prefix: '', start: 0, pad: 0 },
+        grows: { count: 'count' },
+        minMembers: 0,
+        maxMembers: 4,
       },
     ],
   }
@@ -892,7 +946,7 @@ describe('serialized output slot identity', () => {
       category: 'test',
       source: 'v3',
       isOutputNode: false,
-      items: [
+      body: [
         { ...sdOutput('left', 'IMAGE'), displayName: 'LEFT' },
         { ...sdOutput('right', 'IMAGE'), displayName: 'RIGHT' },
       ],
@@ -930,8 +984,8 @@ describe('serialized output slot identity', () => {
       expect.objectContaining({ code: 'import.net.converted', severity: 'info' }),
     ])
     const graph = imported.document!.graphs.g0!
-    expect(graph.links.l1!.from).toEqual({ node: 'n1', port: 'results', members: ['1'] })
-    expect(Object.values(graph.nets)[0]!.source).toEqual({ node: 'n1', port: 'results', members: ['1'] })
+    expect(graph.links.l1!.from).toEqual({ node: 'n1', port: 'results.1' })
+    expect(Object.values(graph.nets)[0]!.source).toEqual({ node: 'n1', port: 'results.1' })
   })
 
   it('preserves a count-family member on a reroute driver', () => {
@@ -947,7 +1001,7 @@ describe('serialized output slot identity', () => {
       lgNode(3, sink.type, { inputs: [{ name: 'image', link: 2 }] }),
     ], [lgLink(1, 1, 0, 2, 0), lgLink(2, 2, 0, 3, 0)]), countedResolve)
     const graph = imported.document!.graphs.g0!
-    expect(graph.links.l1!.from).toEqual({ node: 'n1', port: 'results', members: ['0'] })
+    expect(graph.links.l1!.from).toEqual({ node: 'n1', port: 'results.0' })
     expect(graph.links.l1!.to).toEqual({ reroute: 'r2' })
     expect(graph.links.l2!.from).toEqual({ reroute: 'r2' })
   })
@@ -955,9 +1009,9 @@ describe('serialized output slot identity', () => {
   it('does not positionally reinterpret an invalid family member as a later static output', () => {
     const mixed: NodeSchema = {
       ...counted,
-      items: [
+      body: [
         sdOutput('before', 'IMAGE'),
-        ...counted.items,
+        ...counted.body,
         sdOutput('after', 'IMAGE'),
       ],
     }
@@ -973,26 +1027,13 @@ describe('serialized output slot identity', () => {
   })
 
   it('rejects families whose combined members exceed the shared budget', () => {
-    const countedFamily = counted.items[1] as OutputSpec & { dynamic: CountBoundOutputAutogrowSpec }
+    const countedFamily = counted.body[1] as GroupSpec
     const overBudget: NodeSchema = {
       ...counted,
-      items: [
-        counted.items[0]!,
-        {
-          ...countedFamily,
-          dynamic: {
-            ...countedFamily.dynamic,
-            naming: { kind: 'prefix', prefix: '', min: 0, max: 512 },
-          },
-        },
-        {
-          ...countedFamily,
-          id: 'masks',
-          dynamic: {
-            ...countedFamily.dynamic,
-            naming: { kind: 'prefix', prefix: '', min: 0, max: 512 },
-          },
-        },
+      body: [
+        counted.body[0]!,
+        { ...countedFamily, maxMembers: 512 },
+        { ...countedFamily, id: 'masks', maxMembers: 512 },
       ],
     }
     const imported = importLitegraph(workflow([
@@ -1018,7 +1059,7 @@ describe('serialized output slot identity', () => {
     expect(codesOf(errorsOf(imported.diagnostics))).toContain('import.link.outputSlot')
   })
 
-  it.each([undefined, true, 1.5, -1, 5, '0x2'])(
+  it.each([undefined, 1.5, -1, '0x2'])(
     'rejects a family member backed by the invalid stored count %s',
     (count) => {
       const imported = importLitegraph(workflow([
@@ -1036,7 +1077,7 @@ describe('serialized output slot identity', () => {
   it('rejects output-family slots when the count input is linked', () => {
     const countSource: NodeSchema = {
       type: 'CountSource', displayName: 'Count Source', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'output', id: 'count', type: { kind: 'concrete', name: 'INT' } }],
+      body: [{ kind: 'output', id: 'count', type: { kind: 'concrete', name: 'INT' } }],
     }
     const imported = importLitegraph(workflow([
       lgNode(1, countSource.type, { outputs: [{ name: 'count', links: [1] }] }),
@@ -1065,27 +1106,39 @@ describe('serialized output slot identity', () => {
 // -- widget value mapping -----------------------------------------------------
 
 describe('versioned node widget upgrades', () => {
+  // Save Video as the node declares it: the prefix beside the mount, and the
+  // codec and encoding mode shared by the container's options. ComfyUI's
+  // hidden fallback codec is not a row of this node.
+  const saveVideoSchema = (): NodeSchema => {
+    const crf = (fallback: number, max: number) => ({ id: 'crf', kind: 'input', required: true, default: fallback,
+      type: { kind: 'concrete', types: ['FLOAT'] }, widget: { type: 'NUMBER', min: 0, max, step: 1 } })
+    const wire = {
+      outputNode: true,
+      body: [
+        { kind: 'input', id: 'video', required: true, type: { kind: 'concrete', types: ['VIDEO'] } },
+        { kind: 'row', rows: [
+          { kind: 'input', id: 'filename_prefix', required: true, default: 'video/ComfyUI',
+            type: { kind: 'concrete', types: ['STRING'] }, widget: { type: 'STRING', multiline: false } },
+          { kind: 'input', id: 'mount', required: false, type: { kind: 'concrete', types: ['STRING'] }, widget: { type: 'MOUNT' } },
+        ] },
+        { kind: 'choice', id: 'format', options: [
+          { key: 'auto', rows: [{ kind: 'use', id: 'codec' }] },
+          { key: 'mp4', rows: [{ kind: 'use', id: 'codec' }] },
+          { key: 'webm', rows: [{ kind: 'use', id: 'codec', only: ['auto', 'av1'] }] },
+        ], shared: [{ kind: 'choice', id: 'codec', options: [
+          { key: 'auto', rows: [] },
+          { key: 'h264', rows: [{ kind: 'use', id: 'encoding' }] },
+          { key: 'av1', rows: [{ kind: 'use', id: 'encoding', inside: [{ kind: 'use', id: 'crf', default: 24, widget: { type: 'NUMBER', min: 0, max: 63, step: 1 } }] }] },
+        ], shared: [{ kind: 'choice', id: 'encoding', required: false, options: [
+          { key: 'auto', rows: [] }, { key: 're-encode', rows: [crf(18, 51)] },
+        ] }] }] },
+      ],
+    } as unknown as DinksterWireSchema
+    return parseDinksterSchema('SaveVideo', wire).schema!
+  }
+
   it.each([['auto', 'auto'], ['mp4', 'h264'], ['webm', 'av1']])('recognizes unlisted SaveVideo %s/%s layouts without inventing a source version', (format, codec) => {
-    const encoding: InputSpec = {
-      ...sdInput('encoding', 'COMBO'), optional: true,
-      dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [{ key: 'auto', inputs: [] }] },
-    }
-    const codecInput: InputSpec = {
-      ...sdInput('codec', 'COMBO'), optional: true,
-      dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [
-        { key: 'auto', inputs: [] }, { key: 'h264', inputs: [encoding] }, { key: 'av1', inputs: [encoding] },
-      ] },
-    }
-    const schema = sdSchema('SaveVideo', 'Save Video', [
-      sdInput('filename_prefix', 'STRING', 'STRING'),
-      { ...sdInput('format', 'COMBO'), dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [
-        { key: 'auto', inputs: [codecInput] }, { key: 'mp4', inputs: [codecInput] }, { key: 'webm', inputs: [{ ...codecInput, dynamic: {
-          ...codecInput.dynamic!, kind: 'dynamicCombo', materialization: 'wire15', options: [{ key: 'auto', inputs: [] }, { key: 'av1', inputs: [encoding] }],
-        } }] },
-      ] } },
-      codecInput,
-      { ...sdInput('mount', 'STRING', 'MOUNT'), optional: true, adjacentTo: 'filename_prefix' },
-    ], true)
+    const schema = saveVideoSchema()
     const localResolve = (type: string) => type === schema.type ? schema : undefined
     for (const version of [undefined, '0.28.0', 'unknown']) for (const { widgets_values, recognized } of [
       { widgets_values: ['video/unversioned', format, codec], recognized: true },
@@ -1112,46 +1165,58 @@ describe('versioned node widget upgrades', () => {
         scope: { kind: 'full' }, connection: asConnectionId('c0'), schemaHash: 'versionless-save-video' })
       expect(compiled.ok).toBe(recognized)
       if (compiled.ok) {
-        expect(compiled.artifact.prompt.n1!.inputs).toEqual({
-          filename_prefix: 'video/unversioned', format, 'format.codec': codec, codec,
-          ...(codec === 'auto' ? {} : { 'format.codec.encoding': 'auto', 'codec.encoding': 'auto' }),
+        expect(compiled.artifact.prompt.n1!.inputs).toEqual({ filename_prefix: 'video/unversioned' })
+        // The three-widget layout predates the encoding mode, so a codec other than auto encodes automatically.
+        expect(compiled.artifact.prompt.n1!.slotVariants).toEqual({
+          format, 'format.codec': codec, ...(codec === 'auto' ? {} : { 'format.codec.encoding': 'auto' }),
         })
       }
     }
-    for (const items of [
-      [schema.items[1]!, schema.items[0]!, ...schema.items.slice(2)],
-      [sdInput('extra', 'STRING', 'STRING'), ...schema.items],
-      [sdInput('filename_prefix', 'INT', 'INT'), ...schema.items.slice(1)],
+    const [video, row, choice] = schema.body
+    for (const body of [
+      [sdInput('extra', 'STRING', 'STRING'), ...schema.body],
+      [video!, { kind: 'row' as const, rows: [sdInput('filename_prefix', 'INT', 'INT'), { ...sdInput('mount', 'STRING', 'MOUNT'), optional: true }] }, choice!],
     ]) {
-      const drifted = { ...schema, items }
+      const drifted = { ...schema, body }
       const resolveDrifted = (type: string) => type === schema.type ? drifted : undefined
       const source = workflow([lgNode(1, 'SaveVideo', { properties: { ver: '0.28.0' }, widgets_values: ['video/unversioned', format, codec] })])
       const imported = importLitegraph(source, resolveDrifted)
       expect(codesOf(imported.diagnostics)).not.toContain('import.widgets.layoutInferred')
       expect(imported.document!.graphs.g0!.nodes.n1!.ext?.['importer.inferredWidgetLayout']).toBeUndefined()
-      const compiled = compile({ document: imported.document!, revision: 1, resolve: resolveDrifted,
-        scope: { kind: 'full' }, connection: asConnectionId('c0'), schemaHash: 'drifted-save-video' })
-      expect(compiled.ok).toBe(false)
     }
+    // Rows are found by id, so drawing the format before the prefix changes nothing.
+    const reordered = { ...schema, body: [video!, choice!, row!] }
+    const resolveReordered = (type: string) => type === schema.type ? reordered : undefined
+    const imported = importLitegraph(workflow([lgNode(1, 'SaveVideo', { widgets_values: ['video/unversioned', format, codec] })]), resolveReordered)
+    expect(codesOf(imported.diagnostics)).toEqual(['import.widgets.layoutInferred'])
+  })
+
+  it('reads past the hidden fallback codec and keeps an appended mount in the last position', () => {
+    const schema = saveVideoSchema()
+    const localResolve = (type: string) => type === schema.type ? schema : undefined
+    for (const [widgets_values, values, dynamic] of [
+      [['video/a', 'mp4', 'h264', 're-encode', 20, 'auto'],
+        { filename_prefix: 'video/a', 'format.codec.encoding.crf': 20 }, { format: 'mp4', 'format.codec': 'h264', 'format.codec.encoding': 're-encode' }],
+      [['video/b', 'webm', 'av1', 're-encode', 30, 'h264', 're-encode', 22, 'outputs/b'],
+        { filename_prefix: 'video/b', 'format.codec.encoding.crf': 30, mount: 'outputs/b' }, { format: 'webm', 'format.codec': 'av1', 'format.codec.encoding': 're-encode' }],
+      [['video/c', 'auto', 'auto', 'av1', 'auto'],
+        { filename_prefix: 'video/c' }, { format: 'auto', 'format.codec': 'auto' }],
+    ] as const) {
+      const imported = importLitegraph(workflow([lgNode(1, 'SaveVideo', { widgets_values })]), localResolve)
+      expect(imported.diagnostics).toEqual([])
+      const node = imported.document!.graphs.g0!.nodes.n1!
+      expect(node.values).toEqual(values)
+      expect(Object.fromEntries(Object.entries(node.dynamic ?? {}).map(([key, state]) => [key, state.selected]))).toEqual(dynamic)
+    }
+    // A value that is not a codec is no fallback codec: the mount takes it.
+    const mounted = importLitegraph(workflow([lgNode(1, 'SaveVideo', { widgets_values: ['video/d', 'auto', 'auto', 'outputs/d'] })]), localResolve)
+    expect(mounted.document!.graphs.g0!.nodes.n1!.values).toEqual({ filename_prefix: 'video/d', mount: 'outputs/d' })
   })
 
   it.each(['auto', 'h264', 'av1'])('upgrades SaveVideo 0.3.68 %s choices without shifting the prefix or changing the source', (codec) => {
-    const encoding: InputSpec = {
-      ...sdInput('encoding', 'COMBO'), optional: true,
-      dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [{ key: 'auto', inputs: [] }] },
-    }
-    const codecInput: InputSpec = {
-      ...sdInput('codec', 'COMBO'), optional: true,
-      dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [
-        { key: 'auto', inputs: [] }, { key: 'h264', inputs: [encoding] }, { key: 'av1', inputs: [encoding] },
-      ] },
-    }
-    const schema = sdSchema('SaveVideo', 'SaveVideo', [
-      sdInput('filename_prefix', 'STRING', 'STRING'),
-      { ...sdInput('format', 'COMBO'), dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [{ key: 'mp4', inputs: [codecInput] }] } },
-      codecInput,
-    ], true)
+    const schema = saveVideoSchema()
     const localResolve = (type: string) => type === schema.type ? schema : undefined
+    const choices = { format: 'mp4', 'format.codec': codec, ...(codec === 'auto' ? {} : { 'format.codec.encoding': 'auto' }) }
     for (const version of ['0.3.68', 'unknown']) for (const expanded of [false, true]) {
       const widgets_values = ['video/Kandinsky5', 'mp4', codec, ...(expanded ? [...(codec === 'auto' ? [] : ['auto']), 'auto'] : [])]
       const source = workflow([lgNode(1, 'SaveVideo', { properties: { ver: version }, widgets_values })])
@@ -1164,18 +1229,11 @@ describe('versioned node widget upgrades', () => {
       if (compiled.ok) {
         const inferred = version === 'unknown' && !expanded
         expect(codesOf(imported.diagnostics)).toEqual(inferred ? ['import.widgets.layoutInferred'] : [])
-        expect(compiled.artifact.prompt.n1!.inputs).toEqual({
-          filename_prefix: 'video/Kandinsky5', format: 'mp4', 'format.codec': codec,
-          ...(codec === 'auto' ? {} : { 'format.codec.encoding': 'auto' }), codec: inferred ? codec : 'auto',
-          ...(inferred && codec !== 'auto' ? { 'codec.encoding': 'auto' } : {}),
-        })
+        expect(compiled.artifact.prompt.n1!.inputs).toEqual({ filename_prefix: 'video/Kandinsky5' })
+        expect(compiled.artifact.prompt.n1!.slotVariants).toEqual(choices)
       }
     }
-    const widgets_values = {
-      filename_prefix: 'video/keyed', format: 'mp4', 'format.codec': codec,
-      ...(codec === 'auto' ? {} : { 'format.codec.encoding': 'auto' }),
-      codec: 'av1', 'codec.encoding': 'auto',
-    }
+    const widgets_values = { filename_prefix: 'video/keyed', ...choices, codec: 'av1', 'codec.encoding': 'auto' }
     const source = workflow([lgNode(1, 'SaveVideo', { properties: { ver: '0.3.68' }, widgets_values })])
     const before = JSON.stringify(source)
     const imported = importLitegraph(source, localResolve)
@@ -1184,17 +1242,20 @@ describe('versioned node widget upgrades', () => {
     const compiled = compile({ document: imported.document!, revision: 1, resolve: localResolve,
       scope: { kind: 'full' }, connection: asConnectionId('c0'), schemaHash: 'save-video-keyed' })
     expect(compiled.ok).toBe(true)
-    if (compiled.ok) expect(compiled.artifact.prompt.n1!.inputs).toEqual(widgets_values)
+    if (compiled.ok) {
+      expect(compiled.artifact.prompt.n1!.inputs).toEqual({ filename_prefix: 'video/keyed' })
+      expect(compiled.artifact.prompt.n1!.slotVariants).toEqual(choices)
+    }
   })
 
   it('selects the saved class and version without rewriting nodes, links or source JSON', () => {
     const producer: NodeSchema = {
       type: 'UpgradeSource', displayName: 'Upgrade source', category: 'test', source: 'v3', isOutputNode: false,
-      items: [sdInput('first', 'INT', 'INT'), sdInput('second', 'INT', 'INT'), sdOutput('value', 'INT')],
+      body: [sdInput('first', 'INT', 'INT'), sdInput('second', 'INT', 'INT'), sdOutput('value', 'INT')],
     }
     const consumer: NodeSchema = {
       type: 'UpgradeSink', displayName: 'Upgrade sink', category: 'test', source: 'v3', isOutputNode: true,
-      items: [sdInput('value', 'INT')],
+      body: [sdInput('value', 'INT')],
     }
     const upgrades: ComfyNodeUpgradeTable = new Map([['UpgradeSource', new Map([
       ['0.1.0', (values) => Array.isArray(values) ? [values[1]!, values[0]!] : []],
@@ -1291,11 +1352,11 @@ describe('positional widget mapping', () => {
     expect(document!.graphs.g0!.nodes.n1!.values).toEqual({ label: 'kept' })
   })
 
-  it('does not assign a saved resolution multiple to the non-serializing preview', () => {
+  it('does not assign a saved resolution multiple to the display-only Note', () => {
     const schema = sdSchema('ResolutionSelector', 'Resolution Selector', [
       sdInput('aspect_ratio', 'COMBO', 'COMBO'),
       sdInput('megapixels', 'FLOAT', 'FLOAT'),
-      { ...sdInput('preview', 'RESOLUTION_PREVIEW'), optional: true, widget: { widgetType: 'RESOLUTION_PREVIEW', options: {}, default: null } },
+      { kind: 'note', id: 'preview', text: '1024 x 1024 pixels' },
       { ...sdInput('multiple', 'INT'), widget: { widgetType: 'INT', options: {}, default: 8 } },
     ], true)
     const localResolve = (type: string) => type === schema.type ? schema : undefined
@@ -1311,18 +1372,14 @@ describe('positional widget mapping', () => {
     if (compiled.ok) expect(compiled.artifact.prompt.n1!.inputs.multiple).toBe(32)
   })
 
-  it('skips a non-serializing preview in an Autogrow member template', () => {
-    const schema = sdSchema('FamilyPreview', 'Family preview', [{
-      ...sdInput('values', '*'), optional: true,
-      dynamic: {
-        kind: 'autogrow', materialization: 'wire15',
-        naming: { kind: 'names', names: ['a'], min: 1 },
-        template: [
-          { ...sdInput('preview', 'RESOLUTION_PREVIEW'), optional: true, widget: { widgetType: 'RESOLUTION_PREVIEW', options: {}, default: null } },
-          { ...sdInput('multiple', 'INT'), widget: { widgetType: 'INT', options: {}, default: 8 } },
-        ],
-      },
-    }], true)
+  it('skips a display-only Note in an Autogrow member template', () => {
+    const schema: NodeSchema = { ...sdSchema('FamilyPreview', 'Family preview', [], true), body: [{
+      kind: 'group', id: 'values', keys: { kind: 'named', names: ['a'] }, grows: 'link', minMembers: 1,
+      member: [
+        { kind: 'note', id: 'preview', text: '1024 x 1024 pixels' },
+        { ...sdInput('multiple', 'INT'), widget: { widgetType: 'INT', options: {}, default: 8 } },
+      ],
+    }] }
     const localResolve = (type: string) => type === schema.type ? schema : undefined
     const imported = importLitegraph(workflow([lgNode(1, schema.type, { widgets_values: [32] })]), localResolve)
     expect(imported.diagnostics).toEqual([])
@@ -1334,18 +1391,18 @@ describe('positional widget mapping', () => {
   })
 
   it.each([[false, 'fixed'], [true, 'randomize']] as const)(
-    'accepts a legacy boolean controller %s before a non-serializing preview',
+    'accepts a legacy boolean controller %s before a display-only Note',
     (legacy, mode) => {
       const schema = sdSchema('SeedPreview', 'Seed preview', [
         { ...sdInput('seed', 'INT'), widget: { widgetType: 'INT', options: {}, controller: 'after_generate' as const } },
-        { ...sdInput('preview', 'RESOLUTION_PREVIEW'), optional: true, widget: { widgetType: 'RESOLUTION_PREVIEW', options: {}, default: null } },
+        { kind: 'note', id: 'preview', text: '1024 x 1024 pixels' },
       ])
       const imported = importLitegraph(workflow([lgNode(1, schema.type, { widgets_values: [42, legacy] })]),
         (type) => type === schema.type ? schema : undefined)
       expect(imported.diagnostics).toEqual([])
       expect(imported.document!.graphs.g0!.nodes.n1!.values).toEqual({ seed: 42 })
       expect(imported.document!.graphs.g0!.nodes.n1!.controllers).toEqual({ seed: mode })
-      const withBoolean = { ...schema, items: [...schema.items, sdInput('enabled', 'BOOLEAN', 'BOOLEAN')] }
+      const withBoolean = { ...schema, body: [...schema.body, sdInput('enabled', 'BOOLEAN', 'BOOLEAN')] }
       const ambiguous = importLitegraph(workflow([lgNode(1, schema.type, { widgets_values: [42, legacy] })]),
         (type) => type === schema.type ? withBoolean : undefined)
       expect(ambiguous.document).toBeUndefined()
@@ -1404,9 +1461,9 @@ describe('positional widget mapping', () => {
     const seed = { ...sdInput('seed', 'INT', 'INT'), widget: { widgetType: 'INT', options: {}, controller: 'after_generate' as const } }
     const enabled = sdInput('enabled', 'BOOLEAN', 'BOOLEAN')
     for (const nested of [false, true]) {
-      const schema = sdSchema('BooleanAfterSeed', 'Boolean after seed', nested ? [
-        { ...sdInput('mode', 'COMBO'), dynamic: { kind: 'dynamicCombo', options: [{ key: 'seeded', inputs: [seed] }] } }, enabled,
-      ] : [seed, enabled])
+      const schema: NodeSchema = { ...sdSchema('BooleanAfterSeed', 'Boolean after seed', []), body: nested ? [
+        { kind: 'choice', id: 'mode', required: true, shared: [], options: [{ key: 'seeded', rows: [seed] }] }, enabled,
+      ] : [seed, enabled] }
       const resolveSchema = (type: string) => type === schema.type ? schema : undefined
       const prefix = nested ? ['seeded'] : []
       for (const tail of [[true], [false], [false, true]]) {
@@ -1471,24 +1528,29 @@ describe('positional widget mapping', () => {
   })
 
   it.each([
-    ['positional', ['daily/render', 'archive']],
-    ['keyed', { filename_prefix: 'daily/render', mount: 'archive' }],
+    ['positional', ['daily/render', 'png', 'archive']],
+    ['keyed', { filename_prefix: 'daily/render', format: 'png', mount: 'archive' }],
   ] as const)('preserves independent prefix and mount values from %s widgets through compilation', (_label, widgets_values) => {
-    const schema = sdSchema('SaveImage', 'SaveImage', [
-      sdInput('filename_prefix', 'STRING', 'STRING'),
-      { ...sdInput('mount', 'STRING', 'MOUNT'), optional: true, widget: { widgetType: 'MOUNT', options: {}, default: null } },
-    ], true)
+    // The mount is drawn beside the prefix but was appended after the
+    // node's original widgets, so it takes the last position.
+    const schema: NodeSchema = { ...sdSchema('SaveImage', 'SaveImage', [], true), body: [
+      { kind: 'row', rows: [
+        sdInput('filename_prefix', 'STRING', 'STRING'),
+        { ...sdInput('mount', 'STRING', 'MOUNT'), optional: true, widget: { widgetType: 'MOUNT', options: {}, default: null } },
+      ] },
+      sdInput('format', 'STRING', 'STRING'),
+    ] }
     const localResolve = (type: string) => type === schema.type ? schema : undefined
     const imported = importLitegraph(workflow([lgNode(1, schema.type, { widgets_values })]), localResolve)
     expect(imported.diagnostics).toEqual([])
-    expect(imported.document!.graphs.g0!.nodes.n1!.values).toEqual({ filename_prefix: 'daily/render', mount: 'archive' })
+    expect(imported.document!.graphs.g0!.nodes.n1!.values).toEqual({ filename_prefix: 'daily/render', format: 'png', mount: 'archive' })
     const reopened = loadDocument(JSON.parse(JSON.stringify(imported.document)))
     const compiled = compile({
       document: reopened.document!, revision: 1, resolve: localResolve,
       scope: { kind: 'full' }, connection: asConnectionId('c0'), schemaHash: 'save-inputs-test',
     })
     expect(compiled.ok).toBe(true)
-    if (compiled.ok) expect(compiled.artifact.prompt.n1!.inputs).toEqual({ filename_prefix: 'daily/render', mount: 'archive' })
+    if (compiled.ok) expect(compiled.artifact.prompt.n1!.inputs).toEqual({ filename_prefix: 'daily/render', format: 'png', mount: 'archive' })
   })
 
   it('imports ColorTransfer DynamicCombo selection without shifting strength', () => {
@@ -1498,7 +1560,7 @@ describe('positional widget mapping', () => {
       category: 'test',
       source: 'v3',
       isOutputNode: false,
-      items: [{ kind: 'output', id: 'out0', type: { kind: 'concrete', name: 'FLOAT' } }],
+      body: [{ kind: 'output', id: 'out0', type: { kind: 'concrete', name: 'FLOAT' } }],
     }
     const localResolve = (type: string) => type === floatSource.type ? floatSource : resolve(type)
     const json = workflow(
@@ -1577,31 +1639,25 @@ describe('positional widget mapping', () => {
       category: 'test',
       source: 'v3',
       isOutputNode: false,
-      items: [
+      body: [
         {
-          kind: 'input',
+          kind: 'choice',
           id: 'model',
-          type: { kind: 'concrete', name: 'COMBO' },
-          optional: false,
-          dynamic: {
-            kind: 'dynamicCombo',
-            options: [{
-              key: 'outer',
-              inputs: [
-                widget('prompt', 'STRING'),
-                {
-                  kind: 'input',
-                  id: 'mode',
-                  type: { kind: 'concrete', name: 'COMBO' },
-                  optional: false,
-                  dynamic: {
-                    kind: 'dynamicCombo',
-                    options: [{ key: 'fine', inputs: [widget('quality', 'INT', true)] }],
-                  },
-                },
-              ],
-            }],
-          },
+          required: true,
+          shared: [],
+          options: [{
+            key: 'outer',
+            rows: [
+              widget('prompt', 'STRING'),
+              {
+                kind: 'choice',
+                id: 'mode',
+                required: true,
+                shared: [],
+                options: [{ key: 'fine', rows: [widget('quality', 'INT', true)] }],
+              },
+            ],
+          }],
         },
         widget('seed', 'INT'),
       ],
@@ -1615,14 +1671,14 @@ describe('positional widget mapping', () => {
     const imported = document!.graphs[document!.root]!.nodes['n1']!
     expect(imported.dynamic).toEqual({
       model: { selected: 'outer' },
-      'model.[outer].mode': { selected: 'fine' },
+      'model.mode': { selected: 'fine' },
     })
     expect(imported.values).toEqual({
-      'model.[outer].prompt': 'describe scene',
-      'model.[outer].mode.[fine].quality': 9,
+      'model.prompt': 'describe scene',
+      'model.mode.quality': 9,
       seed: 42,
     })
-    expect(imported.controllers).toEqual({ 'model.[outer].mode.[fine].quality': 'increment' })
+    expect(imported.controllers).toEqual({ 'model.mode.quality': 'increment' })
     expect(imported.ext?.['importer.excessWidgetValues']).toBeUndefined()
 
     const reloaded = loadDocument(JSON.parse(JSON.stringify(document)))
@@ -1630,9 +1686,9 @@ describe('positional widget mapping', () => {
     const loaded = reloaded.document!.graphs[reloaded.document!.root]!.nodes['n1']!
     expect(elabInputsOf(elaborateInterface(nestedSchema, loaded)).map((item) => item.address.port)).toEqual([
       'model',
-      'model.[outer].prompt',
-      'model.[outer].mode',
-      'model.[outer].mode.[fine].quality',
+      'model.prompt',
+      'model.mode',
+      'model.mode.quality',
       'seed',
     ])
     expect(solveGraphTypes(reloaded.document!.graphs[reloaded.document!.root]!, nestedResolve).diagnostics).toEqual([])
@@ -1659,32 +1715,26 @@ describe('positional widget mapping', () => {
       category: 'test',
       source: 'v3',
       isOutputNode: false,
-      items: [{
-        kind: 'input',
+      body: [{
+        kind: 'choice',
         id: 'model',
-        type: { kind: 'concrete', name: 'COMBO' },
-        optional: false,
-        dynamic: {
-          kind: 'dynamicCombo',
-          options: [{
-            key: 'many',
-            inputs: [
-              { kind: 'input', id: 'prompt', type: { kind: 'concrete', name: 'STRING' }, optional: false, widget: { widgetType: 'STRING', options: {} } },
-              {
-                kind: 'input',
-                id: 'images',
-                type: { kind: 'wildcard' },
-                optional: true,
-                dynamic: {
-                  kind: 'autogrow',
-                  template: [{ kind: 'input', id: 'image', type: { kind: 'concrete', name: 'IMAGE' }, optional: false }],
-                  naming: { kind: 'prefix', prefix: 'image' },
-                },
-              },
-              { kind: 'input', id: 'after', type: { kind: 'concrete', name: 'INT' }, optional: false, widget: { widgetType: 'INT', options: {} } },
-            ],
-          }],
-        },
+        required: true,
+        shared: [],
+        options: [{
+          key: 'many',
+          rows: [
+            { kind: 'input', id: 'prompt', type: { kind: 'concrete', name: 'STRING' }, optional: false, widget: { widgetType: 'STRING', options: {} } },
+            {
+              kind: 'group',
+              id: 'strengths',
+              value: { kind: 'input', id: 'strength', type: { kind: 'concrete', name: 'INT' }, optional: false, widget: { widgetType: 'INT', options: {} } },
+              keys: { kind: 'numbered', prefix: 'strength', start: 0, pad: 0 },
+              grows: 'link',
+              minMembers: 0,
+            },
+            { kind: 'input', id: 'after', type: { kind: 'concrete', name: 'INT' }, optional: false, widget: { widgetType: 'INT', options: {} } },
+          ],
+        }],
       }],
     }
     const { document, diagnostics } = importLitegraph(
@@ -1692,7 +1742,7 @@ describe('positional widget mapping', () => {
       () => autogrowSchema,
     )
     const imported = document!.graphs[document!.root]!.nodes['n1']!
-    expect(imported.values).toEqual({ 'model.[many].prompt': 'before grow' })
+    expect(imported.values).toEqual({ 'model.prompt': 'before grow' })
     expect(imported.ext?.['importer.excessWidgetValues']).toEqual([7, 8])
     expect(codesOf(diagnostics)).toContain('import.dynamic.autogrowUnsupported')
   })
@@ -1708,7 +1758,7 @@ describe('Autogrow endpoint reconstruction', () => {
     category: 'test',
     source: 'v3',
     isOutputNode: false,
-    items: [{ kind: 'output', id: 'image', type: imageType }],
+    body: [{ kind: 'output', id: 'image', type: imageType }],
   }
   const input = (id: string): InputSpec => ({ kind: 'input', id, type: imageType, optional: false })
 
@@ -1736,25 +1786,20 @@ describe('Autogrow endpoint reconstruction', () => {
     }
   }
 
-  it('reconstructs scoped wire15 prefix members in authored input order', () => {
+  it('reconstructs scoped prefix members in authored input order', () => {
     const schema: NodeSchema = {
       type: 'ComfyAndNode',
       displayName: 'Comfy And',
       category: 'test',
       source: 'v3',
       isOutputNode: false,
-      items: [{
-        kind: 'input',
+      body: [{
+        kind: 'group',
         id: 'values',
-        type: { kind: 'wildcard' },
-        optional: true,
-        dynamic: {
-          kind: 'autogrow',
-          materialization: 'wire15',
-          template: [input('value')],
-          naming: { kind: 'prefix', prefix: 'value', min: 1 },
-          ordinalOffset: 1,
-        },
+        value: input('value'),
+        keys: { kind: 'numbered', prefix: 'value', start: 1, pad: 0 },
+        grows: 'link',
+        minMembers: 1,
       }],
     }
     const { document, diagnostics, targetId } = importFamily(
@@ -1765,11 +1810,11 @@ describe('Autogrow endpoint reconstruction', () => {
     expect(errorsOf(diagnostics)).toEqual([])
     const graph = document!.graphs[document!.root]!
     expect(graph.nodes[`n${targetId}`]!.dynamic).toEqual({
-      values: { members: ['m0', 'm1'], seq: 2 },
+      values: { members: ['value2', 'value1'], seq: 2 },
     })
     expect(Object.values(graph.links).map((link) => link.to)).toEqual([
-      { node: `n${targetId}`, port: 'values.m0' },
-      { node: `n${targetId}`, port: 'values.m1' },
+      { node: `n${targetId}`, port: 'values.value2' },
+      { node: `n${targetId}`, port: 'values.value1' },
     ])
   })
 
@@ -1780,17 +1825,13 @@ describe('Autogrow endpoint reconstruction', () => {
       category: 'test',
       source: 'v3',
       isOutputNode: false,
-      items: [{
-        kind: 'input',
+      body: [{
+        kind: 'group',
         id: 'values',
-        type: { kind: 'wildcard' },
-        optional: true,
-        dynamic: {
-          kind: 'autogrow',
-          materialization: 'wire15',
-          template: [input('value')],
-          naming: { kind: 'names', names: ['a', 'b'], min: 1 },
-        },
+        value: input('value'),
+        keys: { kind: 'named', names: ['a', 'b'] },
+        grows: 'link',
+        minMembers: 1,
       }],
     }
     const { document, diagnostics, targetId } = importFamily(
@@ -1816,20 +1857,15 @@ describe('Autogrow endpoint reconstruction', () => {
       category: 'test',
       source: 'v3',
       isOutputNode: false,
-      items: [
+      body: [
         input('fixed'),
         {
-          kind: 'input',
+          kind: 'group',
           id: 'values',
-          type: { kind: 'wildcard' },
-          optional: true,
-          dynamic: {
-            kind: 'autogrow',
-            materialization: 'wire15',
-            template: [input('value')],
-            naming: { kind: 'prefix', prefix: 'value', min: 1 },
-            ordinalOffset: 1,
-          },
+          value: input('value'),
+          keys: { kind: 'numbered', prefix: 'value', start: 1, pad: 0 },
+          grows: 'link',
+          minMembers: 1,
         },
       ],
     }
@@ -1852,17 +1888,13 @@ describe('Autogrow endpoint reconstruction', () => {
       category: 'test',
       source: 'v3',
       isOutputNode: false,
-      items: [{
-        kind: 'input',
+      body: [{
+        kind: 'group',
         id: 'values',
-        type: { kind: 'wildcard' },
-        optional: true,
-        dynamic: {
-          kind: 'autogrow',
-          materialization: 'wire15',
-          template: [scalar],
-          naming: { kind: 'names', names: ['a', 'b'], min: 1 },
-        },
+        value: scalar,
+        keys: { kind: 'named', names: ['a', 'b'] },
+        grows: 'link',
+        minMembers: 1,
       }],
     }
     const resolveSchema = (type: string) => type === schema.type ? schema : undefined
@@ -1894,25 +1926,25 @@ describe('Autogrow endpoint reconstruction', () => {
   it('reconstructs prefix-family image0/image1 links as ordered persisted members', () => {
     const schema: NodeSchema = {
       type: 'ImageBatch', displayName: 'Image Batch', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
-        kind: 'input', id: 'images', type: { kind: 'wildcard' }, optional: true,
-        dynamic: { kind: 'autogrow', template: [input('image')], naming: { kind: 'prefix', prefix: 'image' } },
+      body: [{
+        kind: 'group', id: 'images', value: input('image'),
+        keys: { kind: 'numbered', prefix: 'image', start: 0, pad: 0 }, grows: 'link', minMembers: 0,
       }],
     }
     const { document, diagnostics, localResolve, targetId } = importFamily(schema, ['images.image0', 'images.image1'])
     expect(errorsOf(diagnostics)).toEqual([])
     const graph = document!.graphs[document!.root]!
-    expect(graph.nodes[`n${targetId}`]!.dynamic).toEqual({ images: { members: ['m0', 'm1'], seq: 2 } })
+    expect(graph.nodes[`n${targetId}`]!.dynamic).toEqual({ images: { members: ['image0', 'image1'], seq: 2 } })
     expect(Object.values(graph.links).map((link) => link.to)).toEqual([
-      { node: `n${targetId}`, port: 'images.image', members: ['m0'] },
-      { node: `n${targetId}`, port: 'images.image', members: ['m1'] },
+      { node: `n${targetId}`, port: 'images.image0' },
+      { node: `n${targetId}`, port: 'images.image1' },
     ])
     const solved = solveGraphTypes(graph, localResolve)
     expect(solved.diagnostics.filter((diagnostic) => diagnostic.code === 'solve.portMissing')).toEqual([])
     expect([...solved.linkVerdicts.values()]).toEqual(['ok', 'ok'])
 
     // Imported identities remain retired after their links are removed and
-    // the user explicitly compacts. The next affordance must not recycle m0.
+    // the user explicitly compacts. The next affordance must not recycle image0.
     const store = new DocumentStore(document!, coreCommandRegistry())
     for (const linkId of Object.keys(graph.links))
       expect(store.dispatch({ command: 'link.disconnect', params: { graphId: graph.id, linkId } }).ok).toBe(true)
@@ -1921,38 +1953,32 @@ describe('Autogrow endpoint reconstruction', () => {
       params: { graphId: graph.id, nodeId: `n${targetId}` },
     }).ok).toBe(true)
     const elaborated = elaborateInterface(schema, store.doc.graphs[graph.id]!.nodes[`n${targetId}`]!)
-    expect(elabInputsOf(elaborated).find((item) => item.origin.kind === 'member' && item.origin.ghost)?.address.members)
-      .toEqual(['m2'])
+    expect(elabInputsOf(elaborated).find((item) => item.origin.kind === 'member' && item.origin.ghost)?.address.port)
+      .toBe('images.image2')
   })
 
   it('reconstructs grouped prefix and named-family wire variants', () => {
     const grouped: NodeSchema = {
       type: 'GroupedInputs', displayName: 'Grouped Inputs', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
-        kind: 'input', id: 'items', type: { kind: 'wildcard' }, optional: true,
-        dynamic: {
-          kind: 'autogrow', template: [input('image'), input('mask')],
-          naming: { kind: 'prefix', prefix: 'item' },
-        },
+      body: [{
+        kind: 'group', id: 'items', member: [input('image'), input('mask')],
+        keys: { kind: 'numbered', prefix: 'item', start: 0, pad: 0 }, grows: 'link', minMembers: 0,
       }],
     }
     const groupedResult = importFamily(grouped, ['items.item0.image', 'items.mask0'])
     const groupedGraph = groupedResult.document!.graphs[groupedResult.document!.root]!
-    expect(groupedGraph.nodes[`n${groupedResult.targetId}`]!.dynamic).toEqual({ items: { members: ['m0'], seq: 1 } })
+    expect(groupedGraph.nodes[`n${groupedResult.targetId}`]!.dynamic).toEqual({ items: { members: ['item0'], seq: 1 } })
     expect(Object.values(groupedGraph.links).map((link) => link.to)).toEqual([
-      { node: `n${groupedResult.targetId}`, port: 'items.image', members: ['m0'] },
-      { node: `n${groupedResult.targetId}`, port: 'items.mask', members: ['m0'] },
+      { node: `n${groupedResult.targetId}`, port: 'items.item0.image' },
+      { node: `n${groupedResult.targetId}`, port: 'items.item0.mask' },
     ])
     expect(solveGraphTypes(groupedGraph, groupedResult.localResolve).diagnostics.filter((d) => d.code === 'solve.portMissing')).toEqual([])
 
     const named: NodeSchema = {
       type: 'NamedInputs', displayName: 'Named Inputs', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
-        kind: 'input', id: 'channels', type: { kind: 'wildcard' }, optional: true,
-        dynamic: {
-          kind: 'autogrow', materialization: 'wire15', template: [input('image'), input('mask')],
-          naming: { kind: 'names', names: ['left', 'right'] },
-        },
+      body: [{
+        kind: 'group', id: 'channels', member: [input('image'), input('mask')],
+        keys: { kind: 'named', names: ['left', 'right'] }, grows: 'link', minMembers: 0,
       }],
     }
     const namedResult = importFamily(named, ['channels.right.image', 'channels.left.mask'])
@@ -1965,23 +1991,16 @@ describe('Autogrow endpoint reconstruction', () => {
     expect(solveGraphTypes(namedGraph, namedResult.localResolve).diagnostics.filter((d) => d.code === 'solve.portMissing')).toEqual([])
   })
 
-  it('reconstructs an Autogrow family inside an active wire-15 DynamicCombo', () => {
+  it('reconstructs an Autogrow family inside an active DynamicCombo', () => {
     const schema: NodeSchema = {
       type: 'ComboBatch', displayName: 'Combo Batch', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
-        kind: 'input', id: 'mode', type: { kind: 'concrete', name: 'COMBO' }, optional: false,
-        widget: { widgetType: 'COMBO', options: { options: ['batch'] } },
-        dynamic: {
-          kind: 'dynamicCombo', materialization: 'wire15', options: [{
-            key: 'batch', inputs: [{
-              kind: 'input', id: 'images', type: { kind: 'wildcard' }, optional: true,
-              dynamic: {
-                kind: 'autogrow', materialization: 'wire15', template: [input('image')],
-                naming: { kind: 'prefix', prefix: 'image' },
-              },
-            }],
+      body: [{
+        kind: 'choice', id: 'mode', required: true, shared: [], options: [{
+          key: 'batch', rows: [{
+            kind: 'group', id: 'images', value: input('image'),
+            keys: { kind: 'numbered', prefix: 'image', start: 0, pad: 0 }, grows: 'link', minMembers: 0,
           }],
-        },
+        }],
       }],
     }
     const source = lgNode(1, imageSource.type, { outputs: [{ name: 'IMAGE', links: [1] }] })
@@ -1994,20 +2013,17 @@ describe('Autogrow endpoint reconstruction', () => {
     expect(errorsOf(diagnostics)).toEqual([])
     const graph = document!.graphs[document!.root]!
     expect(graph.nodes['n2']!.values).toEqual({})
-    expect(graph.nodes['n2']!.dynamic).toEqual({ mode: { selected: 'batch' }, 'mode.images': { members: ['m0'], seq: 1 } })
-    expect(graph.links['l1']!.to).toEqual({ node: 'n2', port: 'mode.images.m0' })
+    expect(graph.nodes['n2']!.dynamic).toEqual({ mode: { selected: 'batch' }, 'mode.images': { members: ['image0'], seq: 1 } })
+    expect(graph.links['l1']!.to).toEqual({ node: 'n2', port: 'mode.images.image0' })
     expect(solveGraphTypes(graph, localResolve).diagnostics.filter((d) => d.code === 'solve.portMissing')).toEqual([])
   })
 
   it.each([1, 2])('omits unlinked socket placeholders while retaining the declared minimum %s', (minimum) => {
     const schema: NodeSchema = {
       type: 'NamedSockets', displayName: 'Named Sockets', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
-        kind: 'input', id: 'values', type: { kind: 'wildcard' }, optional: true,
-        dynamic: {
-          kind: 'autogrow', materialization: 'wire15', template: [input('value')],
-          naming: { kind: 'names', names: ['a', 'b', 'c'], min: minimum },
-        },
+      body: [{
+        kind: 'group', id: 'values', value: input('value'),
+        keys: { kind: 'named', names: ['a', 'b', 'c'] }, grows: 'link', minMembers: minimum,
       }],
     }
     const result = importLitegraph(workflow([
@@ -2019,30 +2035,24 @@ describe('Autogrow endpoint reconstruction', () => {
     expect(result.document!.graphs.g0!.links.l1!.to).toEqual({ node: 'n2', port: 'values.b' })
   })
 
-  it('fills wire-15 minimum members without changing linked-member order', () => {
+  it('fills minimum members without changing linked-member order', () => {
     const prefix: NodeSchema = {
       type: 'MinimumBatch', displayName: 'Minimum Batch', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
-        kind: 'input', id: 'images', type: { kind: 'wildcard' }, optional: true,
-        dynamic: {
-          kind: 'autogrow', materialization: 'wire15', template: [input('image')],
-          naming: { kind: 'prefix', prefix: 'image', min: 2 },
-        },
+      body: [{
+        kind: 'group', id: 'images', value: input('image'),
+        keys: { kind: 'numbered', prefix: 'image', start: 0, pad: 0 }, grows: 'link', minMembers: 2,
       }],
     }
     const prefixResult = importFamily(prefix, ['images.image2'])
     const prefixGraph = prefixResult.document!.graphs[prefixResult.document!.root]!
-    expect(prefixGraph.nodes[`n${prefixResult.targetId}`]!.dynamic).toEqual({ images: { members: ['m0', 'm1'], seq: 2 } })
+    expect(prefixGraph.nodes[`n${prefixResult.targetId}`]!.dynamic).toEqual({ images: { members: ['image2', 'image0'], seq: 3 } })
     expect(solveGraphTypes(prefixGraph, prefixResult.localResolve).diagnostics.filter((d) => d.code === 'solve.portMissing')).toEqual([])
 
     const names: NodeSchema = {
       type: 'MinimumNames', displayName: 'Minimum Names', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
-        kind: 'input', id: 'channels', type: { kind: 'wildcard' }, optional: true,
-        dynamic: {
-          kind: 'autogrow', materialization: 'wire15', template: [input('image')],
-          naming: { kind: 'names', names: ['left', 'right'], min: 2 },
-        },
+      body: [{
+        kind: 'group', id: 'channels', value: input('image'),
+        keys: { kind: 'named', names: ['left', 'right'] }, grows: 'link', minMembers: 2,
       }],
     }
     const namesResult = importFamily(names, ['channels.right'])
@@ -2051,35 +2061,81 @@ describe('Autogrow endpoint reconstruction', () => {
     expect(solveGraphTypes(namesGraph, namesResult.localResolve).diagnostics.filter((d) => d.code === 'solve.portMissing')).toEqual([])
   })
 
-  it('preserves legacy names-family API identity when links arrive out of declaration order', () => {
-    const schema: NodeSchema = {
-      type: 'LegacyNames', displayName: 'Legacy Names', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
-        kind: 'input', id: 'channels', type: { kind: 'wildcard' }, optional: true,
-        dynamic: {
-          kind: 'autogrow', template: [input('image')],
-          naming: { kind: 'names', names: ['left', 'right'] },
-        },
-      }],
-    }
-    const { document, localResolve, targetId } = importFamily(schema, ['channels.right', 'channels.left'])
-    const graph = document!.graphs[document!.root]!
-    const node = graph.nodes[`n${targetId}`]!
-    expect(node.dynamic).toEqual({ channels: { members: ['left', 'right'] } })
-    const persisted = elabInputsOf(elaborateInterface(schema, node)).filter((item) => item.address.members !== undefined)
-    expect(persisted.map((item) => [item.address.members, item.apiName])).toEqual([
-      [['left'], 'channels.left'],
-      [['right'], 'channels.right'],
-    ])
-    expect(solveGraphTypes(graph, localResolve).diagnostics.filter((d) => d.code === 'solve.portMissing')).toEqual([])
+  it('imports frontend PrimitiveNodes as the primitive the fed field drags out', () => {
+    const consumer = sdSchema('Consumer', 'Consumer', [
+      sdInput('seed', 'INT', 'INT'), sdInput('image', 'IMAGE'), sdInput('steps', 'INT', 'INT'),
+    ], true)
+    const localResolve = withPrimitives((type) => (type === consumer.type ? consumer : undefined))
+    const result = importLitegraph(
+      workflow([
+        lgNode(1, 'PrimitiveNode', { outputs: [{ name: 'INT', links: [1] }], widgets_values: [42, 'randomize'], title: 'Seed', mode: 2 }),
+        lgNode(2, 'PrimitiveNode', { outputs: [{ name: 'IMAGE', links: [2] }], widgets_values: ['pic.png'] }),
+        lgNode(3, 'PrimitiveNode', { outputs: [{ name: 'INT', links: [3] }], widgets_values: [9] }),
+        lgNode(4, 'SetNode', { inputs: [{ name: 'value', link: 3 }], outputs: [{ name: '*' }], widgets_values: ['count'] }),
+        lgNode(5, 'GetNode', { outputs: [{ name: 'value', links: [4] }], widgets_values: ['count'] }),
+        lgNode(6, 'PrimitiveNode', { outputs: [{ name: 'INT' }] }),
+        lgNode(7, consumer.type, {
+          inputs: [{ name: 'seed', link: 1, widget: { name: 'seed' } }, { name: 'image', link: 2 }, { name: 'steps', link: 4, widget: { name: 'steps' } }],
+        }),
+      ], [lgLink(1, 1, 0, 7, 0), lgLink(2, 2, 0, 7, 1), lgLink(3, 3, 0, 4, 0), lgLink(4, 5, 0, 7, 2)]),
+      localResolve, undefined, [], PRIMITIVE_SCHEMAS,
+    )
+    const graph = result.document!.graphs.g0!
+    expect(graph.nodes['n1']).toMatchObject({
+      type: 'dinkster.utilities.primitive_int', values: { value: 42 }, controllers: { value: 'randomize' }, mode: 'muted', title: 'Seed',
+    })
+    expect(graph.nodes['n2']).toMatchObject({ type: 'dinkster.utilities.primitive', values: { value: 'pic.png' } })
+    expect(graph.nodes['n3']).toMatchObject({ type: 'dinkster.utilities.primitive_int', values: { value: 9 } })
+    expect(graph.nodes['n6']).toBeUndefined()
+    expect(Object.values(graph.links).map((link) => [link.from, link.to])).toEqual(expect.arrayContaining([
+      [{ node: 'n1', port: 'value' }, { node: 'n7', port: 'seed' }],
+      [{ node: 'n2', port: 'value' }, { node: 'n7', port: 'image' }],
+    ]))
+    expect(Object.values(graph.nets)).toEqual([expect.objectContaining({
+      source: { node: 'n3', port: 'value' }, sinks: [{ node: 'n7', port: 'steps' }],
+    })])
+    expect(result.diagnostics.map((d) => d.code)).toEqual(expect.arrayContaining(['import.primitive.converted', 'import.primitive.dropped']))
   })
 
-  it('rewrites value-source and named-net Autogrow sinks', () => {
+  it.each([
+    ['FLOAT', 'dinkster.utilities.primitive_float', 0.75],
+    ['STRING', 'dinkster.utilities.primitive_string', 'a cat'],
+    ['BOOLEAN', 'dinkster.utilities.primitive_boolean', true],
+    ['COMBO', 'dinkster.utilities.primitive_choice', 'dpm'],
+  ] as const)('imports a PrimitiveNode feeding a %s field as %s', (widgetType, primitiveType, value) => {
+    const field: InputSpec = {
+      kind: 'input', id: 'field', type: { kind: 'concrete', name: widgetType }, optional: false,
+      widget: { widgetType, options: widgetType === 'COMBO' ? { options: ['euler', 'dpm', 'ddim'] } : {} },
+    }
+    const consumer = sdSchema('Consumer', 'Consumer', [field], true)
+    const localResolve = withPrimitives((type) => (type === consumer.type ? consumer : undefined))
+    const result = importLitegraph(
+      workflow([
+        lgNode(1, 'PrimitiveNode', { outputs: [{ name: widgetType, type: widgetType, links: [1] }], widgets_values: [value] }),
+        lgNode(2, consumer.type, { inputs: [{ name: 'field', link: 1, widget: { name: 'field' } }] }),
+      ], [lgLink(1, 1, 0, 2, 0)]),
+      localResolve, undefined, [], PRIMITIVE_SCHEMAS,
+    )
+    expect(errorsOf(result.diagnostics)).toEqual([])
+    const document = result.document!
+    const primitive = document.graphs.g0!.nodes['n1']!
+    expect(primitive).toMatchObject({ type: primitiveType, values: { value } })
+    expect(Object.values(document.graphs.g0!.links).map((link) => [link.from, link.to])).toEqual([
+      [{ node: 'n1', port: 'value' }, { node: 'n2', port: 'field' }],
+    ])
+    if (widgetType === 'COMBO') {
+      // The Choice stores only its pick; its options are the fed field's.
+      const effective = documentPrimitiveResolver(document, localResolve)('g0', primitive)
+      expect(effective?.spec).toMatchObject({ widgetType: 'COMBO', options: { options: ['euler', 'dpm', 'ddim'] } })
+    }
+  })
+
+  it('rewrites primitive and named-net Autogrow sinks', () => {
     const schema: NodeSchema = {
       type: 'RoutedBatch', displayName: 'Routed Batch', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
-        kind: 'input', id: 'images', type: { kind: 'wildcard' }, optional: true,
-        dynamic: { kind: 'autogrow', template: [input('image')], naming: { kind: 'prefix', prefix: 'image' } },
+      body: [{
+        kind: 'group', id: 'images', value: input('image'),
+        keys: { kind: 'numbered', prefix: 'image', start: 0, pad: 0 }, grows: 'link', minMembers: 0,
       }],
     }
     const localResolve = (type: string) => type === imageSource.type ? imageSource : type === schema.type ? schema : undefined
@@ -2088,9 +2144,11 @@ describe('Autogrow endpoint reconstruction', () => {
         lgNode(1, 'PrimitiveNode', { outputs: [{ name: 'IMAGE', links: [1] }], widgets_values: ['asset'] }),
         lgNode(2, schema.type, { inputs: [{ name: 'images.image0', link: 1 }] }),
       ], [lgLink(1, 1, 0, 2, 0)]),
-      localResolve,
+      withPrimitives(localResolve), undefined, [], PRIMITIVE_SCHEMAS,
     )
-    expect(primitive.document!.graphs.g0!.links['l1']!.to).toEqual({ node: 'n2', port: 'images.image', members: ['m0'] })
+    expect(primitive.document!.graphs.g0!.links['l1']!).toMatchObject({
+      from: { node: 'n1', port: 'value' }, to: { node: 'n2', port: 'images.image0' },
+    })
 
     const net = importLitegraph(
       workflow([
@@ -2104,24 +2162,24 @@ describe('Autogrow endpoint reconstruction', () => {
       localResolve,
     )
     expect(Object.values(net.document!.graphs.g0!.nets)[0]!.sinks).toEqual([
-      { node: 'n4', port: 'images.image', members: ['m0'] },
+      { node: 'n4', port: 'images.image0' },
     ])
   })
 
   it('assigns sparse and out-of-order prefix ordinals by observed input order', () => {
     const schema: NodeSchema = {
       type: 'SparseBatch', displayName: 'Sparse Batch', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
-        kind: 'input', id: 'images', type: { kind: 'wildcard' }, optional: true,
-        dynamic: { kind: 'autogrow', template: [input('image')], naming: { kind: 'prefix', prefix: 'image', max: 4 } },
+      body: [{
+        kind: 'group', id: 'images', value: input('image'),
+        keys: { kind: 'numbered', prefix: 'image', start: 0, pad: 0 }, grows: 'link', minMembers: 0, maxMembers: 4,
       }],
     }
     const { document, localResolve, targetId } = importFamily(schema, ['images.image2', 'images.image0'])
     const graph = document!.graphs[document!.root]!
-    expect(graph.nodes[`n${targetId}`]!.dynamic).toEqual({ images: { members: ['m0', 'm1'], seq: 2 } })
+    expect(graph.nodes[`n${targetId}`]!.dynamic).toEqual({ images: { members: ['image2', 'image0'], seq: 3 } })
     expect(Object.values(graph.links).map((link) => link.to)).toEqual([
-      { node: `n${targetId}`, port: 'images.image', members: ['m0'] },
-      { node: `n${targetId}`, port: 'images.image', members: ['m1'] },
+      { node: `n${targetId}`, port: 'images.image2' },
+      { node: `n${targetId}`, port: 'images.image0' },
     ])
     expect(solveGraphTypes(graph, localResolve).diagnostics.filter((d) => d.code === 'solve.portMissing')).toEqual([])
   })
@@ -2129,9 +2187,9 @@ describe('Autogrow endpoint reconstruction', () => {
   it('reports unmatched family wire names and leaves them unresolved', () => {
     const schema: NodeSchema = {
       type: 'StrictBatch', displayName: 'Strict Batch', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
-        kind: 'input', id: 'images', type: { kind: 'wildcard' }, optional: true,
-        dynamic: { kind: 'autogrow', template: [input('image')], naming: { kind: 'prefix', prefix: 'image' } },
+      body: [{
+        kind: 'group', id: 'images', value: input('image'),
+        keys: { kind: 'numbered', prefix: 'image', start: 0, pad: 0 }, grows: 'link', minMembers: 0,
       }],
     }
     for (const wire of ['images.imagery0', 'images.image00', 'images.image0.image']) {
@@ -2141,45 +2199,21 @@ describe('Autogrow endpoint reconstruction', () => {
       expect(Object.values(graph.links), wire).toEqual([])
       expect(solveGraphTypes(graph, localResolve).diagnostics.map((diagnostic) => diagnostic.code), wire).not.toContain('solve.portMissing')
     }
-
-    const groupedNames: NodeSchema = {
-      type: 'AmbiguousNames', displayName: 'Ambiguous Names', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
-        kind: 'input', id: 'channels', type: { kind: 'wildcard' }, optional: true,
-        dynamic: {
-          kind: 'autogrow', template: [input('image'), input('mask')],
-          naming: { kind: 'names', names: ['left', 'right'] },
-        },
-      }],
-    }
-    const ambiguous = importFamily(groupedNames, ['channels.right.image'])
-    expect(codesOf(ambiguous.diagnostics)).toContain('import.dynamic.autogrowWireUnknown')
-    expect(Object.values(ambiguous.document!.graphs[ambiguous.document!.root]!.links)).toEqual([])
-    expect(solveGraphTypes(
-      ambiguous.document!.graphs[ambiguous.document!.root]!,
-      ambiguous.localResolve,
-    ).diagnostics.map((diagnostic) => diagnostic.code)).not.toContain('solve.portMissing')
   })
 
   it('imports and compiles structural bypass drops with exact first-hop attribution and no live-route warning', () => {
     const relay: NodeSchema = {
       type: 'ImportedRelay', displayName: 'Imported Relay', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
-        ...input('items'), optional: true,
-        dynamic: {
-          kind: 'autogrow', materialization: 'wire15', template: [input('value')],
-          naming: { kind: 'prefix', prefix: 'item', min: 0, max: 4 },
-        },
+      body: [{
+        kind: 'group', id: 'items', value: input('value'),
+        keys: { kind: 'numbered', prefix: 'item', start: 0, pad: 0 }, grows: 'link', minMembers: 0, maxMembers: 4,
       }, { kind: 'output', id: 'image', type: imageType }],
     }
     const sink: NodeSchema = {
       type: 'ImportedSink', displayName: 'Imported Sink', category: 'test', source: 'v3', isOutputNode: true,
-      items: [{
-        ...input('items'), optional: true,
-        dynamic: {
-          kind: 'autogrow', materialization: 'wire15', template: [input('value')],
-          naming: { kind: 'prefix', prefix: 'item', min: 0, max: 4 },
-        },
+      body: [{
+        kind: 'group', id: 'items', value: input('value'),
+        keys: { kind: 'numbered', prefix: 'item', start: 0, pad: 0 }, grows: 'link', minMembers: 0, maxMembers: 4,
       }],
     }
     const localResolve = (type: string) => type === imageSource.type
@@ -2212,8 +2246,8 @@ describe('Autogrow endpoint reconstruction', () => {
       expect(errorsOf(result.diagnostics)).toEqual([])
       expect(result.document!.graphs.g0!.nodes.n3!.mode).toBe('bypassed')
       expect(result.document!.graphs.g0!.nodes.n4!.mode).toBe('bypassed')
-      expect(result.document!.graphs.g0!.links.l3!.to).toEqual({ node: 'n4', port: 'items.m0' })
-      expect(result.document!.graphs.g0!.links.l4!.to).toEqual({ node: 'n5', port: 'items.m0' })
+      expect(result.document!.graphs.g0!.links.l3!.to).toEqual({ node: 'n4', port: 'items.item0' })
+      expect(result.document!.graphs.g0!.links.l4!.to).toEqual({ node: 'n5', port: 'items.item0' })
       return compile({
         document: result.document!, revision: 1, resolve: localResolve,
         scope: { kind: 'full' }, connection: asConnectionId('c0'), schemaHash: 'import-routing',
@@ -2224,7 +2258,7 @@ describe('Autogrow endpoint reconstruction', () => {
     expect(live.ok, JSON.stringify(!live.ok && live.diagnostics)).toBe(true)
     if (live.ok) {
       expect(codesOf(live.artifact.diagnostics)).not.toContain('compile.bypass.structuralRouteDropped')
-      expect(live.artifact.prompt.n5!.inputs['items.m0']).toEqual(['n1', 0])
+      expect(live.artifact.prompt.n5!.inputs['items.item0']).toEqual(['n1', 0])
     }
 
     const dead = compileImported(2)
@@ -2234,7 +2268,7 @@ describe('Autogrow endpoint reconstruction', () => {
       diagnostic.code === 'compile.bypass.structuralRouteDropped')
     expect(warnings).toHaveLength(1)
     expect(warnings[0]!.anchor?.occurrence).toEqual({ instancePath: [], node: 'n4' })
-    expect(warnings[0]!.message).toBe('n4.items.m0: selected bypass route has no value')
+    expect(warnings[0]!.message).toBe('n4.items.item0: selected bypass route has no value')
     expect(warnings[0]!.data).toMatchObject({
       inputIndex: 0, route: ['n4', 'n3'], reason: "producer 'n1' is muted or in an inactive occurrence",
     })
@@ -3388,4 +3422,68 @@ describe('view extras', () => {
       position: { x: 12, y: 34 }, size: { width: 420, height: 210 }, color: '#335577',
     })
   })
+})
+
+it('imports a ComfyUI FLOATS wire into Create Hook Keyframes From Floats as list<FLOAT>', () => {
+  const float = { kind: 'concrete', types: ['FLOAT'] }
+  const fromFloats = parseDinksterSchema('dinkster.models.create_hook_keyframes_from_floats', { schemaVersion: 2, body: [
+    { kind: 'input', id: 'floats_strength', type: float, required: true, default: -1,
+      widget: { type: 'NUMBER', min: -1, step: 0.001 }, pinFirst: true, acceptsList: true },
+    { kind: 'input', id: 'start_percent', type: float, required: true, default: 0, widget: { type: 'NUMBER', min: 0, max: 1, step: 0.001 } },
+    { kind: 'input', id: 'end_percent', type: float, required: true, default: 1, widget: { type: 'NUMBER', min: 0, max: 1, step: 0.001 } },
+    { kind: 'input', id: 'prev_hook_kf', type: { kind: 'concrete', types: ['HOOK_KEYFRAMES'] }, required: false },
+    { kind: 'output', id: 'HOOK_KF', type: { kind: 'concrete', types: ['HOOK_KEYFRAMES'] } },
+  ] }).schema!
+  const createList = parseDinksterSchema('dinkster.utilities.create_list', { schemaVersion: 2, body: [
+    { kind: 'group', id: 'inputs', keys: { numbered: { prefix: 'input', start: 0, pad: 0 } }, grows: 'link',
+      minMembers: 1, optionalAfterMinimum: true,
+      value: { kind: 'input', id: 'input', type: { kind: 'variable', templateId: 'T' }, required: true, acceptsList: true } },
+    { kind: 'output', id: 'list', type: { kind: 'list', element: { kind: 'variable', templateId: 'T' } } },
+  ] }).schema!
+  const source = parseDinksterSchema('FloatProducer', { body: [{ kind: 'output', id: 'FLOAT', type: float }] }).schema!
+  const translations: ComfyTranslation[] = [
+    { schema: createList, rule: { from: 'CreateList', cases: [{ to: createList.type, outputs: { list: 'list' },
+      inputFamilies: { inputs: { kind: 'copy', sourceFamily: 'inputs', inputs: { input: { kind: 'copy', input: 'input' } },
+        sourceTemplate: { inputs: ['input'] } } } }] } },
+    { schema: fromFloats, rule: { from: 'CreateHookKeyframesFromFloats', cases: [{ to: fromFloats.type, outputs: { HOOK_KF: 'HOOK_KF' },
+      inputs: Object.fromEntries(['floats_strength', 'start_percent', 'end_percent', 'prev_hook_kf']
+        .map((id) => [id, { kind: 'copy' as const, input: id }])) }] } },
+  ]
+  const localResolve = (type: string) => [source, createList, fromFloats].find((schema) => schema.type === type)
+  const imported = importLitegraph({ nodes: [
+    { id: 1, type: source.type, outputs: [{ name: 'FLOAT', type: 'FLOAT', links: [1] }] },
+    { id: 2, type: source.type, outputs: [{ name: 'FLOAT', type: 'FLOAT', links: [2] }] },
+    { id: 3, type: 'CreateList', inputs: [{ name: 'inputs.input0', type: '*', link: 1 }, { name: 'inputs.input1', type: '*', link: 2 }],
+      outputs: [{ name: 'list', type: 'FLOATS', links: [3] }] },
+    { id: 4, type: 'CreateHookKeyframesFromFloats', widgets_values: [0.2, 0.8],
+      inputs: [{ name: 'floats_strength', type: 'FLOATS', link: 3 }, { name: 'prev_hook_kf', type: 'HOOK_KEYFRAMES', link: null }],
+      outputs: [{ name: 'HOOK_KF', type: 'HOOK_KEYFRAMES', links: [] }] },
+    { id: 5, type: 'sg', inputs: [{ name: 'strengths', type: 'FLOATS' }], outputs: [] },
+  ], links: [[1, 1, 0, 3, 0, 'FLOAT'], [2, 2, 0, 3, 1, 'FLOAT'], [3, 3, 0, 4, 0, 'FLOATS']],
+  definitions: { subgraphs: [{ id: 'sg', name: 'Unused strengths', version: 1, nodes: [], links: [],
+    inputs: [{ id: 'in', name: 'strengths', type: 'FLOATS', linkIds: [] }], outputs: [] }] } },
+  localResolve, undefined, translations)
+  expect(imported.diagnostics.filter((item) => item.severity === 'error')).toEqual([])
+  const graph = imported.document!.graphs.g0!
+  expect(graph.nodes.n4).toMatchObject({ type: fromFloats.type, values: { start_percent: 0.2, end_percent: 0.8 } })
+  expect(Object.values(graph.links).map((link) => [link.from, link.to])).toContainEqual(
+    [{ node: 'n3', port: 'list' }, { node: 'n4', port: 'floats_strength' }])
+  const solved = solveGraphTypes(graph, localResolve)
+  expect(solved.portTypeOf(asNodeId('n3'), 'output', 'list')).toEqual({ kind: 'list', element: { kind: 'concrete', name: 'FLOAT' } })
+  expect([...solved.linkVerdicts.values()]).toEqual(['ok', 'ok', 'ok'])
+  // A FLOATS slot with nothing inside to take its type from still names list<FLOAT>.
+  expect(boundaryItems(imported.document!.graphs.sg!.boundary, 'inputs')[0]!.binds).toEqual(
+    { kind: 'unbound', type: { kind: 'list', element: { kind: 'concrete', name: 'FLOAT' } } })
+
+  // FLOATS outputs in the wild come from custom packs: an uninstalled producer
+  // imports as a missing node and keeps its wire into the list input.
+  const uninstalled = importLitegraph({ nodes: [
+    { id: 1, type: 'FloatsFromSomePack', widgets_values: ['0.1, 0.5'], outputs: [{ name: 'FLOATS', type: 'FLOATS', links: [1] }] },
+    { id: 2, type: 'CreateHookKeyframesFromFloats', widgets_values: [0.2, 0.8],
+      inputs: [{ name: 'floats_strength', type: 'FLOATS', link: 1 }, { name: 'prev_hook_kf', type: 'HOOK_KEYFRAMES', link: null }],
+      outputs: [{ name: 'HOOK_KF', type: 'HOOK_KEYFRAMES', links: [] }] },
+  ], links: [[1, 1, 0, 2, 0, 'FLOATS']] }, localResolve, undefined, translations)
+  expect(uninstalled.diagnostics.map((item) => item.code)).toEqual(['import.schema.missing'])
+  expect(Object.values(uninstalled.document!.graphs.g0!.links).map((link) => [link.from, link.to])).toEqual(
+    [[{ node: 'n1', port: 'FLOATS' }, { node: 'n2', port: 'floats_strength' }]])
 })

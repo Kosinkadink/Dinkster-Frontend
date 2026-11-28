@@ -118,6 +118,64 @@ test('templates fetch renderer dependencies before service controllers run', asy
   }
 })
 
+for (const reducedMotion of ['no-preference', 'reduce'] as const) {
+  test(`Save stays readable while enabling and disabling (${reducedMotion})`, async ({
+    page,
+  }) => {
+    await page.emulateMedia({ reducedMotion })
+    await open(page)
+    await expect(
+      page.getByRole('button', { name: 'Save', exact: true }),
+    ).toBeDisabled()
+    const contrasts = await page
+      .getByLabel('Display name')
+      .evaluate(async (input: HTMLInputElement) => {
+        const save = document.querySelector<HTMLButtonElement>(
+          'button[type="submit"]',
+        )!
+        const ratios: number[] = []
+        const sample = () => {
+          const style = getComputedStyle(save)
+          const luminances = [style.color, style.backgroundColor].map((color) =>
+            color
+              .match(/[\d.]+/g)!
+              .slice(0, 3)
+              .map(Number)
+              .map((channel) => channel / 255)
+              .map((channel) =>
+                channel <= 0.04045
+                  ? channel / 12.92
+                  : ((channel + 0.055) / 1.055) ** 2.4,
+              )
+              .reduce(
+                (sum, channel, index) =>
+                  sum + channel * [0.2126, 0.7152, 0.0722][index]!,
+                0,
+              ),
+          )
+          ratios.push(
+            (Math.max(...luminances) + 0.05) / (Math.min(...luminances) + 0.05),
+          )
+        }
+        sample()
+        for (const value of ['Alice Example', 'Alice']) {
+          input.value = value
+          input.dispatchEvent(new Event('input', { bubbles: true }))
+          sample()
+          for (let frame = 0; frame < 12; frame++) {
+            await new Promise(requestAnimationFrame)
+            sample()
+          }
+        }
+        return ratios
+      })
+    expect(Math.min(...contrasts)).toBeGreaterThanOrEqual(4.5)
+    await expect(
+      page.getByRole('button', { name: 'Save', exact: true }),
+    ).toBeDisabled()
+  })
+}
+
 for (const width of [1280, 1440, 1920, 390]) {
   test(`profile shared shell and keyboard labels at ${width}px`, async ({
     page,
@@ -140,6 +198,13 @@ for (const width of [1280, 1440, 1920, 390]) {
     await expect(
       page.getByRole('button', { name: 'Save', exact: true }),
     ).toBeEnabled()
+    await page
+      .getByRole('button', { name: 'Save', exact: true })
+      .evaluate(async (button) => {
+        await Promise.all(
+          button.getAnimations().map((animation) => animation.finished),
+        )
+      })
     await page.addScriptTag({ content: axe.source })
     expect(
       await page.evaluate(

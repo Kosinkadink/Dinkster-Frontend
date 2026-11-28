@@ -1,17 +1,19 @@
-import { createEffect, createSignal, For, onCleanup, onMount, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show } from 'solid-js'
 import type { CollabSessionDescriptor, SharedSessionStatus } from '@dinkster/core'
 import type { AppState, CollabTabState, Tab } from './app-state.js'
+import type { BoardEntry } from './board-workspace.js'
 import { actorColor, actorLabel } from './collab-presence.js'
-import { ProductActionFooter, ProductNotice } from './ProductForm.js'
+import { ProductNotice } from './ProductForm.js'
+import { ProductConfirmation } from '@dinkster/ui'
 import { ProductButton } from './ProductControls.js'
 import { ProductEmptyState, ProductListRow, ProductPanelHeader } from './ProductSurfaces.js'
 import { useSignal } from './solid-adapter.js'
 import { useAppMessage } from './locale.js'
+import { failureMessage } from './request-failure.js'
 
 type CollabActionKey = 'refresh' | 'leave' | 'end' | `join:${string}`
 type SessionListState = 'loading' | 'ready' | 'unavailable' | 'error'
-
-const actionError = (error: unknown): string => error instanceof Error ? error.message : String(error)
+type ActiveMembership = CollabTabState | (NonNullable<BoardEntry['shared']> & { readonly baseUrl: string })
 
 const statusLabel = (status: SharedSessionStatus): string => {
   switch (status) {
@@ -27,8 +29,8 @@ const statusDetail = (status: SharedSessionStatus): string => {
   switch (status) {
     case 'live': return 'Edits are synchronized with everyone in this session.'
     case 'catching-up': return 'Receiving changes before live editing resumes.'
-    case 'closed': return 'This session has ended. Keep the current workflow by leaving the session.'
-    case 'error': return 'Synchronization stopped. Leave to keep the current workflow locally.'
+    case 'closed': return 'This session has ended. Keep the current document by leaving the session.'
+    case 'error': return 'Synchronization stopped. Leave to keep the current document locally.'
     default: return 'Session status reported by the collaboration service.'
   }
 }
@@ -41,12 +43,27 @@ export function CollabPanel(props: { app: AppState; requestClose: () => void }) 
   const tabs = useSignal(props.app.tabs)
   const activeTabId = useSignal(props.app.activeTabId)
   const collabTabs = useSignal(props.app.collabTabs)
+  const boards = useSignal(props.app.boards.entries)
+  const backends = useSignal(props.app.backends)
+  const backendsTick = useSignal(props.app.backendsTick)
+  const settingsChanged = useSignal(props.app.settings.changed)
+  const activeBoard = () => boards().find((entry) => `page:board:${entry.id}` === activeTabId())
   const activeTab = (): Tab | undefined => tabs().find((tab) => tab.id === activeTabId())
-  const activeCollab = (): CollabTabState | undefined => {
+  const activeCollab = createMemo<ActiveMembership | undefined>(() => {
+    const board = activeBoard()
+    if (board) return board.shared ? { ...board.shared, baseUrl: board.baseUrl } : undefined
     const tab = activeTab()
     return tab === undefined ? undefined : collabTabs().get(tab.id)
-  }
+  })
   const backend = () => props.app.collabBackend()
+  const discoveryContext = createMemo(() => {
+    activeTabId()
+    boards()
+    backends()
+    backendsTick()
+    settingsChanged()
+    return JSON.stringify([backend()?.baseUrl, props.app.settings.get<boolean>('features.board.enabled')])
+  })
 
   const [pending, setPending] = createSignal<ReadonlySet<CollabActionKey>>(new Set())
   const [failures, setFailures] = createSignal<ReadonlyMap<CollabActionKey, string>>(new Map())
@@ -57,10 +74,10 @@ export function CollabPanel(props: { app: AppState; requestClose: () => void }) 
   let unsharedState: HTMLElement | undefined
   let currentSessionCard: HTMLElement | undefined
   let endButton: HTMLButtonElement | undefined
-  let confirmEndButton: HTMLButtonElement | undefined
   let panel: HTMLDivElement | undefined
   let refreshRevision = 0
   let refreshQueued = false
+  let live = true
   const closedSessions = new Set<string>()
 
   const isPending = (key: CollabActionKey): boolean => pending().has(key)
@@ -90,6 +107,7 @@ export function CollabPanel(props: { app: AppState; requestClose: () => void }) 
     preserveAnnouncement = false,
     supersedePending = false,
   ): Promise<void> => {
+    if (!live) return
     if (isPending('refresh')) {
       if (supersedePending) {
         refreshRevision += 1
@@ -110,16 +128,16 @@ export function CollabPanel(props: { app: AppState; requestClose: () => void }) 
     if (!initial && !preserveAnnouncement) setAnnouncement('Refreshing shared sessions.')
     try {
       const next = (await props.app.listCollabSessions()).filter((session) => !closedSessions.has(session.sessionId))
-      if (revision !== refreshRevision) return
+      if (!live || revision !== refreshRevision) return
       setSessions(next)
       setListState('ready')
       if (!preserveAnnouncement) {
         setAnnouncement(next.length === 1 ? '1 shared session available.' : `${next.length} shared sessions available.`)
       }
     } catch (error) {
-      if (revision !== refreshRevision) return
+      if (!live || revision !== refreshRevision) return
       setListState('error')
-      setFailure('refresh', actionError(error))
+      setFailure('refresh', failureMessage(error, 'Shared sessions could not be loaded.'))
       if (!preserveAnnouncement) setAnnouncement('Shared sessions could not be loaded.')
     } finally {
       setActionPending('refresh', false)
@@ -130,7 +148,12 @@ export function CollabPanel(props: { app: AppState; requestClose: () => void }) 
     }
   }
 
-  createEffect<CollabTabState | undefined>((previous) => {
+  createEffect(on(discoveryContext, () => {
+    setSessions([])
+    void refresh(false, false, true)
+  }, { defer: true }))
+
+  createEffect<ActiveMembership | undefined>((previous) => {
     const current = activeCollab()
     if (previous === undefined && current !== undefined) {
       setFailure('leave', undefined)
@@ -138,12 +161,12 @@ export function CollabPanel(props: { app: AppState; requestClose: () => void }) 
     }
     if (
       previous !== undefined && current === undefined &&
-      activeTab()?.id === previous.session.doc.lineage
+      (activeTab()?.id === previous.session.doc.lineage || activeBoard()?.id === previous.session.doc.lineage)
     ) {
       const leaving = isPending('leave')
       setConfirmingEnd(undefined)
       if (!leaving) {
-        setAnnouncement('The collaboration session closed. The workflow is available locally.')
+        setAnnouncement(`The collaboration session closed. The ${activeBoard() ? 'Board' : 'workflow'} is available locally.`)
         closedSessions.add(previous.descriptor.sessionId)
         setSessions((sessions) => sessions.filter((session) => session.sessionId !== previous.descriptor.sessionId))
       }
@@ -180,21 +203,22 @@ export function CollabPanel(props: { app: AppState; requestClose: () => void }) 
       setAnnouncement(success)
       onSuccess?.()
     } catch (error) {
-      setFailure(key, actionError(error))
+      setFailure(key, failureMessage(error))
       announceFailure()
     } finally {
       setActionPending(key, false)
     }
   }
 
-  const leave = (tabId: string): void => {
+  const leave = (tabId: string, board: boolean): void => {
     void runAction(
       'leave',
       'Leaving this session.',
-      'You left the collaboration session. The workflow is available locally.',
+      `You left the collaboration session. The ${board ? 'Board' : 'workflow'} is available locally.`,
       async () => {
         await nextTask()
-        props.app.leaveCollabSession(tabId)
+        if (board) props.app.boards.leave(tabId)
+        else props.app.leaveCollabSession(tabId)
         return undefined
       },
       () => {
@@ -205,12 +229,12 @@ export function CollabPanel(props: { app: AppState; requestClose: () => void }) 
     )
   }
 
-  const end = (tabId: string, sessionId: string): void => {
+  const end = (tabId: string, sessionId: string, board: boolean): void => {
     void runAction(
       'end',
       'Ending this session for everyone.',
-      'The collaboration session ended for everyone. The workflow is available locally.',
-      () => props.app.endCollabSession(tabId),
+      `The collaboration session ended for everyone. The ${board ? 'Board' : 'workflow'} is available locally.`,
+      () => board ? props.app.boards.end(tabId).then(() => undefined) : props.app.endCollabSession(tabId),
       () => {
         setConfirmingEnd(undefined)
         closedSessions.add(sessionId)
@@ -219,18 +243,18 @@ export function CollabPanel(props: { app: AppState; requestClose: () => void }) 
         focusSoon(() => unsharedState)
       },
       () => closedSessions.has(sessionId)
-        ? 'The end request failed after the collaboration session closed. The workflow is available locally.'
+        ? `The end request failed after the collaboration session closed. The ${board ? 'Board' : 'workflow'} is available locally.`
         : undefined,
     )
   }
 
-  const join = (sessionId: string): void => {
+  const join = (sessionId: string, board: boolean): void => {
     const key = `join:${sessionId}` as const
     void runAction(
       key,
       `Joining session ${sessionId}.`,
       `Joined session ${sessionId}.`,
-      () => props.app.joinCollabSession(sessionId),
+      () => board ? props.app.joinCollabSession(sessionId, 'board') : props.app.joinCollabSession(sessionId),
       props.requestClose,
     )
   }
@@ -239,7 +263,6 @@ export function CollabPanel(props: { app: AppState; requestClose: () => void }) 
     setConfirmingEnd(sessionId)
     setFailure('end', undefined)
     setAnnouncement('Confirm ending this session for everyone.')
-    focusSoon(() => confirmEndButton)
   }
 
   const cancelEnd = (): void => {
@@ -263,6 +286,8 @@ export function CollabPanel(props: { app: AppState; requestClose: () => void }) 
     fitPanelToViewport()
     void refresh(true)
     onCleanup(() => {
+      live = false
+      refreshRevision += 1
       rootStyleObserver.disconnect()
       window.removeEventListener('resize', fitPanelToViewport)
     })
@@ -273,15 +298,16 @@ export function CollabPanel(props: { app: AppState; requestClose: () => void }) 
       <p class="collab-announcer" role="status" aria-live="polite" aria-atomic="true">{announcement()}</p>
 
       <section class="collab-current" aria-labelledby="collab-current-heading">
-        <span class="collab-eyebrow">Active workflow</span>
-        <ProductPanelHeader headingId="collab-current-heading" title="This workflow" />
+        <span class="collab-eyebrow">{activeBoard() ? 'Active Board' : 'Active workflow'}</span>
+        <ProductPanelHeader headingId="collab-current-heading" title={activeBoard() ? 'This Board' : 'This workflow'} />
         <Show
           when={activeCollab()}
           keyed
           fallback={
             <article ref={unsharedState} data-testid="collab-unshared" tabindex="-1">
               <ProductEmptyState title="Not shared" hint={
-                activeTab() === undefined ? 'Open a workflow to share it from its tab menu.'
+                activeBoard() ? 'This Board is local. Open its tab menu to start sharing.'
+                : activeTab() === undefined ? 'Open a document to share it from its tab menu.'
                 : activeTab()!.execution !== undefined ? 'Execution snapshots cannot be shared.'
                 : 'This workflow is local. Open its tab menu to start sharing.'
               } />
@@ -295,11 +321,11 @@ export function CollabPanel(props: { app: AppState; requestClose: () => void }) 
         >
           {(entry) => {
             const status = useSignal(entry.session.status)
-            const remotes = useSignal(entry.presence.remotes)
+            const remotes = 'presence' in entry ? useSignal(entry.presence.remotes) : () => undefined
             const settingsRevision = useSignal(props.app.settings.changed)
             const [appliedProposals, setAppliedProposals] = createSignal<ReadonlySet<string>>(new Set())
             const [dismissedProposals, setDismissedProposals] = createSignal<ReadonlySet<string>>(new Set())
-            const proposals = () => [...remotes().values()].flatMap((remote) =>
+            const proposals = () => [...(remotes()?.values() ?? [])].flatMap((remote) =>
               remote.identity?.kind === 'agent'
                 ? (remote.proposals ?? []).map((proposal) => ({ remote, proposal, key: JSON.stringify([remote.actorId, proposal.id]) }))
                 : [],
@@ -320,7 +346,7 @@ export function CollabPanel(props: { app: AppState; requestClose: () => void }) 
               >
                 <header class="collab-session-card-heading">
                   <div class="collab-session-identity">
-                    <h3>{activeTab()?.title ?? entry.descriptor.documentId}</h3>
+                    <h3>{activeBoard()?.title ?? activeTab()?.title ?? entry.descriptor.documentId}</h3>
                     <code>{entry.descriptor.documentId}</code>
                   </div>
                   <span
@@ -340,10 +366,11 @@ export function CollabPanel(props: { app: AppState; requestClose: () => void }) 
                   <div><dt>Backend</dt><dd><code>{entry.baseUrl || 'This server'}</code></dd></div>
                 </dl>
 
+                <Show when={'presence' in entry}>
                 <section class="collab-participant-section" aria-labelledby="collab-participants-heading">
                   <header>
                     <h4 id="collab-participants-heading">Participants</h4>
-                    <span>{remotes().size + 1} here now</span>
+                    <span>{(remotes()?.size ?? 0) + 1} here now</span>
                   </header>
                   <ul
                     class="collab-participants"
@@ -356,7 +383,7 @@ export function CollabPanel(props: { app: AppState; requestClose: () => void }) 
                       <code>{actorLabel(props.app.collabActorId)}</code>
                       <span class="collab-you">You</span>
                     </li>
-                    <For each={[...remotes().values()]}>
+                    <For each={[...(remotes()?.values() ?? [])]}>
                       {(remote) => (
                         <li data-testid="collab-participant" data-actor-id={remote.actorId}>
                           <span class="collab-swatch" style={{ background: actorColor(remote.actorId) }} />
@@ -383,11 +410,12 @@ export function CollabPanel(props: { app: AppState; requestClose: () => void }) 
                     </For>
                   </ul>
                 </section>
+                </Show>
 
                 <Show when={proposals().length > 0}>
                   <section class="collab-proposal-section" aria-labelledby="collab-proposals-heading" data-testid="collab-proposals">
                     <header><h4 id="collab-proposals-heading">Proposals</h4></header>
-                    <ul class="collab-proposals">
+                    <ul class="collab-proposals dinkster-list-rows">
                       <For each={proposals()}>
                         {({ remote, proposal, key }) => {
                           const definition = () => {
@@ -397,7 +425,7 @@ export function CollabPanel(props: { app: AppState; requestClose: () => void }) 
                           const valid = () => props.app.settings.isUsableValue(proposal.settingId, proposal.value)
                           const applied = () => appliedProposals().has(key)
                           return (
-                            <li class="collab-proposal-card" data-testid="collab-proposal" data-proposal-id={proposal.id}>
+                            <li class="collab-proposal-card dinkster-list-row" data-testid="collab-proposal" data-proposal-id={proposal.id}>
                               <header>
                                 <span class="collab-proposal-agent">
                                   <strong>{remote.identity?.displayName ?? actorLabel(remote.actorId)}</strong>
@@ -450,7 +478,7 @@ export function CollabPanel(props: { app: AppState; requestClose: () => void }) 
                       data-action-state={isPending('leave') ? 'pending' : 'idle'}
                       aria-busy={isPending('leave')}
                       aria-disabled={isPending('leave')}
-                      onClick={() => leave(tabId)}
+                      onClick={() => leave(tabId, entry.descriptor.documentKind === 'board')}
                     >
                       <Show when={isPending('leave')}><span class="collab-spinner" aria-hidden="true" /></Show>
                       {isPending('leave') ? 'Leaving...' : 'Leave session'}
@@ -467,25 +495,10 @@ export function CollabPanel(props: { app: AppState; requestClose: () => void }) 
                   </div>
                 }>
                   <div class="collab-end-confirm" data-testid="collab-end-confirm" role="group" aria-label="Confirm ending session">
-                    <ProductNotice tone="warning">
-                      Everyone will be disconnected. Their current workflow stays open locally.
-                    </ProductNotice>
-                    <ProductActionFooter>
-                      <button type="button" data-testid="collab-end-cancel" disabled={isPending('end')} onClick={cancelEnd}>Cancel</button>
-                      <button
-                        ref={confirmEndButton}
-                        type="button"
-                        class="danger"
-                        data-testid="collab-end-confirm-button"
-                        data-action-state={isPending('end') ? 'pending' : 'idle'}
-                        aria-busy={isPending('end')}
-                        aria-disabled={isPending('end')}
-                        onClick={() => end(tabId, entry.descriptor.sessionId)}
-                      >
-                        <Show when={isPending('end')}><span class="collab-spinner" aria-hidden="true" /></Show>
-                        {isPending('end') ? 'Ending session...' : 'End session for everyone'}
-                      </button>
-                    </ProductActionFooter>
+                    <ProductConfirmation title={message('collab.end.title', { name: activeBoard()?.title ?? activeTab()?.title ?? entry.descriptor.sessionId })}
+                      consequence={message(activeBoard() ? 'collab.end.keepDocument' : 'collab.end.consequence')} actionLabel={message('collab.end.action')} intent="remove"
+                      pending={isPending('end')} error={failureFor('end') ? message('collab.end.failed', { reason: failureFor('end')! }) : undefined} onCancel={cancelEnd}
+                      onConfirm={() => end(tabId, entry.descriptor.sessionId, entry.descriptor.documentKind === 'board')} />
                   </div>
                 </Show>
               </article>
@@ -495,7 +508,7 @@ export function CollabPanel(props: { app: AppState; requestClose: () => void }) 
         <Show when={failureFor('leave')}>{(message) => (
           <ProductNotice tone="error" testId="collab-leave-error">Leave failed: {message()}</ProductNotice>
         )}</Show>
-        <Show when={failureFor('end')}>{(message) => (
+        <Show when={!confirmingEnd() && failureFor('end')}>{(message) => (
           <ProductNotice tone="error" testId="collab-end-error">End failed: {message()}</ProductNotice>
         )}</Show>
       </section>
@@ -537,8 +550,11 @@ export function CollabPanel(props: { app: AppState; requestClose: () => void }) 
                 return (
                   <li data-testid="collab-session" data-session-id={session.sessionId}>
                     <ProductListRow
-                      primary={session.documentId}
-                      secondary={<><code>{session.sessionId}</code> - Revision {session.revision}</>}
+                      primary={session.documentKind === 'board'
+                        ? boards().find((entry) => entry.shared?.descriptor.sessionId === session.sessionId && entry.baseUrl === backend()?.baseUrl)?.title
+                          ?? session.title ?? props.app.boards.displayTitle(session.documentId, backend()?.baseUrl ?? '')
+                        : session.documentId}
+                      secondary={<>{session.documentKind === 'board' ? 'Board - ' : ''}<code>{session.sessionId}</code> - Revision {session.revision}</>}
                       actions={<ProductButton
                         type="button"
                         variant="primary"
@@ -546,7 +562,7 @@ export function CollabPanel(props: { app: AppState; requestClose: () => void }) 
                         data-action-state={isPending(key) ? 'pending' : 'idle'}
                         aria-busy={isPending(key)}
                         aria-disabled={isPending(key)}
-                        onClick={() => join(session.sessionId)}
+                        onClick={() => join(session.sessionId, session.documentKind === 'board')}
                       >
                         <Show when={isPending(key)}><span class="collab-spinner" aria-hidden="true" /></Show>
                         {isPending(key) ? 'Joining...' : 'Join session'}

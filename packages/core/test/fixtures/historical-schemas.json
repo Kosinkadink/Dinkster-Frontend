@@ -5,7 +5,8 @@
     "category": "3d/texturing",
     "description": "Attaches baked texture IMAGEs to a mesh's UV layout for SaveGLB. Feed the SAME mesh you baked",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "mesh",
@@ -69,8 +70,7 @@
         },
         "displayName": "mesh"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "BakeAmbientOcclusion": {
     "type": "BakeAmbientOcclusion",
@@ -78,7 +78,8 @@
     "category": "3d/texturing",
     "description": "Bakes an ambient-occlusion map from a high-poly mesh into a low-poly's UV layout (white = open, dark = crevices). Feed the UV-unwrapped low_poly and the high_poly it was decimated from. Outputs a grayscale image for Apply Texture To Mesh's occlusion input (packed into the ORM map / occlusionTexture).",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "low_poly",
@@ -204,8 +205,7 @@
         },
         "displayName": "occlusion"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "BakeNormalMapFromMesh": {
     "type": "BakeNormalMapFromMesh",
@@ -213,7 +213,8 @@
     "category": "3d/texturing",
     "description": "Bakes a tangent-space normal map (glTF/OpenGL +Y) from a high-poly mesh into a low-poly's UV layout, capturing detail lost during decimation. Feed the UV-unwrapped low_poly and the high_poly it was decimated from. Outputs an image for Apply Texture To Mesh's normal_map input.",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "low_poly",
@@ -298,8 +299,7 @@
         },
         "displayName": "normal_map"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "BakeTextureFromVoxel": {
     "type": "BakeTextureFromVoxel",
@@ -307,7 +307,8 @@
     "category": "3d/texturing",
     "description": "Bakes PBR textures onto the mesh's existing UV layout (trilinear-sample the sparse voxel volume). Does NOT unwrap \u2014 connect a UV unwrap node upstream. Outputs base_color + metallic/roughness grayscale IMAGEs (black if no PBR); feed them to ApplyTextureToMesh (SAME mesh) for SaveGLB.",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "mesh",
@@ -384,15 +385,15 @@
         },
         "displayName": "roughness"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "BasicGuider": {
     "type": "BasicGuider",
     "displayName": "Basic Guider",
     "category": "model/sampling/guiders",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "model",
@@ -420,15 +421,15 @@
         },
         "displayName": "GUIDER"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "BasicScheduler": {
     "type": "BasicScheduler",
     "displayName": "BasicScheduler",
     "category": "model/sampling/schedulers",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "model",
@@ -508,42 +509,44 @@
         },
         "displayName": "SIGMAS"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "BatchImagesNode": {
     "type": "BatchImagesNode",
     "displayName": "Batch Images",
     "category": "image/batch",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "searchAliases": [
+      "batch",
+      "image batch",
+      "batch images",
+      "combine images",
+      "merge images",
+      "stack images"
+    ],
+    "body": [
       {
-        "kind": "input",
+        "kind": "group",
         "id": "images",
-        "type": {
-          "kind": "wildcard"
+        "value": {
+          "kind": "input",
+          "id": "image",
+          "type": {
+            "kind": "concrete",
+            "name": "IMAGE"
+          },
+          "optional": false
         },
-        "optional": false,
-        "dynamic": {
-          "kind": "autogrow",
-          "template": [
-            {
-              "kind": "input",
-              "id": "image",
-              "type": {
-                "kind": "concrete",
-                "name": "IMAGE"
-              },
-              "optional": false
-            }
-          ],
-          "naming": {
-            "kind": "prefix",
-            "prefix": "image",
-            "min": 1,
-            "max": 50
-          }
-        }
+        "keys": {
+          "kind": "numbered",
+          "prefix": "image",
+          "start": 1,
+          "pad": 0
+        },
+        "grows": "link",
+        "minMembers": 1,
+        "maxMembers": 50
       },
       {
         "kind": "output",
@@ -554,15 +557,6 @@
         },
         "displayName": "IMAGE"
       }
-    ],
-    "isOutputNode": false,
-    "searchAliases": [
-      "batch",
-      "image batch",
-      "batch images",
-      "combine images",
-      "merge images",
-      "stack images"
     ]
   },
   "CFGGuider": {
@@ -570,7 +564,8 @@
     "displayName": "CFG Guider",
     "category": "model/sampling/guiders",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "model",
@@ -626,8 +621,7 @@
         },
         "displayName": "GUIDER"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "CFGOverride": {
     "type": "CFGOverride",
@@ -635,7 +629,8 @@
     "category": "model/sampling/guiders",
     "description": "Override cfg to a fixed value over a [start, end] percent (sigma) range. With multiple overrides, the one nearest the sampler wins on overlap.",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "model",
@@ -709,8 +704,7 @@
         },
         "displayName": "MODEL"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "CheckpointLoaderSimple": {
     "type": "CheckpointLoaderSimple",
@@ -718,7 +712,16 @@
     "category": "model/loaders",
     "description": "Loads a diffusion model checkpoint, diffusion models are used to denoise latents.",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "searchAliases": [
+      "load model",
+      "checkpoint",
+      "model loader",
+      "load checkpoint",
+      "ckpt",
+      "model"
+    ],
+    "body": [
       {
         "kind": "input",
         "id": "ckpt_name",
@@ -765,15 +768,6 @@
         "displayName": "VAE",
         "tooltip": "The VAE model used for encoding and decoding images to and from latent space."
       }
-    ],
-    "isOutputNode": false,
-    "searchAliases": [
-      "load model",
-      "checkpoint",
-      "model loader",
-      "load checkpoint",
-      "ckpt",
-      "model"
     ]
   },
   "CLIPLoader": {
@@ -782,7 +776,8 @@
     "category": "model/loaders",
     "description": "Recipes:\nsd: clip-l\nstable cascade: clip-g\nsd3: t5 xxl / clip-g / clip-l\nstable audio: t5 base\nmochi: t5 xxl\ncogvideox: t5 xxl (226-token padding)\ncosmos: old t5 xxl\nlumina2: gemma 2 2B\nwan: umt5 xxl\nhidream: llama-3.1 (Recommend) or t5\nomnigen2: qwen vl 2.5 3B\njoyimage: qwen3-vl 8B\nlens: gpt-oss-20b\npixeldit: gemma 2 2B elm\nminimax: MiniMax H3 Qwen3-VL or Music3 Qwen/RVQ",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "clip_name",
@@ -861,8 +856,7 @@
             ]
           },
           "default": "default"
-        },
-        "advanced": true
+        }
       },
       {
         "kind": "output",
@@ -873,8 +867,7 @@
         },
         "displayName": "CLIP"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "CLIPTextEncode": {
     "type": "CLIPTextEncode",
@@ -882,7 +875,18 @@
     "category": "model/conditioning",
     "description": "Encodes a text prompt using a CLIP model into an embedding that can be used to guide the diffusion model towards generating specific images.",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "searchAliases": [
+      "text",
+      "prompt",
+      "text prompt",
+      "positive prompt",
+      "negative prompt",
+      "encode text",
+      "text encoder",
+      "encode prompt"
+    ],
+    "body": [
       {
         "kind": "input",
         "id": "text",
@@ -921,17 +925,6 @@
         "displayName": "CONDITIONING",
         "tooltip": "A conditioning containing the embedded text used to guide the diffusion model."
       }
-    ],
-    "isOutputNode": false,
-    "searchAliases": [
-      "text",
-      "prompt",
-      "text prompt",
-      "positive prompt",
-      "negative prompt",
-      "encode text",
-      "text encoder",
-      "encode prompt"
     ]
   },
   "CLIPVisionLoader": {
@@ -939,7 +932,8 @@
     "displayName": "Load CLIP Vision",
     "category": "model/loaders",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "clip_name",
@@ -964,8 +958,7 @@
         },
         "displayName": "CLIP_VISION"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "ColorTransfer": {
     "type": "ColorTransfer",
@@ -973,7 +966,18 @@
     "category": "image/filters",
     "description": "Match the colors of one image to another using various algorithms.",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "searchAliases": [
+      "color match",
+      "color grading",
+      "color correction",
+      "match colors",
+      "color transform",
+      "mkl",
+      "reinhard",
+      "histogram"
+    ],
+    "body": [
       {
         "kind": "input",
         "id": "image_target",
@@ -1015,51 +1019,45 @@
         }
       },
       {
-        "kind": "input",
+        "kind": "choice",
         "id": "source_stats",
-        "type": {
-          "kind": "concrete",
-          "name": "COMBO"
-        },
-        "optional": false,
-        "dynamic": {
-          "kind": "dynamicCombo",
-          "options": [
-            {
-              "key": "per_frame",
-              "inputs": []
-            },
-            {
-              "key": "uniform",
-              "inputs": []
-            },
-            {
-              "key": "target_frame",
-              "inputs": [
-                {
-                  "kind": "input",
-                  "id": "target_index",
-                  "type": {
-                    "kind": "concrete",
-                    "name": "INT"
+        "tooltip": "per_frame: each frame matched to image_ref individually. uniform: pool stats across all source frames as baseline, match to image_ref. target_frame: use one chosen frame as the baseline for the transform to image_ref, applied uniformly to all frames (preserves relative differences)",
+        "options": [
+          {
+            "key": "per_frame",
+            "rows": []
+          },
+          {
+            "key": "uniform",
+            "rows": []
+          },
+          {
+            "key": "target_frame",
+            "rows": [
+              {
+                "kind": "input",
+                "id": "target_index",
+                "type": {
+                  "kind": "concrete",
+                  "name": "INT"
+                },
+                "optional": false,
+                "widget": {
+                  "widgetType": "INT",
+                  "options": {
+                    "tooltip": "Frame index used as the source baseline for computing the transform to image_ref",
+                    "min": 0,
+                    "max": 10000
                   },
-                  "optional": false,
-                  "widget": {
-                    "widgetType": "INT",
-                    "options": {
-                      "tooltip": "Frame index used as the source baseline for computing the transform to image_ref",
-                      "min": 0,
-                      "max": 10000
-                    },
-                    "default": 0
-                  },
-                  "tooltip": "Frame index used as the source baseline for computing the transform to image_ref"
-                }
-              ]
-            }
-          ]
-        },
-        "tooltip": "per_frame: each frame matched to image_ref individually. uniform: pool stats across all source frames as baseline, match to image_ref. target_frame: use one chosen frame as the baseline for the transform to image_ref, applied uniformly to all frames (preserves relative differences)"
+                  "default": 0
+                },
+                "tooltip": "Frame index used as the source baseline for computing the transform to image_ref"
+              }
+            ]
+          }
+        ],
+        "shared": [],
+        "required": true
       },
       {
         "kind": "input",
@@ -1088,17 +1086,6 @@
         },
         "displayName": "image"
       }
-    ],
-    "isOutputNode": false,
-    "searchAliases": [
-      "color match",
-      "color grading",
-      "color correction",
-      "match colors",
-      "color transform",
-      "mkl",
-      "reinhard",
-      "histogram"
     ]
   },
   "ComfyAndNode": {
@@ -1107,33 +1094,32 @@
     "category": "utilities/logic",
     "description": "Logical AND operation. Returns true if all of the values are truthy. Uses Python's rules for truthiness.",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "searchAliases": [
+      "all",
+      "every"
+    ],
+    "body": [
       {
-        "kind": "input",
+        "kind": "group",
         "id": "values",
-        "type": {
-          "kind": "wildcard"
+        "value": {
+          "kind": "input",
+          "id": "value",
+          "type": {
+            "kind": "wildcard"
+          },
+          "optional": false
         },
-        "optional": false,
-        "dynamic": {
-          "kind": "autogrow",
-          "template": [
-            {
-              "kind": "input",
-              "id": "value",
-              "type": {
-                "kind": "wildcard"
-              },
-              "optional": false
-            }
-          ],
-          "naming": {
-            "kind": "prefix",
-            "prefix": "value",
-            "min": 1,
-            "max": 10
-          }
-        }
+        "keys": {
+          "kind": "numbered",
+          "prefix": "value",
+          "start": 1,
+          "pad": 0
+        },
+        "grows": "link",
+        "minMembers": 1,
+        "maxMembers": 10
       },
       {
         "kind": "output",
@@ -1144,11 +1130,6 @@
         },
         "displayName": "BOOLEAN"
       }
-    ],
-    "isOutputNode": false,
-    "searchAliases": [
-      "all",
-      "every"
     ]
   },
   "ComfyMathExpression": {
@@ -1156,7 +1137,16 @@
     "displayName": "Math Expression",
     "category": "utilities",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "searchAliases": [
+      "math",
+      "expression",
+      "formula",
+      "calculate",
+      "calculator",
+      "eval"
+    ],
+    "body": [
       {
         "kind": "input",
         "id": "expression",
@@ -1174,62 +1164,54 @@
         }
       },
       {
-        "kind": "input",
+        "kind": "group",
         "id": "values",
-        "type": {
-          "kind": "wildcard"
-        },
-        "optional": false,
-        "dynamic": {
-          "kind": "autogrow",
-          "template": [
-            {
-              "kind": "input",
-              "id": "value",
-              "type": {
-                "kind": "union",
-                "names": [
-                  "FLOAT",
-                  "INT",
-                  "BOOLEAN"
-                ]
-              },
-              "optional": false
-            }
-          ],
-          "naming": {
-            "kind": "names",
+        "value": {
+          "kind": "input",
+          "id": "value",
+          "type": {
+            "kind": "union",
             "names": [
-              "a",
-              "b",
-              "c",
-              "d",
-              "e",
-              "f",
-              "g",
-              "h",
-              "i",
-              "j",
-              "k",
-              "l",
-              "m",
-              "n",
-              "o",
-              "p",
-              "q",
-              "r",
-              "s",
-              "t",
-              "u",
-              "v",
-              "w",
-              "x",
-              "y",
-              "z"
-            ],
-            "min": 1
-          }
-        }
+              "FLOAT",
+              "INT",
+              "BOOLEAN"
+            ]
+          },
+          "optional": false
+        },
+        "keys": {
+          "kind": "named",
+          "names": [
+            "a",
+            "b",
+            "c",
+            "d",
+            "e",
+            "f",
+            "g",
+            "h",
+            "i",
+            "j",
+            "k",
+            "l",
+            "m",
+            "n",
+            "o",
+            "p",
+            "q",
+            "r",
+            "s",
+            "t",
+            "u",
+            "v",
+            "w",
+            "x",
+            "y",
+            "z"
+          ]
+        },
+        "grows": "link",
+        "minMembers": 1
       },
       {
         "kind": "output",
@@ -1258,15 +1240,6 @@
         },
         "displayName": "BOOL"
       }
-    ],
-    "isOutputNode": false,
-    "searchAliases": [
-      "math",
-      "expression",
-      "formula",
-      "calculate",
-      "calculator",
-      "eval"
     ]
   },
   "ComfySwitchNode": {
@@ -1274,7 +1247,16 @@
     "displayName": "If/Else Switch",
     "category": "utilities/logic",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "experimental": true,
+    "searchAliases": [
+      "if",
+      "then",
+      "switch",
+      "conditional",
+      "branch"
+    ],
+    "body": [
       {
         "kind": "input",
         "id": "switch",
@@ -1327,15 +1309,6 @@
         },
         "displayName": "output"
       }
-    ],
-    "isOutputNode": false,
-    "experimental": true,
-    "searchAliases": [
-      "if",
-      "then",
-      "switch",
-      "conditional",
-      "branch"
     ]
   },
   "ConditioningZeroOut": {
@@ -1343,7 +1316,12 @@
     "displayName": "Conditioning Zero Out",
     "category": "model/conditioning/transform",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "searchAliases": [
+      "null conditioning",
+      "clear conditioning"
+    ],
+    "body": [
       {
         "kind": "input",
         "id": "conditioning",
@@ -1362,11 +1340,6 @@
         },
         "displayName": "CONDITIONING"
       }
-    ],
-    "isOutputNode": false,
-    "searchAliases": [
-      "null conditioning",
-      "clear conditioning"
     ]
   },
   "CreateList": {
@@ -1374,33 +1347,33 @@
     "displayName": "Create List",
     "category": "utilities",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "searchAliases": [
+      "Image Iterator",
+      "Text Iterator",
+      "Iterator"
+    ],
+    "body": [
       {
-        "kind": "input",
+        "kind": "group",
         "id": "inputs",
-        "type": {
-          "kind": "wildcard"
+        "value": {
+          "kind": "input",
+          "id": "input",
+          "type": {
+            "kind": "wildcard"
+          },
+          "optional": false
         },
-        "optional": false,
-        "dynamic": {
-          "kind": "autogrow",
-          "template": [
-            {
-              "kind": "input",
-              "id": "input",
-              "type": {
-                "kind": "wildcard"
-              },
-              "optional": false
-            }
-          ],
-          "naming": {
-            "kind": "prefix",
-            "prefix": "input",
-            "min": 1,
-            "max": 10
-          }
-        }
+        "keys": {
+          "kind": "numbered",
+          "prefix": "input",
+          "start": 1,
+          "pad": 0
+        },
+        "grows": "link",
+        "minMembers": 1,
+        "maxMembers": 10
       },
       {
         "kind": "output",
@@ -1411,12 +1384,6 @@
         "isList": true,
         "displayName": "list"
       }
-    ],
-    "isOutputNode": false,
-    "searchAliases": [
-      "Image Iterator",
-      "Text Iterator",
-      "Iterator"
     ]
   },
   "CreateVideo": {
@@ -1425,7 +1392,11 @@
     "category": "video",
     "description": "Create a video from images.",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "searchAliases": [
+      "images to video"
+    ],
+    "body": [
       {
         "kind": "input",
         "id": "images",
@@ -1533,7 +1504,6 @@
           },
           "default": "none"
         },
-        "advanced": true,
         "tooltip": "Optionally encode the video immediately. None keeps the images in tensor form; Auto uses H.264."
       },
       {
@@ -1545,10 +1515,6 @@
         },
         "displayName": "VIDEO"
       }
-    ],
-    "isOutputNode": false,
-    "searchAliases": [
-      "images to video"
     ]
   },
   "DecimateMesh": {
@@ -1557,7 +1523,11 @@
     "category": "3d/mesh",
     "description": "Simplifies a mesh to a target face count using QEM, on the active compute device. 'midpoint' is the cumesh-faithful preset (best quality, preserves thin features / hair); 'qem' places vertices at the QEM optimum with line/feature-edge controls. Output stays welded.",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "hidden": [
+      "unique_id"
+    ],
+    "body": [
       {
         "kind": "input",
         "id": "mesh",
@@ -1587,106 +1557,100 @@
         "tooltip": "Target max faces. 0 disables."
       },
       {
-        "kind": "input",
+        "kind": "choice",
         "id": "placement_mode",
-        "type": {
-          "kind": "concrete",
-          "name": "COMBO"
-        },
-        "optional": false,
-        "dynamic": {
-          "kind": "dynamicCombo",
-          "options": [
-            {
-              "key": "midpoint",
-              "inputs": []
-            },
-            {
-              "key": "qem",
-              "inputs": [
-                {
-                  "kind": "input",
-                  "id": "line_quadric_weight",
-                  "type": {
-                    "kind": "concrete",
-                    "name": "FLOAT"
-                  },
-                  "optional": false,
-                  "widget": {
-                    "widgetType": "FLOAT",
-                    "options": {
-                      "tooltip": "Per-edge line-quadric weight; preserves sharp ridges/valleys. 0 = off.",
-                      "min": 0,
-                      "max": 100,
-                      "step": 0.1
-                    },
-                    "default": 0
-                  },
-                  "tooltip": "Per-edge line-quadric weight; preserves sharp ridges/valleys. 0 = off."
-                },
-                {
-                  "kind": "input",
-                  "id": "feature_edge_quadric_weight",
-                  "type": {
-                    "kind": "concrete",
-                    "name": "FLOAT"
-                  },
-                  "optional": false,
-                  "widget": {
-                    "widgetType": "FLOAT",
-                    "options": {
-                      "tooltip": "Extra quadric weight on dihedral feature edges (creases). 0 = off.",
-                      "min": 0,
-                      "max": 1000,
-                      "step": 1
-                    },
-                    "default": 0
-                  },
-                  "tooltip": "Extra quadric weight on dihedral feature edges (creases). 0 = off."
-                },
-                {
-                  "kind": "input",
-                  "id": "feature_edge_min_dihedral_deg",
-                  "type": {
-                    "kind": "concrete",
-                    "name": "FLOAT"
-                  },
-                  "optional": false,
-                  "widget": {
-                    "widgetType": "FLOAT",
-                    "options": {
-                      "tooltip": "Minimum dihedral angle (degree) to count an edge as a feature edge.",
-                      "min": 0,
-                      "max": 180,
-                      "step": 1
-                    },
-                    "default": 30
-                  },
-                  "tooltip": "Minimum dihedral angle (degree) to count an edge as a feature edge."
-                },
-                {
-                  "kind": "input",
-                  "id": "clamp_v_to_edge",
-                  "type": {
-                    "kind": "concrete",
-                    "name": "BOOLEAN"
-                  },
-                  "optional": false,
-                  "widget": {
-                    "widgetType": "BOOLEAN",
-                    "options": {
-                      "tooltip": "Project the QEM-optimal position onto the collapsed edge segment."
-                    },
-                    "default": true
-                  },
-                  "tooltip": "Project the QEM-optimal position onto the collapsed edge segment."
-                }
-              ]
-            }
-          ]
-        },
         "displayName": "placement_mode",
-        "tooltip": "midpoint: cumesh-faithful (recommended). qem: QEM-optimal placement."
+        "tooltip": "midpoint: cumesh-faithful (recommended). qem: QEM-optimal placement.",
+        "options": [
+          {
+            "key": "midpoint",
+            "rows": []
+          },
+          {
+            "key": "qem",
+            "rows": [
+              {
+                "kind": "input",
+                "id": "line_quadric_weight",
+                "type": {
+                  "kind": "concrete",
+                  "name": "FLOAT"
+                },
+                "optional": false,
+                "widget": {
+                  "widgetType": "FLOAT",
+                  "options": {
+                    "tooltip": "Per-edge line-quadric weight; preserves sharp ridges/valleys. 0 = off.",
+                    "min": 0,
+                    "max": 100,
+                    "step": 0.1
+                  },
+                  "default": 0
+                },
+                "tooltip": "Per-edge line-quadric weight; preserves sharp ridges/valleys. 0 = off."
+              },
+              {
+                "kind": "input",
+                "id": "feature_edge_quadric_weight",
+                "type": {
+                  "kind": "concrete",
+                  "name": "FLOAT"
+                },
+                "optional": false,
+                "widget": {
+                  "widgetType": "FLOAT",
+                  "options": {
+                    "tooltip": "Extra quadric weight on dihedral feature edges (creases). 0 = off.",
+                    "min": 0,
+                    "max": 1000,
+                    "step": 1
+                  },
+                  "default": 0
+                },
+                "tooltip": "Extra quadric weight on dihedral feature edges (creases). 0 = off."
+              },
+              {
+                "kind": "input",
+                "id": "feature_edge_min_dihedral_deg",
+                "type": {
+                  "kind": "concrete",
+                  "name": "FLOAT"
+                },
+                "optional": false,
+                "widget": {
+                  "widgetType": "FLOAT",
+                  "options": {
+                    "tooltip": "Minimum dihedral angle (degree) to count an edge as a feature edge.",
+                    "min": 0,
+                    "max": 180,
+                    "step": 1
+                  },
+                  "default": 30
+                },
+                "tooltip": "Minimum dihedral angle (degree) to count an edge as a feature edge."
+              },
+              {
+                "kind": "input",
+                "id": "clamp_v_to_edge",
+                "type": {
+                  "kind": "concrete",
+                  "name": "BOOLEAN"
+                },
+                "optional": false,
+                "widget": {
+                  "widgetType": "BOOLEAN",
+                  "options": {
+                    "tooltip": "Project the QEM-optimal position onto the collapsed edge segment."
+                  },
+                  "default": true
+                },
+                "tooltip": "Project the QEM-optimal position onto the collapsed edge segment."
+              }
+            ]
+          }
+        ],
+        "shared": [],
+        "required": true
       },
       {
         "kind": "output",
@@ -1697,10 +1661,6 @@
         },
         "displayName": "mesh"
       }
-    ],
-    "isOutputNode": false,
-    "hidden": [
-      "unique_id"
     ]
   },
   "EmptyFlux2LatentImage": {
@@ -1708,7 +1668,8 @@
     "displayName": "Empty Flux 2 Latent",
     "category": "model/latent/flux",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "width",
@@ -1771,15 +1732,15 @@
         },
         "displayName": "LATENT"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "EmptyImage": {
     "type": "EmptyImage",
     "displayName": "Empty Image",
     "category": "image",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "width",
@@ -1861,8 +1822,7 @@
         },
         "displayName": "IMAGE"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "EmptyLatentImage": {
     "type": "EmptyLatentImage",
@@ -1870,7 +1830,16 @@
     "category": "model/latent",
     "description": "Create a new batch of empty latent images to be denoised via sampling.",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "searchAliases": [
+      "empty",
+      "empty latent",
+      "new latent",
+      "create latent",
+      "blank latent",
+      "blank"
+    ],
+    "body": [
       {
         "kind": "input",
         "id": "width",
@@ -1940,15 +1909,6 @@
         "displayName": "LATENT",
         "tooltip": "The empty latent image batch."
       }
-    ],
-    "isOutputNode": false,
-    "searchAliases": [
-      "empty",
-      "empty latent",
-      "new latent",
-      "create latent",
-      "blank latent",
-      "blank"
     ]
   },
   "EmptySD3LatentImage": {
@@ -1956,7 +1916,8 @@
     "displayName": "EmptySD3LatentImage",
     "category": "model/latent/stable diffusion",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "width",
@@ -2019,15 +1980,15 @@
         },
         "displayName": "LATENT"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "EmptyTrellis2LatentStructure": {
     "type": "EmptyTrellis2LatentStructure",
     "displayName": "Empty Trellis2 Latent Structure",
     "category": "model/latent/trellis",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "batch_size",
@@ -2056,15 +2017,19 @@
         },
         "displayName": "LATENT"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "EndLoop": {
     "type": "EndLoop",
     "displayName": "End Loop",
     "category": "utilities/looping",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "hidden": [
+      "execution_list",
+      "unique_id"
+    ],
+    "body": [
       {
         "kind": "input",
         "id": "accumulate",
@@ -2113,33 +2078,27 @@
         "tooltip": "Value sent from End Loop back to Start Loop for the next iteration."
       },
       {
-        "kind": "input",
+        "kind": "group",
         "id": "terminations",
-        "type": {
-          "kind": "wildcard"
+        "tooltip": "Connect outputs that must execute on every iteration. Their values are not returned.",
+        "value": {
+          "kind": "input",
+          "id": "termination",
+          "type": {
+            "kind": "wildcard"
+          },
+          "optional": false,
+          "tooltip": "Connect a preview or side-effect output that must execute on every iteration. Its value is not returned."
         },
-        "optional": true,
-        "dynamic": {
-          "kind": "autogrow",
-          "template": [
-            {
-              "kind": "input",
-              "id": "termination",
-              "type": {
-                "kind": "wildcard"
-              },
-              "optional": false,
-              "tooltip": "Connect a preview or side-effect output that must execute on every iteration. Its value is not returned."
-            }
-          ],
-          "naming": {
-            "kind": "prefix",
-            "prefix": "termination",
-            "min": 0,
-            "max": 50
-          }
+        "keys": {
+          "kind": "numbered",
+          "prefix": "termination",
+          "start": 1,
+          "pad": 0
         },
-        "tooltip": "Connect outputs that must execute on every iteration. Their values are not returned."
+        "grows": "link",
+        "minMembers": 0,
+        "maxMembers": 50
       },
       {
         "kind": "output",
@@ -2152,11 +2111,6 @@
         "displayName": "outputs",
         "tooltip": "The final iteration's output_value, or values accumulated across iterations when accumulate is enabled."
       }
-    ],
-    "isOutputNode": false,
-    "hidden": [
-      "execution_list",
-      "unique_id"
     ]
   },
   "Flux2Scheduler": {
@@ -2164,7 +2118,8 @@
     "displayName": "Flux2Scheduler",
     "category": "model/sampling/schedulers",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "steps",
@@ -2227,8 +2182,7 @@
         },
         "displayName": "SIGMAS"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "GetImageSize": {
     "type": "GetImageSize",
@@ -2236,7 +2190,16 @@
     "category": "image",
     "description": "Returns the width, height, and batch size of the image.",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "searchAliases": [
+      "dimensions",
+      "resolution",
+      "image info"
+    ],
+    "hidden": [
+      "unique_id"
+    ],
+    "body": [
       {
         "kind": "input",
         "id": "image",
@@ -2273,15 +2236,6 @@
         },
         "displayName": "batch_size"
       }
-    ],
-    "isOutputNode": false,
-    "searchAliases": [
-      "dimensions",
-      "resolution",
-      "image info"
-    ],
-    "hidden": [
-      "unique_id"
     ]
   },
   "GetItemFromList": {
@@ -2289,7 +2243,8 @@
     "displayName": "Get Item From List",
     "category": "utilities",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "list",
@@ -2320,15 +2275,18 @@
         },
         "displayName": "*"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "GetMeshInfo": {
     "type": "GetMeshInfo",
     "displayName": "Get Mesh Info",
     "category": "3d/mesh",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "hidden": [
+      "unique_id"
+    ],
+    "body": [
       {
         "kind": "input",
         "id": "mesh",
@@ -2356,10 +2314,6 @@
         },
         "displayName": "info"
       }
-    ],
-    "isOutputNode": false,
-    "hidden": [
-      "unique_id"
     ]
   },
   "ImageBatch": {
@@ -2367,7 +2321,14 @@
     "displayName": "Batch Images (DEPRECATED)",
     "category": "image/batch",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "deprecated": true,
+    "searchAliases": [
+      "combine images",
+      "merge images",
+      "stack images"
+    ],
+    "body": [
       {
         "kind": "input",
         "id": "image1",
@@ -2395,13 +2356,6 @@
         },
         "displayName": "IMAGE"
       }
-    ],
-    "isOutputNode": false,
-    "deprecated": true,
-    "searchAliases": [
-      "combine images",
-      "merge images",
-      "stack images"
     ]
   },
   "ImageCropToMask": {
@@ -2409,7 +2363,17 @@
     "displayName": "Crop Image to Mask",
     "category": "image/transform",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "searchAliases": [
+      "crop to mask",
+      "mask crop",
+      "crop mask",
+      "mask crop resize",
+      "crop mask resize",
+      "trellis2",
+      "pixal3d"
+    ],
+    "body": [
       {
         "kind": "input",
         "id": "images",
@@ -2535,16 +2499,6 @@
         },
         "displayName": "images"
       }
-    ],
-    "isOutputNode": false,
-    "searchAliases": [
-      "crop to mask",
-      "mask crop",
-      "crop mask",
-      "mask crop resize",
-      "crop mask resize",
-      "trellis2",
-      "pixal3d"
     ]
   },
   "ImageInvert": {
@@ -2552,7 +2506,11 @@
     "displayName": "Invert Image Colors",
     "category": "image/color",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "searchAliases": [
+      "reverse colors"
+    ],
+    "body": [
       {
         "kind": "input",
         "id": "image",
@@ -2571,10 +2529,6 @@
         },
         "displayName": "IMAGE"
       }
-    ],
-    "isOutputNode": false,
-    "searchAliases": [
-      "reverse colors"
     ]
   },
   "ImageScaleBy": {
@@ -2582,7 +2536,8 @@
     "displayName": "Upscale Image By",
     "category": "image/upscaling",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "image",
@@ -2641,15 +2596,15 @@
         },
         "displayName": "IMAGE"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "ImageScaleToTotalPixels": {
     "type": "ImageScaleToTotalPixels",
     "displayName": "Scale Image to Total Pixels",
     "category": "image/upscaling",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "image",
@@ -2715,8 +2670,7 @@
             "max": 256
           },
           "default": 1
-        },
-        "advanced": true
+        }
       },
       {
         "kind": "output",
@@ -2727,15 +2681,19 @@
         },
         "displayName": "IMAGE"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "ImageToMask": {
     "type": "ImageToMask",
     "displayName": "Convert Image to Mask",
     "category": "image/mask",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "searchAliases": [
+      "extract channel",
+      "channel to mask"
+    ],
+    "body": [
       {
         "kind": "input",
         "id": "image",
@@ -2775,11 +2733,6 @@
         },
         "displayName": "MASK"
       }
-    ],
-    "isOutputNode": false,
-    "searchAliases": [
-      "extract channel",
-      "channel to mask"
     ]
   },
   "KSampler": {
@@ -2788,7 +2741,17 @@
     "category": "model/sampling",
     "description": "Uses the provided model, positive and negative conditioning to denoise the latent image.",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "searchAliases": [
+      "sampler",
+      "sample",
+      "generate",
+      "denoise",
+      "diffuse",
+      "txt2img",
+      "img2img"
+    ],
+    "body": [
       {
         "kind": "input",
         "id": "model",
@@ -3009,16 +2972,6 @@
         "displayName": "LATENT",
         "tooltip": "The denoised latent."
       }
-    ],
-    "isOutputNode": false,
-    "searchAliases": [
-      "sampler",
-      "sample",
-      "generate",
-      "denoise",
-      "diffuse",
-      "txt2img",
-      "img2img"
     ]
   },
   "KSamplerSelect": {
@@ -3026,7 +2979,8 @@
     "displayName": "KSamplerSelect",
     "category": "model/sampling/samplers",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "sampler_name",
@@ -3098,15 +3052,15 @@
         },
         "displayName": "SAMPLER"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "LoadBackgroundRemovalModel": {
     "type": "LoadBackgroundRemovalModel",
     "displayName": "Load Background Removal Model",
     "category": "model/loaders",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "bg_removal_name",
@@ -3134,15 +3088,24 @@
         },
         "displayName": "bg_model"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "LoadImage": {
     "type": "LoadImage",
     "displayName": "Load Image",
     "category": "image",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "searchAliases": [
+      "load image",
+      "open image",
+      "import image",
+      "image input",
+      "upload image",
+      "read image",
+      "image loader"
+    ],
+    "body": [
       {
         "kind": "input",
         "id": "image",
@@ -3179,16 +3142,6 @@
         },
         "displayName": "MASK"
       }
-    ],
-    "isOutputNode": false,
-    "searchAliases": [
-      "load image",
-      "open image",
-      "import image",
-      "image input",
-      "upload image",
-      "read image",
-      "image loader"
     ]
   },
   "LoadMoGeModel": {
@@ -3196,7 +3149,8 @@
     "displayName": "Load MoGe Model",
     "category": "model/loaders",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "model_name",
@@ -3222,8 +3176,7 @@
         },
         "displayName": "MOGE_MODEL"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "LoraLoaderModelOnly": {
     "type": "LoraLoaderModelOnly",
@@ -3231,7 +3184,15 @@
     "category": "model/loaders",
     "description": "This LoRAs loader is used to modify the diffusion model, altering the way in which latents are denoised such as applying styles. Multiple LoRA nodes can be linked together.",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "searchAliases": [
+      "lora",
+      "load lora",
+      "apply lora",
+      "lora loader",
+      "lora model"
+    ],
+    "body": [
       {
         "kind": "input",
         "id": "model",
@@ -3284,14 +3245,6 @@
         "displayName": "MODEL",
         "tooltip": "The modified diffusion model."
       }
-    ],
-    "isOutputNode": false,
-    "searchAliases": [
-      "lora",
-      "load lora",
-      "apply lora",
-      "lora loader",
-      "lora model"
     ]
   },
   "MaskPreview": {
@@ -3300,7 +3253,20 @@
     "category": "image/mask",
     "description": "Preview the masks without saving them to the ComfyUI output directory.",
     "source": "v1",
-    "items": [
+    "isOutputNode": true,
+    "searchAliases": [
+      "preview",
+      "preview mask",
+      "show mask",
+      "view mask",
+      "inspect mask",
+      "debug mask"
+    ],
+    "hidden": [
+      "prompt",
+      "extra_pnginfo"
+    ],
+    "body": [
       {
         "kind": "input",
         "id": "mask",
@@ -3319,19 +3285,6 @@
         },
         "displayName": "mask"
       }
-    ],
-    "isOutputNode": true,
-    "searchAliases": [
-      "preview",
-      "preview mask",
-      "show mask",
-      "view mask",
-      "inspect mask",
-      "debug mask"
-    ],
-    "hidden": [
-      "prompt",
-      "extra_pnginfo"
     ]
   },
   "MaskToImage": {
@@ -3339,7 +3292,11 @@
     "displayName": "Convert Mask to Image",
     "category": "image/mask",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "searchAliases": [
+      "convert mask"
+    ],
+    "body": [
       {
         "kind": "input",
         "id": "mask",
@@ -3358,10 +3315,6 @@
         },
         "displayName": "IMAGE"
       }
-    ],
-    "isOutputNode": false,
-    "searchAliases": [
-      "convert mask"
     ]
   },
   "MeshSmoothNormals": {
@@ -3370,7 +3323,8 @@
     "category": "3d/mesh",
     "description": "Compute smooth per-vertex normals and attach them to the mesh. Meshes without normals are shaded flat (per-face) by glTF viewers; this makes them shade smoothly. With crease_angle below 180, edges sharper than the threshold are kept hard by splitting vertices along them.",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "mesh",
@@ -3409,8 +3363,7 @@
         },
         "displayName": "mesh"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "MeshToFile3D": {
     "type": "MeshToFile3D",
@@ -3418,7 +3371,13 @@
     "category": "3d",
     "description": "Serialize a mesh to a GLB File3D object for Save / Preview 3D nodes, carrying its UVs, colors, normals, texture, normal/occlusion/emissive maps and material. Supports one item per batch only.",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "searchAliases": [
+      "mesh to glb",
+      "mesh to file",
+      "export mesh"
+    ],
+    "body": [
       {
         "kind": "input",
         "id": "mesh",
@@ -3437,12 +3396,6 @@
         },
         "displayName": "model_3d"
       }
-    ],
-    "isOutputNode": false,
-    "searchAliases": [
-      "mesh to glb",
-      "mesh to file",
-      "export mesh"
     ]
   },
   "MiniMaxH3AddGuide": {
@@ -3451,7 +3404,8 @@
     "category": "model/conditioning/minimax",
     "description": "Anchor an image, a short clip, audio, or a clip with its soundtrack at any frame of a MiniMax H3 video. Chain several nodes to anchor several frames.",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "positive",
@@ -3538,15 +3492,15 @@
         },
         "displayName": "positive"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "MiniMaxH3ImageToVideo": {
     "type": "MiniMaxH3ImageToVideo",
     "displayName": "MiniMax H3 Image to Video",
     "category": "model/conditioning/minimax",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "clip",
@@ -3673,8 +3627,7 @@
         },
         "displayName": "LATENT"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "MiniMaxH3ReferenceToVideo": {
     "type": "MiniMaxH3ReferenceToVideo",
@@ -3682,7 +3635,8 @@
     "category": "model/conditioning/minimax",
     "description": "<Picture i> / <Video k> / <Audio j> reference conditioning for MiniMax H3. Use the same tags when prompting.",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "clip",
@@ -3807,120 +3761,96 @@
         "tooltip": "Audio VAE. Without it reference audio only conditions the text encoder."
       },
       {
-        "kind": "input",
+        "kind": "group",
         "id": "ref_images",
-        "type": {
-          "kind": "wildcard"
+        "value": {
+          "kind": "input",
+          "id": "ref_image",
+          "type": {
+            "kind": "concrete",
+            "name": "IMAGE"
+          },
+          "optional": false,
+          "tooltip": "Reference image (downscaled to 2048 short edge if larger, never upscaled)"
         },
-        "optional": true,
-        "dynamic": {
-          "kind": "autogrow",
-          "template": [
-            {
-              "kind": "input",
-              "id": "ref_image",
-              "type": {
-                "kind": "concrete",
-                "name": "IMAGE"
-              },
-              "optional": false,
-              "tooltip": "Reference image (downscaled to 2048 short edge if larger, never upscaled)"
-            }
-          ],
-          "naming": {
-            "kind": "prefix",
-            "prefix": "ref_image_",
-            "min": 0,
-            "max": 9
-          }
-        }
+        "keys": {
+          "kind": "numbered",
+          "prefix": "ref_image_",
+          "start": 1,
+          "pad": 0
+        },
+        "grows": "link",
+        "minMembers": 0,
+        "maxMembers": 9
       },
       {
-        "kind": "input",
+        "kind": "group",
         "id": "ref_videos",
-        "type": {
-          "kind": "wildcard"
+        "value": {
+          "kind": "input",
+          "id": "ref_video",
+          "type": {
+            "kind": "concrete",
+            "name": "IMAGE"
+          },
+          "optional": false,
+          "tooltip": "Reference video frames at 24 fps (2-15s)"
         },
-        "optional": true,
-        "dynamic": {
-          "kind": "autogrow",
-          "template": [
-            {
-              "kind": "input",
-              "id": "ref_video",
-              "type": {
-                "kind": "concrete",
-                "name": "IMAGE"
-              },
-              "optional": false,
-              "tooltip": "Reference video frames at 24 fps (2-15s)"
-            }
-          ],
-          "naming": {
-            "kind": "prefix",
-            "prefix": "ref_video_",
-            "min": 0,
-            "max": 3
-          }
-        }
+        "keys": {
+          "kind": "numbered",
+          "prefix": "ref_video_",
+          "start": 1,
+          "pad": 0
+        },
+        "grows": "link",
+        "minMembers": 0,
+        "maxMembers": 3
       },
       {
-        "kind": "input",
+        "kind": "group",
         "id": "ref_video_audios",
-        "type": {
-          "kind": "wildcard"
+        "value": {
+          "kind": "input",
+          "id": "ref_video_audio",
+          "type": {
+            "kind": "concrete",
+            "name": "AUDIO"
+          },
+          "optional": false,
+          "tooltip": "Soundtrack of the same-numbered reference video"
         },
-        "optional": true,
-        "dynamic": {
-          "kind": "autogrow",
-          "template": [
-            {
-              "kind": "input",
-              "id": "ref_video_audio",
-              "type": {
-                "kind": "concrete",
-                "name": "AUDIO"
-              },
-              "optional": false,
-              "tooltip": "Soundtrack of the same-numbered reference video"
-            }
-          ],
-          "naming": {
-            "kind": "prefix",
-            "prefix": "ref_video_audio_",
-            "min": 0,
-            "max": 3
-          }
-        }
+        "keys": {
+          "kind": "numbered",
+          "prefix": "ref_video_audio_",
+          "start": 1,
+          "pad": 0
+        },
+        "grows": "link",
+        "minMembers": 0,
+        "maxMembers": 3
       },
       {
-        "kind": "input",
+        "kind": "group",
         "id": "ref_audios",
-        "type": {
-          "kind": "wildcard"
+        "value": {
+          "kind": "input",
+          "id": "ref_audio",
+          "type": {
+            "kind": "concrete",
+            "name": "AUDIO"
+          },
+          "optional": false,
+          "tooltip": "Standalone reference audio"
         },
-        "optional": true,
-        "dynamic": {
-          "kind": "autogrow",
-          "template": [
-            {
-              "kind": "input",
-              "id": "ref_audio",
-              "type": {
-                "kind": "concrete",
-                "name": "AUDIO"
-              },
-              "optional": false,
-              "tooltip": "Standalone reference audio"
-            }
-          ],
-          "naming": {
-            "kind": "prefix",
-            "prefix": "ref_audio_",
-            "min": 0,
-            "max": 3
-          }
-        }
+        "keys": {
+          "kind": "numbered",
+          "prefix": "ref_audio_",
+          "start": 1,
+          "pad": 0
+        },
+        "grows": "link",
+        "minMembers": 0,
+        "maxMembers": 3
       },
       {
         "kind": "output",
@@ -3940,15 +3870,15 @@
         },
         "displayName": "LATENT"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "ModelSamplingAuraFlow": {
     "type": "ModelSamplingAuraFlow",
     "displayName": "ModelSamplingAuraFlow",
     "category": "model/patch",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "model",
@@ -3993,8 +3923,7 @@
             ]
           },
           "default": "flow"
-        },
-        "advanced": true
+        }
       },
       {
         "kind": "output",
@@ -4005,15 +3934,15 @@
         },
         "displayName": "MODEL"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "ModelSamplingSD3": {
     "type": "ModelSamplingSD3",
     "displayName": "ModelSamplingSD3",
     "category": "model/patch/stable diffusion",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "model",
@@ -4050,8 +3979,7 @@
         },
         "displayName": "MODEL"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "MoGeGeometryToFOV": {
     "type": "MoGeGeometryToFOV",
@@ -4059,7 +3987,15 @@
     "category": "image/geometry estimation",
     "description": "Derive the field of view and focal length from MoGe intrinsics.",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "searchAliases": [
+      "moge",
+      "fov",
+      "geometry",
+      "intrinsics",
+      "field of view"
+    ],
+    "body": [
       {
         "kind": "input",
         "id": "moge_geometry",
@@ -4132,14 +4068,6 @@
         },
         "displayName": "focal_pixels"
       }
-    ],
-    "isOutputNode": false,
-    "searchAliases": [
-      "moge",
-      "fov",
-      "geometry",
-      "intrinsics",
-      "field of view"
     ]
   },
   "MoGeInference": {
@@ -4148,7 +4076,15 @@
     "category": "image/geometry estimation",
     "description": "Run MoGe on a single image to estimate depth and geometry.",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "searchAliases": [
+      "moge",
+      "depth",
+      "geometry",
+      "depth estimation",
+      "geometry estimation"
+    ],
+    "body": [
       {
         "kind": "input",
         "id": "moge_model",
@@ -4205,7 +4141,6 @@
           },
           "default": 0
         },
-        "advanced": true,
         "tooltip": "Horizontal field of view of the source camera. Sets the focal length used to unproject the depth map into 3D. 0 = auto-recover from the predicted points."
       },
       {
@@ -4241,8 +4176,7 @@
             "advanced": true
           },
           "default": true
-        },
-        "advanced": true
+        }
       },
       {
         "kind": "input",
@@ -4260,7 +4194,6 @@
           },
           "default": true
         },
-        "advanced": true,
         "tooltip": "Set masked-out (sky / invalid) pixels to inf in points and depth so meshing culls them. Disable to keep the raw predicted geometry everywhere; the mask is still returned separately."
       },
       {
@@ -4281,7 +4214,6 @@
           },
           "default": 3
         },
-        "advanced": true,
         "tooltip": "MoGe-3 only: sparse volumetric refinement passes over the predicted depth. More passes sharpen fine detail and edges at a roughly linear cost. 0 disables refinement. Ignored by MoGe-1 / MoGe-2."
       },
       {
@@ -4293,14 +4225,6 @@
         },
         "displayName": "moge_geometry"
       }
-    ],
-    "isOutputNode": false,
-    "searchAliases": [
-      "moge",
-      "depth",
-      "geometry",
-      "depth estimation",
-      "geometry estimation"
     ]
   },
   "PaintMesh": {
@@ -4309,7 +4233,8 @@
     "category": "3d/mesh",
     "description": "Paints each mesh vertex with its nearest voxel color from the input voxel field.",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "mesh",
@@ -4337,15 +4262,15 @@
         },
         "displayName": "mesh"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "Pixal3DConditioning": {
     "type": "Pixal3DConditioning",
     "displayName": "Pixal3D Conditioning",
     "category": "model/conditioning/trellis",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "clip_vision_model",
@@ -4406,8 +4331,7 @@
         },
         "displayName": "negative"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "Preview3DAdvanced": {
     "type": "Preview3DAdvanced",
@@ -4415,7 +4339,21 @@
     "category": "3d",
     "description": "Preview a 3D model file without saving it to the ComfyUI output directory.",
     "source": "v1",
-    "items": [
+    "isOutputNode": true,
+    "experimental": true,
+    "searchAliases": [
+      "preview",
+      "preview 3d",
+      "3d viewer",
+      "view mesh",
+      "frame 3d",
+      "3d camera output"
+    ],
+    "hidden": [
+      "prompt",
+      "extra_pnginfo"
+    ],
+    "body": [
       {
         "kind": "input",
         "id": "model_3d",
@@ -4490,8 +4428,7 @@
           "kind": "concrete",
           "name": "LOAD3D_MODEL_INFO"
         },
-        "optional": true,
-        "advanced": true
+        "optional": true
       },
       {
         "kind": "input",
@@ -4501,7 +4438,6 @@
           "name": "LOAD3D_CAMERA"
         },
         "optional": true,
-        "advanced": true,
         "tooltip": "Viewport camera information: position, look-at target, zoom, and type."
       },
       {
@@ -4554,20 +4490,6 @@
         "displayName": "height",
         "tooltip": "Render height of the viewport in pixels."
       }
-    ],
-    "isOutputNode": true,
-    "experimental": true,
-    "searchAliases": [
-      "preview",
-      "preview 3d",
-      "3d viewer",
-      "view mesh",
-      "frame 3d",
-      "3d camera output"
-    ],
-    "hidden": [
-      "prompt",
-      "extra_pnginfo"
     ]
   },
   "PreviewImage": {
@@ -4576,7 +4498,20 @@
     "category": "image",
     "description": "Preview the images without saving them to the ComfyUI output directory.",
     "source": "v1",
-    "items": [
+    "isOutputNode": true,
+    "searchAliases": [
+      "preview",
+      "preview image",
+      "show image",
+      "view image",
+      "display image",
+      "image viewer"
+    ],
+    "hidden": [
+      "prompt",
+      "extra_pnginfo"
+    ],
+    "body": [
       {
         "kind": "input",
         "id": "images",
@@ -4595,19 +4530,6 @@
         },
         "displayName": "images"
       }
-    ],
-    "isOutputNode": true,
-    "searchAliases": [
-      "preview",
-      "preview image",
-      "show image",
-      "view image",
-      "display image",
-      "image viewer"
-    ],
-    "hidden": [
-      "prompt",
-      "extra_pnginfo"
     ]
   },
   "PrimitiveBoolean": {
@@ -4615,7 +4537,8 @@
     "displayName": "Boolean",
     "category": "utilities/primitive",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "value",
@@ -4638,15 +4561,15 @@
         },
         "displayName": "BOOLEAN"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "PrimitiveFloat": {
     "type": "PrimitiveFloat",
     "displayName": "Float",
     "category": "utilities/primitive",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "value",
@@ -4673,15 +4596,15 @@
         },
         "displayName": "FLOAT"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "PrimitiveInt": {
     "type": "PrimitiveInt",
     "displayName": "Int",
     "category": "utilities/primitive",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "value",
@@ -4708,15 +4631,21 @@
         },
         "displayName": "INT"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "PrimitiveString": {
     "type": "PrimitiveString",
     "displayName": "Text",
     "category": "utilities/primitive",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "searchAliases": [
+      "text",
+      "string",
+      "text box",
+      "prompt"
+    ],
+    "body": [
       {
         "kind": "input",
         "id": "value",
@@ -4741,13 +4670,6 @@
         },
         "displayName": "STRING"
       }
-    ],
-    "isOutputNode": false,
-    "searchAliases": [
-      "text",
-      "string",
-      "text box",
-      "prompt"
     ]
   },
   "PrimitiveStringMultiline": {
@@ -4755,7 +4677,14 @@
     "displayName": "Text (Multiline)",
     "category": "utilities/primitive",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "searchAliases": [
+      "text",
+      "string",
+      "text box",
+      "prompt"
+    ],
+    "body": [
       {
         "kind": "input",
         "id": "value",
@@ -4780,13 +4709,6 @@
         },
         "displayName": "STRING"
       }
-    ],
-    "isOutputNode": false,
-    "searchAliases": [
-      "text",
-      "string",
-      "text box",
-      "prompt"
     ]
   },
   "RandomNoise": {
@@ -4794,7 +4716,8 @@
     "displayName": "RandomNoise",
     "category": "model/sampling/noise",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "noise_seed",
@@ -4822,8 +4745,7 @@
         },
         "displayName": "NOISE"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "ReferenceLatent": {
     "type": "ReferenceLatent",
@@ -4831,7 +4753,8 @@
     "category": "model/conditioning",
     "description": "This node sets the guiding latent for an edit model. If the model supports it you can chain multiple to set multiple reference images.",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "conditioning",
@@ -4859,8 +4782,7 @@
         },
         "displayName": "CONDITIONING"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "RemeshMesh": {
     "type": "RemeshMesh",
@@ -4868,7 +4790,11 @@
     "category": "3d/mesh",
     "description": "Re-extracts a uniformly tessellated mesh via a narrow-band distance field + Dual Contouring, on the active compute device. Normalizes messy / non-manifold / self-intersecting topology; run before Decimate Mesh to hit an exact face count. Output stays welded.",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "hidden": [
+      "unique_id"
+    ],
+    "body": [
       {
         "kind": "input",
         "id": "mesh",
@@ -4898,121 +4824,112 @@
         "tooltip": "Voxel grid resolution (output density). 256 ~ 100k faces, 512 ~ 1M. For an exact face count, follow with Decimate Mesh."
       },
       {
-        "kind": "input",
+        "kind": "choice",
         "id": "sign_mode",
-        "type": {
-          "kind": "concrete",
-          "name": "COMBO"
-        },
-        "optional": false,
-        "dynamic": {
-          "kind": "dynamicCombo",
-          "options": [
-            {
-              "key": "udf",
-              "inputs": [
-                {
-                  "kind": "input",
-                  "id": "qef",
-                  "type": {
-                    "kind": "concrete",
-                    "name": "BOOLEAN"
-                  },
-                  "optional": false,
-                  "widget": {
-                    "widgetType": "BOOLEAN",
-                    "options": {
-                      "tooltip": "QEF (Quadratic Error Function) dual-vertex placement for sharper edges.",
-                      "advanced": true
-                    },
-                    "default": false
-                  },
-                  "advanced": true,
-                  "tooltip": "QEF (Quadratic Error Function) dual-vertex placement for sharper edges."
-                },
-                {
-                  "kind": "input",
-                  "id": "drop_inverted_components",
-                  "type": {
-                    "kind": "concrete",
-                    "name": "BOOLEAN"
-                  },
-                  "optional": false,
-                  "widget": {
-                    "widgetType": "BOOLEAN",
-                    "options": {
-                      "tooltip": "Drop inward-normal (negative-volume) closed components \u2014 the UDF inner shell.",
-                      "advanced": true
-                    },
-                    "default": false
-                  },
-                  "advanced": true,
-                  "tooltip": "Drop inward-normal (negative-volume) closed components \u2014 the UDF inner shell."
-                },
-                {
-                  "kind": "input",
-                  "id": "drop_enclosed_components",
-                  "type": {
-                    "kind": "concrete",
-                    "name": "BOOLEAN"
-                  },
-                  "optional": false,
-                  "widget": {
-                    "widgetType": "BOOLEAN",
-                    "options": {
-                      "tooltip": "Drop components inside the largest's bbox that fail a point-in-mesh raycast. Disable for legitimate nested parts.",
-                      "advanced": true
-                    },
-                    "default": false
-                  },
-                  "advanced": true,
-                  "tooltip": "Drop components inside the largest's bbox that fail a point-in-mesh raycast. Disable for legitimate nested parts."
-                }
-              ]
-            },
-            {
-              "key": "sdf",
-              "inputs": [
-                {
-                  "kind": "input",
-                  "id": "qef",
-                  "type": {
-                    "kind": "concrete",
-                    "name": "BOOLEAN"
-                  },
-                  "optional": false,
-                  "widget": {
-                    "widgetType": "BOOLEAN",
-                    "options": {
-                      "tooltip": "QEF (Quadratic Error Function) dual-vertex placement (recovers sharp features) vs edge-crossing centroid."
-                    },
-                    "default": true
-                  },
-                  "tooltip": "QEF (Quadratic Error Function) dual-vertex placement (recovers sharp features) vs edge-crossing centroid."
-                },
-                {
-                  "kind": "input",
-                  "id": "manifold",
-                  "type": {
-                    "kind": "concrete",
-                    "name": "BOOLEAN"
-                  },
-                  "optional": false,
-                  "widget": {
-                    "widgetType": "BOOLEAN",
-                    "options": {
-                      "tooltip": "Manifold Dual Contouring: 1-4 dual verts/voxel for multi-sheet cases. Slower."
-                    },
-                    "default": false
-                  },
-                  "tooltip": "Manifold Dual Contouring: 1-4 dual verts/voxel for multi-sheet cases. Slower."
-                }
-              ]
-            }
-          ]
-        },
         "displayName": "sign_mode",
-        "tooltip": "udf: robust to messy/non-manifold input. sdf: clean single surface with QEF (Quadratic Error Function) sharp-feature recovery, but needs consistent winding."
+        "tooltip": "udf: robust to messy/non-manifold input. sdf: clean single surface with QEF (Quadratic Error Function) sharp-feature recovery, but needs consistent winding.",
+        "options": [
+          {
+            "key": "udf",
+            "rows": [
+              {
+                "kind": "input",
+                "id": "qef",
+                "type": {
+                  "kind": "concrete",
+                  "name": "BOOLEAN"
+                },
+                "optional": false,
+                "widget": {
+                  "widgetType": "BOOLEAN",
+                  "options": {
+                    "tooltip": "QEF (Quadratic Error Function) dual-vertex placement for sharper edges.",
+                    "advanced": true
+                  },
+                  "default": false
+                },
+                "tooltip": "QEF (Quadratic Error Function) dual-vertex placement for sharper edges."
+              },
+              {
+                "kind": "input",
+                "id": "drop_inverted_components",
+                "type": {
+                  "kind": "concrete",
+                  "name": "BOOLEAN"
+                },
+                "optional": false,
+                "widget": {
+                  "widgetType": "BOOLEAN",
+                  "options": {
+                    "tooltip": "Drop inward-normal (negative-volume) closed components \u2014 the UDF inner shell.",
+                    "advanced": true
+                  },
+                  "default": false
+                },
+                "tooltip": "Drop inward-normal (negative-volume) closed components \u2014 the UDF inner shell."
+              },
+              {
+                "kind": "input",
+                "id": "drop_enclosed_components",
+                "type": {
+                  "kind": "concrete",
+                  "name": "BOOLEAN"
+                },
+                "optional": false,
+                "widget": {
+                  "widgetType": "BOOLEAN",
+                  "options": {
+                    "tooltip": "Drop components inside the largest's bbox that fail a point-in-mesh raycast. Disable for legitimate nested parts.",
+                    "advanced": true
+                  },
+                  "default": false
+                },
+                "tooltip": "Drop components inside the largest's bbox that fail a point-in-mesh raycast. Disable for legitimate nested parts."
+              }
+            ]
+          },
+          {
+            "key": "sdf",
+            "rows": [
+              {
+                "kind": "input",
+                "id": "qef",
+                "type": {
+                  "kind": "concrete",
+                  "name": "BOOLEAN"
+                },
+                "optional": false,
+                "widget": {
+                  "widgetType": "BOOLEAN",
+                  "options": {
+                    "tooltip": "QEF (Quadratic Error Function) dual-vertex placement (recovers sharp features) vs edge-crossing centroid."
+                  },
+                  "default": true
+                },
+                "tooltip": "QEF (Quadratic Error Function) dual-vertex placement (recovers sharp features) vs edge-crossing centroid."
+              },
+              {
+                "kind": "input",
+                "id": "manifold",
+                "type": {
+                  "kind": "concrete",
+                  "name": "BOOLEAN"
+                },
+                "optional": false,
+                "widget": {
+                  "widgetType": "BOOLEAN",
+                  "options": {
+                    "tooltip": "Manifold Dual Contouring: 1-4 dual verts/voxel for multi-sheet cases. Slower."
+                  },
+                  "default": false
+                },
+                "tooltip": "Manifold Dual Contouring: 1-4 dual verts/voxel for multi-sheet cases. Slower."
+              }
+            ]
+          }
+        ],
+        "shared": [],
+        "required": true
       },
       {
         "kind": "input",
@@ -5033,7 +4950,6 @@
           },
           "default": 1
         },
-        "advanced": true,
         "tooltip": "Narrow-band width in voxel units. In UDF mode also offsets the surface."
       },
       {
@@ -5055,7 +4971,6 @@
           },
           "default": 0
         },
-        "advanced": true,
         "tooltip": "Linearly interpolate vertices toward the original surface (0 = pure DC, 1 = snapped)."
       },
       {
@@ -5074,7 +4989,6 @@
           },
           "default": false
         },
-        "advanced": true,
         "tooltip": "Collapse valence-3 vertex pairs (DC T-junction artifact)."
       },
       {
@@ -5115,7 +5029,6 @@
           },
           "default": 0.01
         },
-        "advanced": true,
         "tooltip": "Drop components below this fraction of the largest's face count. 0 disables."
       },
       {
@@ -5136,7 +5049,6 @@
           },
           "default": 20000000
         },
-        "advanced": true,
         "tooltip": "Cap input vertex count before the field queries, inputs above this are cluster-decimated to it first. Prevents OOM on huge meshes."
       },
       {
@@ -5148,10 +5060,6 @@
         },
         "displayName": "mesh"
       }
-    ],
-    "isOutputNode": false,
-    "hidden": [
-      "unique_id"
     ]
   },
   "RemoveBackground": {
@@ -5160,7 +5068,8 @@
     "category": "image/background removal",
     "description": "Generates a foreground mask to remove the background from an image using a background removal model.",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "bg_removal_model",
@@ -5191,8 +5100,7 @@
         "displayName": "mask",
         "tooltip": "Generated foreground mask"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "RenderUVAtlas": {
     "type": "RenderUVAtlas",
@@ -5200,7 +5108,8 @@
     "category": "3d/texturing",
     "description": "Renders a mesh's UV layout as an image.",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "mesh",
@@ -5237,15 +5146,19 @@
         },
         "displayName": "image"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "RepeatImageBatch": {
     "type": "RepeatImageBatch",
     "displayName": "Repeat Image Batch",
     "category": "image/batch",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "searchAliases": [
+      "duplicate image",
+      "clone image"
+    ],
+    "body": [
       {
         "kind": "input",
         "id": "image",
@@ -5281,11 +5194,6 @@
         },
         "displayName": "IMAGE"
       }
-    ],
-    "isOutputNode": false,
-    "searchAliases": [
-      "duplicate image",
-      "clone image"
     ]
   },
   "RescaleCFG": {
@@ -5293,7 +5201,8 @@
     "displayName": "RescaleCFG",
     "category": "model/patch",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "model",
@@ -5330,8 +5239,7 @@
         },
         "displayName": "MODEL"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "ResolutionSelector": {
     "type": "ResolutionSelector",
@@ -5339,7 +5247,8 @@
     "category": "utilities",
     "description": "Calculate width and height from aspect ratio and megapixel target. Useful for setting up Empty Latent Image dimensions.",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "aspect_ratio",
@@ -5407,7 +5316,6 @@
           },
           "default": 8
         },
-        "advanced": true,
         "tooltip": "Nearest multiple of the result to set the selected resolution to."
       },
       {
@@ -5440,15 +5348,15 @@
         "displayName": "height",
         "tooltip": "Calculated height in pixels multiplied by the selected multiple."
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "SamplerCustomAdvanced": {
     "type": "SamplerCustomAdvanced",
     "displayName": "SamplerCustomAdvanced",
     "category": "model/sampling/custom",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "noise",
@@ -5512,15 +5420,25 @@
         },
         "displayName": "denoised_output"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "Save3DAdvanced": {
     "type": "Save3DAdvanced",
     "displayName": "Save 3D (Advanced)",
     "category": "3d",
     "source": "v1",
-    "items": [
+    "isOutputNode": true,
+    "experimental": true,
+    "searchAliases": [
+      "save 3d",
+      "export 3d model",
+      "save mesh advanced"
+    ],
+    "hidden": [
+      "prompt",
+      "extra_pnginfo"
+    ],
+    "body": [
       {
         "kind": "input",
         "id": "model_3d",
@@ -5612,7 +5530,6 @@
           "name": "LOAD3D_MODEL_INFO"
         },
         "optional": true,
-        "advanced": true,
         "tooltip": "Placement of each model in the scene: position, rotation, and scale (Y-up world space)."
       },
       {
@@ -5623,7 +5540,6 @@
           "name": "LOAD3D_CAMERA"
         },
         "optional": true,
-        "advanced": true,
         "tooltip": "Viewport camera information: position, look-at target, zoom, and type."
       },
       {
@@ -5676,17 +5592,6 @@
         "displayName": "height",
         "tooltip": "Render height of the viewport in pixels."
       }
-    ],
-    "isOutputNode": true,
-    "experimental": true,
-    "searchAliases": [
-      "save 3d",
-      "export 3d model",
-      "save mesh advanced"
-    ],
-    "hidden": [
-      "prompt",
-      "extra_pnginfo"
     ]
   },
   "SaveImage": {
@@ -5695,7 +5600,20 @@
     "category": "image",
     "description": "Saves the input images to your ComfyUI output directory.",
     "source": "v1",
-    "items": [
+    "isOutputNode": true,
+    "searchAliases": [
+      "save",
+      "save image",
+      "export image",
+      "output image",
+      "write image",
+      "download"
+    ],
+    "hidden": [
+      "prompt",
+      "extra_pnginfo"
+    ],
+    "body": [
       {
         "kind": "input",
         "id": "images",
@@ -5732,19 +5650,6 @@
         },
         "displayName": "images"
       }
-    ],
-    "isOutputNode": true,
-    "searchAliases": [
-      "save",
-      "save image",
-      "export image",
-      "output image",
-      "write image",
-      "download"
-    ],
-    "hidden": [
-      "prompt",
-      "extra_pnginfo"
     ]
   },
   "SaveVideo": {
@@ -5753,7 +5658,15 @@
     "category": "video",
     "description": "Saves the input videos to your ComfyUI output directory.",
     "source": "v1",
-    "items": [
+    "isOutputNode": true,
+    "searchAliases": [
+      "export video"
+    ],
+    "hidden": [
+      "prompt",
+      "extra_pnginfo"
+    ],
+    "body": [
       {
         "kind": "input",
         "id": "video",
@@ -5783,584 +5696,494 @@
         "tooltip": "The prefix for the file to save. This may include formatting information such as %date:yyyy-MM-dd% or %Empty Latent Image.width% to include values from nodes."
       },
       {
-        "kind": "input",
+        "kind": "choice",
         "id": "format",
-        "type": {
-          "kind": "concrete",
-          "name": "COMBO"
-        },
-        "optional": false,
-        "dynamic": {
-          "kind": "dynamicCombo",
-          "options": [
-            {
-              "key": "auto",
-              "inputs": [
-                {
-                  "kind": "input",
-                  "id": "codec",
-                  "type": {
-                    "kind": "concrete",
-                    "name": "COMBO"
+        "tooltip": "The output container. Auto uses MP4 for Auto/H.264 and WebM for AV1. MP4, MKV, and WebM select a specific container.",
+        "options": [
+          {
+            "key": "auto",
+            "rows": [
+              {
+                "kind": "choice",
+                "id": "codec",
+                "tooltip": "The output video codec. Auto preserves a compatible source stream. H.264 and AV1 re-encoding support SDR, HDR (HLG), and HDR PQ.",
+                "options": [
+                  {
+                    "key": "auto",
+                    "rows": []
                   },
-                  "optional": false,
-                  "dynamic": {
-                    "kind": "dynamicCombo",
-                    "options": [
+                  {
+                    "key": "h264",
+                    "rows": [
                       {
-                        "key": "auto",
-                        "inputs": []
-                      },
-                      {
-                        "key": "h264",
-                        "inputs": [
+                        "kind": "choice",
+                        "id": "encoding",
+                        "displayName": "encoding mode",
+                        "tooltip": "Automatic preserves compatible H.264 streams. Re-encode applies custom encoding options.",
+                        "options": [
                           {
-                            "kind": "input",
-                            "id": "encoding",
-                            "type": {
-                              "kind": "concrete",
-                              "name": "COMBO"
-                            },
-                            "optional": true,
-                            "dynamic": {
-                              "kind": "dynamicCombo",
-                              "options": [
-                                {
-                                  "key": "auto",
-                                  "inputs": []
-                                },
-                                {
-                                  "key": "re-encode",
-                                  "inputs": [
-                                    {
-                                      "kind": "input",
-                                      "id": "crf",
-                                      "type": {
-                                        "kind": "concrete",
-                                        "name": "FLOAT"
-                                      },
-                                      "optional": false,
-                                      "widget": {
-                                        "widgetType": "FLOAT",
-                                        "options": {
-                                          "tooltip": "Lower values produce higher quality and larger files.",
-                                          "min": 0,
-                                          "max": 51,
-                                          "step": 1
-                                        },
-                                        "default": 23
-                                      },
-                                      "tooltip": "Lower values produce higher quality and larger files."
-                                    }
-                                  ]
-                                }
-                              ]
-                            },
-                            "displayName": "encoding mode",
-                            "tooltip": "Automatic preserves compatible H.264 streams. Re-encode applies custom encoding options."
-                          }
-                        ]
-                      },
-                      {
-                        "key": "av1",
-                        "inputs": [
+                            "key": "auto",
+                            "rows": []
+                          },
                           {
-                            "kind": "input",
-                            "id": "encoding",
-                            "type": {
-                              "kind": "concrete",
-                              "name": "COMBO"
-                            },
-                            "optional": true,
-                            "dynamic": {
-                              "kind": "dynamicCombo",
-                              "options": [
-                                {
-                                  "key": "auto",
-                                  "inputs": []
+                            "key": "re-encode",
+                            "rows": [
+                              {
+                                "kind": "input",
+                                "id": "crf",
+                                "type": {
+                                  "kind": "concrete",
+                                  "name": "FLOAT"
                                 },
-                                {
-                                  "key": "re-encode",
-                                  "inputs": [
-                                    {
-                                      "kind": "input",
-                                      "id": "crf",
-                                      "type": {
-                                        "kind": "concrete",
-                                        "name": "FLOAT"
-                                      },
-                                      "optional": false,
-                                      "widget": {
-                                        "widgetType": "FLOAT",
-                                        "options": {
-                                          "tooltip": "Lower values produce higher quality and larger files.",
-                                          "min": 0,
-                                          "max": 63,
-                                          "step": 1
-                                        },
-                                        "default": 30
-                                      },
-                                      "tooltip": "Lower values produce higher quality and larger files."
-                                    }
-                                  ]
-                                }
-                              ]
-                            },
-                            "displayName": "encoding mode",
-                            "tooltip": "Automatic preserves compatible AV1 streams. Re-encode applies custom encoding options."
+                                "optional": false,
+                                "widget": {
+                                  "widgetType": "FLOAT",
+                                  "options": {
+                                    "tooltip": "Lower values produce higher quality and larger files.",
+                                    "min": 0,
+                                    "max": 51,
+                                    "step": 1
+                                  },
+                                  "default": 23
+                                },
+                                "tooltip": "Lower values produce higher quality and larger files."
+                              }
+                            ]
                           }
-                        ]
+                        ],
+                        "shared": [],
+                        "required": false
                       }
                     ]
                   },
-                  "tooltip": "The output video codec. Auto preserves a compatible source stream. H.264 and AV1 re-encoding support SDR, HDR (HLG), and HDR PQ."
-                }
-              ]
-            },
-            {
-              "key": "mp4",
-              "inputs": [
-                {
-                  "kind": "input",
-                  "id": "codec",
-                  "type": {
-                    "kind": "concrete",
-                    "name": "COMBO"
+                  {
+                    "key": "av1",
+                    "rows": [
+                      {
+                        "kind": "choice",
+                        "id": "encoding",
+                        "displayName": "encoding mode",
+                        "tooltip": "Automatic preserves compatible AV1 streams. Re-encode applies custom encoding options.",
+                        "options": [
+                          {
+                            "key": "auto",
+                            "rows": []
+                          },
+                          {
+                            "key": "re-encode",
+                            "rows": [
+                              {
+                                "kind": "input",
+                                "id": "crf",
+                                "type": {
+                                  "kind": "concrete",
+                                  "name": "FLOAT"
+                                },
+                                "optional": false,
+                                "widget": {
+                                  "widgetType": "FLOAT",
+                                  "options": {
+                                    "tooltip": "Lower values produce higher quality and larger files.",
+                                    "min": 0,
+                                    "max": 63,
+                                    "step": 1
+                                  },
+                                  "default": 30
+                                },
+                                "tooltip": "Lower values produce higher quality and larger files."
+                              }
+                            ]
+                          }
+                        ],
+                        "shared": [],
+                        "required": false
+                      }
+                    ]
+                  }
+                ],
+                "shared": [],
+                "required": true
+              }
+            ]
+          },
+          {
+            "key": "mp4",
+            "rows": [
+              {
+                "kind": "choice",
+                "id": "codec",
+                "tooltip": "The output video codec. Auto preserves a compatible source stream. H.264 and AV1 re-encoding support SDR, HDR (HLG), and HDR PQ.",
+                "options": [
+                  {
+                    "key": "auto",
+                    "rows": []
                   },
-                  "optional": false,
-                  "dynamic": {
-                    "kind": "dynamicCombo",
-                    "options": [
+                  {
+                    "key": "h264",
+                    "rows": [
                       {
-                        "key": "auto",
-                        "inputs": []
-                      },
-                      {
-                        "key": "h264",
-                        "inputs": [
+                        "kind": "choice",
+                        "id": "encoding",
+                        "displayName": "encoding mode",
+                        "tooltip": "Automatic preserves compatible H.264 streams. Re-encode applies custom encoding options.",
+                        "options": [
                           {
-                            "kind": "input",
-                            "id": "encoding",
-                            "type": {
-                              "kind": "concrete",
-                              "name": "COMBO"
-                            },
-                            "optional": true,
-                            "dynamic": {
-                              "kind": "dynamicCombo",
-                              "options": [
-                                {
-                                  "key": "auto",
-                                  "inputs": []
-                                },
-                                {
-                                  "key": "re-encode",
-                                  "inputs": [
-                                    {
-                                      "kind": "input",
-                                      "id": "crf",
-                                      "type": {
-                                        "kind": "concrete",
-                                        "name": "FLOAT"
-                                      },
-                                      "optional": false,
-                                      "widget": {
-                                        "widgetType": "FLOAT",
-                                        "options": {
-                                          "tooltip": "Lower values produce higher quality and larger files.",
-                                          "min": 0,
-                                          "max": 51,
-                                          "step": 1
-                                        },
-                                        "default": 23
-                                      },
-                                      "tooltip": "Lower values produce higher quality and larger files."
-                                    }
-                                  ]
-                                }
-                              ]
-                            },
-                            "displayName": "encoding mode",
-                            "tooltip": "Automatic preserves compatible H.264 streams. Re-encode applies custom encoding options."
-                          }
-                        ]
-                      },
-                      {
-                        "key": "av1",
-                        "inputs": [
+                            "key": "auto",
+                            "rows": []
+                          },
                           {
-                            "kind": "input",
-                            "id": "encoding",
-                            "type": {
-                              "kind": "concrete",
-                              "name": "COMBO"
-                            },
-                            "optional": true,
-                            "dynamic": {
-                              "kind": "dynamicCombo",
-                              "options": [
-                                {
-                                  "key": "auto",
-                                  "inputs": []
+                            "key": "re-encode",
+                            "rows": [
+                              {
+                                "kind": "input",
+                                "id": "crf",
+                                "type": {
+                                  "kind": "concrete",
+                                  "name": "FLOAT"
                                 },
-                                {
-                                  "key": "re-encode",
-                                  "inputs": [
-                                    {
-                                      "kind": "input",
-                                      "id": "crf",
-                                      "type": {
-                                        "kind": "concrete",
-                                        "name": "FLOAT"
-                                      },
-                                      "optional": false,
-                                      "widget": {
-                                        "widgetType": "FLOAT",
-                                        "options": {
-                                          "tooltip": "Lower values produce higher quality and larger files.",
-                                          "min": 0,
-                                          "max": 63,
-                                          "step": 1
-                                        },
-                                        "default": 30
-                                      },
-                                      "tooltip": "Lower values produce higher quality and larger files."
-                                    }
-                                  ]
-                                }
-                              ]
-                            },
-                            "displayName": "encoding mode",
-                            "tooltip": "Automatic preserves compatible AV1 streams. Re-encode applies custom encoding options."
+                                "optional": false,
+                                "widget": {
+                                  "widgetType": "FLOAT",
+                                  "options": {
+                                    "tooltip": "Lower values produce higher quality and larger files.",
+                                    "min": 0,
+                                    "max": 51,
+                                    "step": 1
+                                  },
+                                  "default": 23
+                                },
+                                "tooltip": "Lower values produce higher quality and larger files."
+                              }
+                            ]
                           }
-                        ]
+                        ],
+                        "shared": [],
+                        "required": false
                       }
                     ]
                   },
-                  "tooltip": "The output video codec. Auto preserves a compatible source stream. H.264 and AV1 re-encoding support SDR, HDR (HLG), and HDR PQ."
-                }
-              ]
-            },
-            {
-              "key": "mkv",
-              "inputs": [
-                {
-                  "kind": "input",
-                  "id": "codec",
-                  "type": {
-                    "kind": "concrete",
-                    "name": "COMBO"
+                  {
+                    "key": "av1",
+                    "rows": [
+                      {
+                        "kind": "choice",
+                        "id": "encoding",
+                        "displayName": "encoding mode",
+                        "tooltip": "Automatic preserves compatible AV1 streams. Re-encode applies custom encoding options.",
+                        "options": [
+                          {
+                            "key": "auto",
+                            "rows": []
+                          },
+                          {
+                            "key": "re-encode",
+                            "rows": [
+                              {
+                                "kind": "input",
+                                "id": "crf",
+                                "type": {
+                                  "kind": "concrete",
+                                  "name": "FLOAT"
+                                },
+                                "optional": false,
+                                "widget": {
+                                  "widgetType": "FLOAT",
+                                  "options": {
+                                    "tooltip": "Lower values produce higher quality and larger files.",
+                                    "min": 0,
+                                    "max": 63,
+                                    "step": 1
+                                  },
+                                  "default": 30
+                                },
+                                "tooltip": "Lower values produce higher quality and larger files."
+                              }
+                            ]
+                          }
+                        ],
+                        "shared": [],
+                        "required": false
+                      }
+                    ]
+                  }
+                ],
+                "shared": [],
+                "required": true
+              }
+            ]
+          },
+          {
+            "key": "mkv",
+            "rows": [
+              {
+                "kind": "choice",
+                "id": "codec",
+                "tooltip": "The output video codec. Auto preserves a compatible source stream. H.264 and AV1 re-encoding support SDR, HDR (HLG), and HDR PQ.",
+                "options": [
+                  {
+                    "key": "auto",
+                    "rows": []
                   },
-                  "optional": false,
-                  "dynamic": {
-                    "kind": "dynamicCombo",
-                    "options": [
+                  {
+                    "key": "h264",
+                    "rows": [
                       {
-                        "key": "auto",
-                        "inputs": []
-                      },
-                      {
-                        "key": "h264",
-                        "inputs": [
+                        "kind": "choice",
+                        "id": "encoding",
+                        "displayName": "encoding mode",
+                        "tooltip": "Automatic preserves compatible H.264 streams. Re-encode applies custom encoding options.",
+                        "options": [
                           {
-                            "kind": "input",
-                            "id": "encoding",
-                            "type": {
-                              "kind": "concrete",
-                              "name": "COMBO"
-                            },
-                            "optional": true,
-                            "dynamic": {
-                              "kind": "dynamicCombo",
-                              "options": [
-                                {
-                                  "key": "auto",
-                                  "inputs": []
-                                },
-                                {
-                                  "key": "re-encode",
-                                  "inputs": [
-                                    {
-                                      "kind": "input",
-                                      "id": "crf",
-                                      "type": {
-                                        "kind": "concrete",
-                                        "name": "FLOAT"
-                                      },
-                                      "optional": false,
-                                      "widget": {
-                                        "widgetType": "FLOAT",
-                                        "options": {
-                                          "tooltip": "Lower values produce higher quality and larger files.",
-                                          "min": 0,
-                                          "max": 51,
-                                          "step": 1
-                                        },
-                                        "default": 23
-                                      },
-                                      "tooltip": "Lower values produce higher quality and larger files."
-                                    }
-                                  ]
-                                }
-                              ]
-                            },
-                            "displayName": "encoding mode",
-                            "tooltip": "Automatic preserves compatible H.264 streams. Re-encode applies custom encoding options."
-                          }
-                        ]
-                      },
-                      {
-                        "key": "av1",
-                        "inputs": [
+                            "key": "auto",
+                            "rows": []
+                          },
                           {
-                            "kind": "input",
-                            "id": "encoding",
-                            "type": {
-                              "kind": "concrete",
-                              "name": "COMBO"
-                            },
-                            "optional": true,
-                            "dynamic": {
-                              "kind": "dynamicCombo",
-                              "options": [
-                                {
-                                  "key": "auto",
-                                  "inputs": []
+                            "key": "re-encode",
+                            "rows": [
+                              {
+                                "kind": "input",
+                                "id": "crf",
+                                "type": {
+                                  "kind": "concrete",
+                                  "name": "FLOAT"
                                 },
-                                {
-                                  "key": "re-encode",
-                                  "inputs": [
-                                    {
-                                      "kind": "input",
-                                      "id": "crf",
-                                      "type": {
-                                        "kind": "concrete",
-                                        "name": "FLOAT"
-                                      },
-                                      "optional": false,
-                                      "widget": {
-                                        "widgetType": "FLOAT",
-                                        "options": {
-                                          "tooltip": "Lower values produce higher quality and larger files.",
-                                          "min": 0,
-                                          "max": 63,
-                                          "step": 1
-                                        },
-                                        "default": 30
-                                      },
-                                      "tooltip": "Lower values produce higher quality and larger files."
-                                    }
-                                  ]
-                                }
-                              ]
-                            },
-                            "displayName": "encoding mode",
-                            "tooltip": "Automatic preserves compatible AV1 streams. Re-encode applies custom encoding options."
+                                "optional": false,
+                                "widget": {
+                                  "widgetType": "FLOAT",
+                                  "options": {
+                                    "tooltip": "Lower values produce higher quality and larger files.",
+                                    "min": 0,
+                                    "max": 51,
+                                    "step": 1
+                                  },
+                                  "default": 23
+                                },
+                                "tooltip": "Lower values produce higher quality and larger files."
+                              }
+                            ]
                           }
-                        ]
+                        ],
+                        "shared": [],
+                        "required": false
                       }
                     ]
                   },
-                  "tooltip": "The output video codec. Auto preserves a compatible source stream. H.264 and AV1 re-encoding support SDR, HDR (HLG), and HDR PQ."
-                }
-              ]
-            },
-            {
-              "key": "webm",
-              "inputs": [
-                {
-                  "kind": "input",
-                  "id": "codec",
-                  "type": {
-                    "kind": "concrete",
-                    "name": "COMBO"
-                  },
-                  "optional": false,
-                  "dynamic": {
-                    "kind": "dynamicCombo",
-                    "options": [
+                  {
+                    "key": "av1",
+                    "rows": [
                       {
-                        "key": "auto",
-                        "inputs": []
-                      },
-                      {
-                        "key": "av1",
-                        "inputs": [
+                        "kind": "choice",
+                        "id": "encoding",
+                        "displayName": "encoding mode",
+                        "tooltip": "Automatic preserves compatible AV1 streams. Re-encode applies custom encoding options.",
+                        "options": [
                           {
-                            "kind": "input",
-                            "id": "encoding",
-                            "type": {
-                              "kind": "concrete",
-                              "name": "COMBO"
-                            },
-                            "optional": true,
-                            "dynamic": {
-                              "kind": "dynamicCombo",
-                              "options": [
-                                {
-                                  "key": "auto",
-                                  "inputs": []
+                            "key": "auto",
+                            "rows": []
+                          },
+                          {
+                            "key": "re-encode",
+                            "rows": [
+                              {
+                                "kind": "input",
+                                "id": "crf",
+                                "type": {
+                                  "kind": "concrete",
+                                  "name": "FLOAT"
                                 },
-                                {
-                                  "key": "re-encode",
-                                  "inputs": [
-                                    {
-                                      "kind": "input",
-                                      "id": "crf",
-                                      "type": {
-                                        "kind": "concrete",
-                                        "name": "FLOAT"
-                                      },
-                                      "optional": false,
-                                      "widget": {
-                                        "widgetType": "FLOAT",
-                                        "options": {
-                                          "tooltip": "Lower values produce higher quality and larger files.",
-                                          "min": 0,
-                                          "max": 63,
-                                          "step": 1
-                                        },
-                                        "default": 30
-                                      },
-                                      "tooltip": "Lower values produce higher quality and larger files."
-                                    }
-                                  ]
-                                }
-                              ]
-                            },
-                            "displayName": "encoding mode",
-                            "tooltip": "Automatic preserves compatible AV1 streams. Re-encode applies custom encoding options."
+                                "optional": false,
+                                "widget": {
+                                  "widgetType": "FLOAT",
+                                  "options": {
+                                    "tooltip": "Lower values produce higher quality and larger files.",
+                                    "min": 0,
+                                    "max": 63,
+                                    "step": 1
+                                  },
+                                  "default": 30
+                                },
+                                "tooltip": "Lower values produce higher quality and larger files."
+                              }
+                            ]
                           }
-                        ]
+                        ],
+                        "shared": [],
+                        "required": false
                       }
                     ]
+                  }
+                ],
+                "shared": [],
+                "required": true
+              }
+            ]
+          },
+          {
+            "key": "webm",
+            "rows": [
+              {
+                "kind": "choice",
+                "id": "codec",
+                "tooltip": "The output video codec. Auto preserves a compatible source stream. H.264 and AV1 re-encoding support SDR, HDR (HLG), and HDR PQ.",
+                "options": [
+                  {
+                    "key": "auto",
+                    "rows": []
                   },
-                  "tooltip": "The output video codec. Auto preserves a compatible source stream. H.264 and AV1 re-encoding support SDR, HDR (HLG), and HDR PQ."
-                }
-              ]
-            }
-          ]
-        },
-        "tooltip": "The output container. Auto uses MP4 for Auto/H.264 and WebM for AV1. MP4, MKV, and WebM select a specific container."
+                  {
+                    "key": "av1",
+                    "rows": [
+                      {
+                        "kind": "choice",
+                        "id": "encoding",
+                        "displayName": "encoding mode",
+                        "tooltip": "Automatic preserves compatible AV1 streams. Re-encode applies custom encoding options.",
+                        "options": [
+                          {
+                            "key": "auto",
+                            "rows": []
+                          },
+                          {
+                            "key": "re-encode",
+                            "rows": [
+                              {
+                                "kind": "input",
+                                "id": "crf",
+                                "type": {
+                                  "kind": "concrete",
+                                  "name": "FLOAT"
+                                },
+                                "optional": false,
+                                "widget": {
+                                  "widgetType": "FLOAT",
+                                  "options": {
+                                    "tooltip": "Lower values produce higher quality and larger files.",
+                                    "min": 0,
+                                    "max": 63,
+                                    "step": 1
+                                  },
+                                  "default": 30
+                                },
+                                "tooltip": "Lower values produce higher quality and larger files."
+                              }
+                            ]
+                          }
+                        ],
+                        "shared": [],
+                        "required": false
+                      }
+                    ]
+                  }
+                ],
+                "shared": [],
+                "required": true
+              }
+            ]
+          }
+        ],
+        "shared": [],
+        "required": true
       },
       {
-        "kind": "input",
+        "kind": "choice",
         "id": "codec",
-        "type": {
-          "kind": "concrete",
-          "name": "COMBO"
-        },
-        "optional": true,
-        "dynamic": {
-          "kind": "dynamicCombo",
-          "options": [
-            {
-              "key": "auto",
-              "inputs": []
-            },
-            {
-              "key": "h264",
-              "inputs": [
-                {
-                  "kind": "input",
-                  "id": "encoding",
-                  "type": {
-                    "kind": "concrete",
-                    "name": "COMBO"
+        "tooltip": "The output video codec. Auto preserves a compatible source stream. H.264 and AV1 re-encoding support SDR, HDR (HLG), and HDR PQ.",
+        "options": [
+          {
+            "key": "auto",
+            "rows": []
+          },
+          {
+            "key": "h264",
+            "rows": [
+              {
+                "kind": "choice",
+                "id": "encoding",
+                "displayName": "encoding mode",
+                "tooltip": "Automatic preserves compatible H.264 streams. Re-encode applies custom encoding options.",
+                "options": [
+                  {
+                    "key": "auto",
+                    "rows": []
                   },
-                  "optional": true,
-                  "dynamic": {
-                    "kind": "dynamicCombo",
-                    "options": [
+                  {
+                    "key": "re-encode",
+                    "rows": [
                       {
-                        "key": "auto",
-                        "inputs": []
-                      },
-                      {
-                        "key": "re-encode",
-                        "inputs": [
-                          {
-                            "kind": "input",
-                            "id": "crf",
-                            "type": {
-                              "kind": "concrete",
-                              "name": "FLOAT"
-                            },
-                            "optional": false,
-                            "widget": {
-                              "widgetType": "FLOAT",
-                              "options": {
-                                "tooltip": "Lower values produce higher quality and larger files.",
-                                "min": 0,
-                                "max": 51,
-                                "step": 1
-                              },
-                              "default": 23
-                            },
-                            "tooltip": "Lower values produce higher quality and larger files."
-                          }
-                        ]
+                        "kind": "input",
+                        "id": "crf",
+                        "type": {
+                          "kind": "concrete",
+                          "name": "FLOAT"
+                        },
+                        "optional": false,
+                        "widget": {
+                          "widgetType": "FLOAT",
+                          "options": {
+                            "tooltip": "Lower values produce higher quality and larger files.",
+                            "min": 0,
+                            "max": 51,
+                            "step": 1
+                          },
+                          "default": 23
+                        },
+                        "tooltip": "Lower values produce higher quality and larger files."
                       }
                     ]
+                  }
+                ],
+                "shared": [],
+                "required": false
+              }
+            ]
+          },
+          {
+            "key": "av1",
+            "rows": [
+              {
+                "kind": "choice",
+                "id": "encoding",
+                "displayName": "encoding mode",
+                "tooltip": "Automatic preserves compatible AV1 streams. Re-encode applies custom encoding options.",
+                "options": [
+                  {
+                    "key": "auto",
+                    "rows": []
                   },
-                  "displayName": "encoding mode",
-                  "tooltip": "Automatic preserves compatible H.264 streams. Re-encode applies custom encoding options."
-                }
-              ]
-            },
-            {
-              "key": "av1",
-              "inputs": [
-                {
-                  "kind": "input",
-                  "id": "encoding",
-                  "type": {
-                    "kind": "concrete",
-                    "name": "COMBO"
-                  },
-                  "optional": true,
-                  "dynamic": {
-                    "kind": "dynamicCombo",
-                    "options": [
+                  {
+                    "key": "re-encode",
+                    "rows": [
                       {
-                        "key": "auto",
-                        "inputs": []
-                      },
-                      {
-                        "key": "re-encode",
-                        "inputs": [
-                          {
-                            "kind": "input",
-                            "id": "crf",
-                            "type": {
-                              "kind": "concrete",
-                              "name": "FLOAT"
-                            },
-                            "optional": false,
-                            "widget": {
-                              "widgetType": "FLOAT",
-                              "options": {
-                                "tooltip": "Lower values produce higher quality and larger files.",
-                                "min": 0,
-                                "max": 63,
-                                "step": 1
-                              },
-                              "default": 30
-                            },
-                            "tooltip": "Lower values produce higher quality and larger files."
-                          }
-                        ]
+                        "kind": "input",
+                        "id": "crf",
+                        "type": {
+                          "kind": "concrete",
+                          "name": "FLOAT"
+                        },
+                        "optional": false,
+                        "widget": {
+                          "widgetType": "FLOAT",
+                          "options": {
+                            "tooltip": "Lower values produce higher quality and larger files.",
+                            "min": 0,
+                            "max": 63,
+                            "step": 1
+                          },
+                          "default": 30
+                        },
+                        "tooltip": "Lower values produce higher quality and larger files."
                       }
                     ]
-                  },
-                  "displayName": "encoding mode",
-                  "tooltip": "Automatic preserves compatible AV1 streams. Re-encode applies custom encoding options."
-                }
-              ]
-            }
-          ]
-        },
-        "tooltip": "The output video codec. Auto preserves a compatible source stream. H.264 and AV1 re-encoding support SDR, HDR (HLG), and HDR PQ."
+                  }
+                ],
+                "shared": [],
+                "required": false
+              }
+            ]
+          }
+        ],
+        "shared": [],
+        "required": false
       },
       {
         "kind": "output",
@@ -6372,14 +6195,6 @@
         "displayName": "video",
         "tooltip": "The input video, unchanged."
       }
-    ],
-    "isOutputNode": true,
-    "searchAliases": [
-      "export video"
-    ],
-    "hidden": [
-      "prompt",
-      "extra_pnginfo"
     ]
   },
   "SolidMask": {
@@ -6387,7 +6202,8 @@
     "displayName": "Create Solid Mask",
     "category": "image/mask",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "value",
@@ -6451,130 +6267,129 @@
         },
         "displayName": "MASK"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "StartLoop": {
     "type": "StartLoop",
     "displayName": "Start Loop",
     "category": "utilities/looping",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "hidden": [
+      "dynprompt",
+      "execution_list",
+      "unique_id"
+    ],
+    "body": [
       {
-        "kind": "input",
+        "kind": "choice",
         "id": "mode",
-        "type": {
-          "kind": "concrete",
-          "name": "COMBO"
-        },
-        "optional": false,
-        "dynamic": {
-          "kind": "dynamicCombo",
-          "options": [
-            {
-              "key": "simple",
-              "inputs": [
-                {
-                  "kind": "input",
-                  "id": "num_iterations",
-                  "type": {
-                    "kind": "concrete",
-                    "name": "INT"
-                  },
-                  "optional": false,
-                  "widget": {
-                    "widgetType": "INT",
-                    "options": {
-                      "tooltip": "Number of times to execute the loop body.",
-                      "min": 0
-                    },
-                    "default": 4
-                  },
-                  "tooltip": "Number of times to execute the loop body."
-                }
-              ]
-            },
-            {
-              "key": "For",
-              "inputs": [
-                {
-                  "kind": "input",
-                  "id": "start_iteration_index",
-                  "type": {
-                    "kind": "concrete",
-                    "name": "INT"
-                  },
-                  "optional": false,
-                  "widget": {
-                    "widgetType": "INT",
-                    "options": {
-                      "tooltip": "Index of the first iteration when using For loop mode."
-                    },
-                    "default": 0
-                  },
-                  "tooltip": "Index of the first iteration when using For loop mode."
+        "tooltip": "The loop iteration mode.",
+        "options": [
+          {
+            "key": "simple",
+            "rows": [
+              {
+                "kind": "input",
+                "id": "num_iterations",
+                "type": {
+                  "kind": "concrete",
+                  "name": "INT"
                 },
-                {
-                  "kind": "input",
-                  "id": "max_iteration",
-                  "type": {
-                    "kind": "concrete",
-                    "name": "INT"
+                "optional": false,
+                "widget": {
+                  "widgetType": "INT",
+                  "options": {
+                    "tooltip": "Number of times to execute the loop body.",
+                    "min": 0
                   },
-                  "optional": false,
-                  "widget": {
-                    "widgetType": "INT",
-                    "options": {
-                      "tooltip": "The exclusive stopping value for iteration_index in For mode.",
-                      "max": 18446744073709552000
-                    },
-                    "default": 4
-                  },
-                  "tooltip": "The exclusive stopping value for iteration_index in For mode."
+                  "default": 4
                 },
-                {
-                  "kind": "input",
-                  "id": "step",
-                  "type": {
-                    "kind": "concrete",
-                    "name": "INT"
+                "tooltip": "Number of times to execute the loop body."
+              }
+            ]
+          },
+          {
+            "key": "For",
+            "rows": [
+              {
+                "kind": "input",
+                "id": "start_iteration_index",
+                "type": {
+                  "kind": "concrete",
+                  "name": "INT"
+                },
+                "optional": false,
+                "widget": {
+                  "widgetType": "INT",
+                  "options": {
+                    "tooltip": "Index of the first iteration when using For loop mode."
                   },
-                  "optional": false,
-                  "widget": {
-                    "widgetType": "INT",
-                    "options": {
-                      "tooltip": "The index step size between each iteration when using For loop mode.",
-                      "min": 1
-                    },
-                    "default": 1
+                  "default": 0
+                },
+                "tooltip": "Index of the first iteration when using For loop mode."
+              },
+              {
+                "kind": "input",
+                "id": "max_iteration",
+                "type": {
+                  "kind": "concrete",
+                  "name": "INT"
+                },
+                "optional": false,
+                "widget": {
+                  "widgetType": "INT",
+                  "options": {
+                    "tooltip": "The exclusive stopping value for iteration_index in For mode.",
+                    "max": 18446744073709552000
                   },
-                  "tooltip": "The index step size between each iteration when using For loop mode."
-                }
-              ]
-            },
-            {
-              "key": "List",
-              "inputs": [
-                {
-                  "kind": "input",
-                  "id": "list",
-                  "type": {
-                    "kind": "variable",
-                    "templateId": "list_item",
-                    "allowedTypes": [
-                      {
-                        "kind": "wildcard"
-                      }
-                    ]
+                  "default": 4
+                },
+                "tooltip": "The exclusive stopping value for iteration_index in For mode."
+              },
+              {
+                "kind": "input",
+                "id": "step",
+                "type": {
+                  "kind": "concrete",
+                  "name": "INT"
+                },
+                "optional": false,
+                "widget": {
+                  "widgetType": "INT",
+                  "options": {
+                    "tooltip": "The index step size between each iteration when using For loop mode.",
+                    "min": 1
                   },
-                  "optional": false,
-                  "tooltip": "List of items the loop iterates on. The loop body executes once per item."
-                }
-              ]
-            }
-          ]
-        },
-        "tooltip": "The loop iteration mode."
+                  "default": 1
+                },
+                "tooltip": "The index step size between each iteration when using For loop mode."
+              }
+            ]
+          },
+          {
+            "key": "List",
+            "rows": [
+              {
+                "kind": "input",
+                "id": "list",
+                "type": {
+                  "kind": "variable",
+                  "templateId": "list_item",
+                  "allowedTypes": [
+                    {
+                      "kind": "wildcard"
+                    }
+                  ]
+                },
+                "optional": false,
+                "tooltip": "List of items the loop iterates on. The loop body executes once per item."
+              }
+            ]
+          }
+        ],
+        "shared": [],
+        "required": true
       },
       {
         "kind": "input",
@@ -6592,7 +6407,6 @@
           },
           "default": false
         },
-        "advanced": true,
         "tooltip": "Reuse unchanged iteration results from previous executions. Disable to execute every iteration again."
       },
       {
@@ -6677,12 +6491,6 @@
         "displayName": "current_iteration_value",
         "tooltip": "Loop-carried value for the current iteration: initial_iteration_value on the first iteration, then next_iteration_value from End Loop on each subsequent iteration."
       }
-    ],
-    "isOutputNode": false,
-    "hidden": [
-      "dynprompt",
-      "execution_list",
-      "unique_id"
     ]
   },
   "StringConcatenate": {
@@ -6690,7 +6498,18 @@
     "displayName": "Concatenate Text",
     "category": "text",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "searchAliases": [
+      "concatenate",
+      "text concat",
+      "join text",
+      "merge text",
+      "combine strings",
+      "string concat",
+      "append text",
+      "combine text"
+    ],
+    "body": [
       {
         "kind": "input",
         "id": "string_a",
@@ -6746,17 +6565,6 @@
         },
         "displayName": "STRING"
       }
-    ],
-    "isOutputNode": false,
-    "searchAliases": [
-      "concatenate",
-      "text concat",
-      "join text",
-      "merge text",
-      "combine strings",
-      "string concat",
-      "append text",
-      "combine text"
     ]
   },
   "Trellis2Conditioning": {
@@ -6764,7 +6572,8 @@
     "displayName": "Trellis2 Conditioning",
     "category": "model/conditioning/trellis",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "clip_vision_model",
@@ -6802,15 +6611,15 @@
         },
         "displayName": "negative"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "Trellis2ShapeStage": {
     "type": "Trellis2ShapeStage",
     "displayName": "Trellis2 Shape Stage",
     "category": "model/conditioning/trellis",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "positive",
@@ -6866,15 +6675,15 @@
         },
         "displayName": "LATENT"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "Trellis2TextureStage": {
     "type": "Trellis2TextureStage",
     "displayName": "Trellis2 Texture Stage",
     "category": "model/conditioning/trellis",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "positive",
@@ -6929,15 +6738,15 @@
         },
         "displayName": "LATENT"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "Trellis2UpsampleStage": {
     "type": "Trellis2UpsampleStage",
     "displayName": "Trellis2 Upsample Stage",
     "category": "model/conditioning/trellis",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "positive",
@@ -7022,15 +6831,15 @@
         },
         "displayName": "LATENT"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "TrimVideoLatent": {
     "type": "TrimVideoLatent",
     "displayName": "Trim Video Latent",
     "category": "model/latent",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "samples",
@@ -7066,15 +6875,15 @@
         },
         "displayName": "LATENT"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "UNETLoader": {
     "type": "UNETLoader",
     "displayName": "Load Diffusion Model",
     "category": "model/loaders",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "unet_name",
@@ -7109,8 +6918,7 @@
             ]
           },
           "default": "default"
-        },
-        "advanced": true
+        }
       },
       {
         "kind": "output",
@@ -7121,8 +6929,7 @@
         },
         "displayName": "MODEL"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "UnwrapMesh": {
     "type": "UnwrapMesh",
@@ -7130,7 +6937,11 @@
     "category": "3d/texturing",
     "description": "Generates a UV atlas: segments the surface into charts, parameterizes each, packs into a [0,1] atlas. Vertices on chart seams are duplicated (one copy per chart, same position, own UV), so the output mesh has more vertices than the input. Run after Remesh/Decimate, before texture baking.",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "hidden": [
+      "unique_id"
+    ],
+    "body": [
       {
         "kind": "input",
         "id": "mesh",
@@ -7230,10 +7041,6 @@
         },
         "displayName": "mesh"
       }
-    ],
-    "isOutputNode": false,
-    "hidden": [
-      "unique_id"
     ]
   },
   "VAEDecode": {
@@ -7242,7 +7049,14 @@
     "category": "model/latent",
     "description": "Decodes latent images back into pixel space images.",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "searchAliases": [
+      "decode",
+      "decode latent",
+      "latent to image",
+      "render latent"
+    ],
+    "body": [
       {
         "kind": "input",
         "id": "samples",
@@ -7273,13 +7087,6 @@
         "displayName": "IMAGE",
         "tooltip": "The decoded image."
       }
-    ],
-    "isOutputNode": false,
-    "searchAliases": [
-      "decode",
-      "decode latent",
-      "latent to image",
-      "render latent"
     ]
   },
   "VAEDecodeAudio": {
@@ -7287,7 +7094,11 @@
     "displayName": "VAE Decode Audio",
     "category": "model/latent",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "searchAliases": [
+      "latent to audio"
+    ],
+    "body": [
       {
         "kind": "input",
         "id": "samples",
@@ -7315,10 +7126,6 @@
         },
         "displayName": "AUDIO"
       }
-    ],
-    "isOutputNode": false,
-    "searchAliases": [
-      "latent to audio"
     ]
   },
   "VaeDecodeShapeTrellis": {
@@ -7326,7 +7133,8 @@
     "displayName": "Trellis2 VAE Decode Shape",
     "category": "model/latent/trellis",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "samples",
@@ -7363,15 +7171,15 @@
         },
         "displayName": "shape_subdivides"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "VaeDecodeStructureTrellis2": {
     "type": "VaeDecodeStructureTrellis2",
     "displayName": "Trellis2 VAE Decode Structure",
     "category": "model/latent/trellis",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "samples",
@@ -7419,15 +7227,15 @@
         },
         "displayName": "voxel"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "VaeDecodeTextureTrellis": {
     "type": "VaeDecodeTextureTrellis",
     "displayName": "Trellis2 VAE Decode Texture",
     "category": "model/latent/trellis",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "samples",
@@ -7465,15 +7273,20 @@
         },
         "displayName": "voxel_colors"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "VAEEncode": {
     "type": "VAEEncode",
     "displayName": "VAE Encode",
     "category": "model/latent",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "searchAliases": [
+      "encode",
+      "encode image",
+      "image to latent"
+    ],
+    "body": [
       {
         "kind": "input",
         "id": "pixels",
@@ -7501,12 +7314,6 @@
         },
         "displayName": "LATENT"
       }
-    ],
-    "isOutputNode": false,
-    "searchAliases": [
-      "encode",
-      "encode image",
-      "image to latent"
     ]
   },
   "VAELoader": {
@@ -7514,7 +7321,8 @@
     "displayName": "Load VAE",
     "category": "model/loaders",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "vae_name",
@@ -7542,8 +7350,7 @@
         },
         "displayName": "VAE"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "VoxelToMesh": {
     "type": "VoxelToMesh",
@@ -7551,7 +7358,8 @@
     "category": "3d",
     "description": "Converts a voxel grid to a mesh.",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "body": [
       {
         "kind": "input",
         "id": "voxel",
@@ -7607,15 +7415,19 @@
         },
         "displayName": "MESH"
       }
-    ],
-    "isOutputNode": false
+    ]
   },
   "WanVaceToVideo": {
     "type": "WanVaceToVideo",
     "displayName": "WanVaceToVideo",
     "category": "model/conditioning/wan/vace",
     "source": "v1",
-    "items": [
+    "isOutputNode": false,
+    "searchAliases": [
+      "video conditioning",
+      "video control"
+    ],
+    "body": [
       {
         "kind": "input",
         "id": "positive",
@@ -7795,11 +7607,6 @@
         },
         "displayName": "trim_latent"
       }
-    ],
-    "isOutputNode": false,
-    "searchAliases": [
-      "video conditioning",
-      "video control"
     ]
   }
 }

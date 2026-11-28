@@ -1,5 +1,6 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { expect, test, type Page } from '../visual.js'
+import { chooseOption } from '../choices.js'
 import { evidencePath, evidenceGroupDir } from './evidence-output.js'
 import { requireBackendNodes } from './required-nodes.js'
 
@@ -92,7 +93,7 @@ test.beforeEach(async ({ page }, testInfo) => {
 
   let nodes: Record<string, {
     readonly schemaVersion?: number
-    readonly interface?: readonly { readonly role?: string; readonly id?: string; readonly memberPrefix?: string; readonly maxMembers?: number; readonly template?: readonly { readonly id?: string }[] }[]
+    readonly body?: readonly { readonly kind?: string; readonly id?: string; readonly keys?: unknown; readonly maxMembers?: number }[]
   }> | undefined
   try {
     const response = await fetch(`${NATIVE_BACKEND}/api/nodes`, { signal: AbortSignal.timeout(2_000) })
@@ -101,9 +102,9 @@ test.beforeEach(async ({ page }, testInfo) => {
   test.skip(nodes === undefined, `no current native Dinkster backend reachable at ${NATIVE_BACKEND}`)
   requireBackendNodes(nodes!, ['dinkster.image.empty_image', 'dinkster.image.glsl_shader'], testInfo)
   const schema = nodes!['dinkster.image.glsl_shader']!
-  expect(schema.schemaVersion).toBe(1)
-  expect(schema.interface?.find((item) => item.id === 'images')).toMatchObject({
-    role: 'inputFamily', memberPrefix: 'image', maxMembers: 5, template: [{ id: 'image' }],
+  expect(schema.schemaVersion).toBe(2)
+  expect(schema.body?.find((item) => item.id === 'images')).toMatchObject({
+    kind: 'group', keys: { numbered: { prefix: 'image', start: 0 } }, maxMembers: 5,
   })
 
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
@@ -228,7 +229,7 @@ test('executes, previews, diagnoses, applies, reloads, undoes, and refuses inval
   const editor = page.getByTestId('glsl-editor')
   await expect(editor).toBeVisible()
   await expect(editor.getByText('u_float0')).toBeVisible()
-  await editor.getByLabel('Preview output').selectOption('2')
+  await chooseOption(editor.getByLabel('Preview output'), 'fragColor2')
   await expect(editor.locator('canvas[aria-label="GLSL browser preview"]')).toBeVisible({ timeout: 15_000 })
   const browserPixel = await editor.locator('canvas').evaluate((canvas) =>
     [...(canvas as HTMLCanvasElement).getContext('2d')!.getImageData(0, 0, 1, 1).data])

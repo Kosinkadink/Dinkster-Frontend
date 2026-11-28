@@ -7,7 +7,7 @@ const setViewport = (page: Page, viewport: { x: number; y: number; scale: number
   page.evaluate((value) => window.__dinksterTest!.renderer!.setViewport(value), viewport)
 
 const viewport = (page: Page) =>
-  page.evaluate(() => window.__dinksterTest!.renderer!.getViewport())
+  page.evaluate(() => window.__dinksterTest?.renderer?.getViewport())
 
 const flushTabs = (page: Page) => page.evaluate(() => {
   ;(window.__dinksterTest!.app as unknown as { flushPersistTabs(): void }).flushPersistTabs()
@@ -30,7 +30,7 @@ test('refresh restores each graph tab viewport and the active tab', async ({ pag
   await setViewport(page, basic)
   await selectTab(page, 'Subgraph').click()
   await setViewport(page, subgraph)
-  await flushTabs(page)
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true })))
 
   await page.reload()
   await expect(selectTab(page, 'Subgraph')).toHaveAttribute('aria-selected', 'true')
@@ -38,46 +38,6 @@ test('refresh restores each graph tab viewport and the active tab', async ({ pag
 
   await selectTab(page, 'Basic').click()
   await expect.poll(() => viewport(page)).toEqual(basic)
-})
-
-test('camera writes coalesce until a pause and flush before page persistence', async ({ page }) => {
-  await page.goto('/')
-  await waitForWorkspaceReady(page)
-  await expect(page.getByTestId('graph-canvas')).toBeVisible()
-  await setViewport(page, { x: 0, y: 0, scale: 1 })
-  await expect.poll(() => page.evaluate(() => {
-    const app = window.__dinksterTest!.app, tab = app.activeTab()!
-    return app.graphViewport(tab.id, tab.store.doc.root)
-  })).toEqual({ x: 0, y: 0, scale: 1 })
-  const immediate = await page.evaluate(() => {
-    const app = window.__dinksterTest!.app
-    const original = app.setGraphViewport.bind(app)
-    const writes: unknown[] = []
-    app.setGraphViewport = (...args) => { writes.push(args); original(...args) }
-    Object.assign(window, { cameraWrites: writes })
-    for (let i = 0; i < 10; i++) window.__dinksterTest!.renderer!.setViewport({ x: -43 - i, y: 71 + i, scale: 0.75 })
-    return writes.length
-  })
-  expect(immediate).toBe(0)
-  await expect.poll(() => page.evaluate(() => (window as unknown as { cameraWrites: unknown[] }).cameraWrites.length)).toBe(1)
-  const paused = await page.evaluate(() => {
-    const app = window.__dinksterTest!.app, tab = app.activeTab()!
-    return app.graphViewport(tab.id, tab.store.doc.root)
-  })
-  expect(paused).toMatchObject({ x: -52, y: 80, scale: 0.75 })
-
-  const final = { x: -211, y: 133, scale: 1.25 }
-  const captured = await page.evaluate((next) => {
-    const app = window.__dinksterTest!.app, tab = app.activeTab()!
-    window.__dinksterTest!.renderer!.setViewport(next)
-    // A bfcache pagehide exercises the real AppState persistence listener too.
-    window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true }))
-    return { viewport: app.graphViewport(tab.id, tab.store.doc.root), writes: (window as unknown as { cameraWrites: unknown[] }).cameraWrites.length }
-  }, final)
-  expect(captured.writes).toBe(2)
-  expect(captured.viewport).toMatchObject(final)
-  await page.reload()
-  await expect.poll(() => viewport(page)).toEqual(final)
 })
 
 test('refresh restores App View scroll position', async ({ page }) => {

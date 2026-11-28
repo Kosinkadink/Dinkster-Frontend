@@ -2,6 +2,7 @@ import { colorKind, hexToHsv, hsvToHex, intKind, integerColorHex } from '@dinkst
 import { Check, X } from 'lucide-solid'
 import { createSignal, onCleanup, type Component } from 'solid-js'
 import { Icon } from '../Icon.js'
+import { InRowColorImplementation } from './InRowColorEditor.js'
 import { ProductActionFooter, ProductField, productFieldIds } from '../ProductForm.js'
 import {
   WidgetEditorController,
@@ -85,5 +86,5 @@ const ColorImplementation: Component<WidgetEditorImplementationProps> = (props) 
 }
 
 export const ColorWidgetEditor: Component<WidgetEditorProps> = (props) => (
-  <WidgetEditorController {...props} implementation={ColorImplementation} />
+  <WidgetEditorController {...props} implementation={props.ed.inRow === undefined ? ColorImplementation : InRowColorImplementation} />
 )

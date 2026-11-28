@@ -15,13 +15,53 @@ test.beforeEach(async ({ page }) => {
   await page.route('/object_info', (route) => route.fulfill({ json: {} }))
 })
 
-test('opens universal search and runs a command', async ({ page }) => {
+test('opens universal search without stale help, restores Tab help and runs a command', async ({ page }) => {
   await page.goto('/')
-  await page.getByTestId('topbar-search').click()
+  const trigger = page.getByTestId('topbar-search')
+  const tooltip = page.getByTestId('app-tooltip')
+  const tabs = page.getByTestId('tab-bar').locator('.tab-select')
+  await tabs.first().focus()
+  await tabs.first().press('ArrowRight')
+  await expect(tabs.nth(1)).toBeFocused()
+  await expect(tooltip).toContainText('Subgraph')
+  await page.mouse.click(900, 700)
+  await expect(tooltip).toHaveCount(0)
+  await trigger.focus()
+  await page.keyboard.press('Shift+Tab')
+  await page.keyboard.press('Tab')
+  await expect(trigger).toBeFocused()
+  await expect(tooltip).toHaveCount(0)
+  await page.setViewportSize({ width: 900, height: 900 })
+  await trigger.hover()
+  await expect(tooltip).toContainText('Search Dinkster')
+  await trigger.click()
   const input = page.getByTestId('universal-search-input')
   await expect(input).toBeFocused()
+  await expect(tooltip).toHaveCount(0)
+  await page.mouse.move(900, 700)
+  await page.keyboard.press('Escape')
+  await expect(trigger).toBeFocused()
+  await expect(tooltip).toHaveCount(0)
+  await trigger.evaluate((element) => { element.blur(); element.focus() })
+  await expect(tooltip).toHaveCount(0)
+  await page.keyboard.press('Shift+Tab')
+  await page.keyboard.press('Tab')
+  await expect(trigger).toBeFocused()
+  await expect(tooltip).toContainText('Search Dinkster')
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await expect(tooltip).toHaveCount(0)
+  await page.setViewportSize({ width: 900, height: 900 })
+  await page.keyboard.press('Shift+Tab')
+  await page.keyboard.press('Tab')
+  await expect(trigger).toBeFocused()
+  await expect(tooltip).toContainText('Search Dinkster')
+  await trigger.click()
+  await expect(input).toBeFocused()
+  await expect(tooltip).toHaveCount(0)
   await input.fill('> Open settings')
-  await page.locator('[data-provider="core.commands"]').getByRole('option', { name: /Open settings/ }).click()
+  await page.locator('[data-group="core.commands"]').getByRole('option', { name: /Open settings/ }).click()
+  await expect(input).toHaveCount(0)
+  await expect(tooltip).toHaveCount(0)
   await expect(page.getByTestId('modal-surface')).toHaveAttribute('data-modal', 'settings')
 })
 
@@ -44,7 +84,7 @@ test('node search ghost appears at the selection cursor with zero movement and E
   // Placement needs the app bridge and node schemas; wait for readiness.
   await waitForWorkspaceReady(page)
   await page.evaluate(() => window.__dinksterTest!.app.registerSchemas([{
-    type: 'KSampler', displayName: 'KSampler', category: 'sampling', source: 'e2e', isOutputNode: false, items: [],
+    type: 'KSampler', displayName: 'KSampler', category: 'sampling', source: 'e2e', isOutputNode: false, body: [],
   }]))
   const nodeCount = () => page.evaluate(() => Object.keys(window.__dinksterTest!.app.activeTab()!.store.doc.graphs['g0']!.nodes).length)
   const ghost = () => page.evaluate(() => (window.__dinksterTest!.renderer!.getOverlay() as { placementGhost?: { x: number; y: number } }).placementGhost)
@@ -56,7 +96,7 @@ test('node search ghost appears at the selection cursor with zero movement and E
   // canvas click. Focus returns to the canvas the search opened over.
   await page.getByTestId('topbar-search').click()
   await page.getByTestId('universal-search-input').fill('@ KSampler')
-  await page.locator('[data-provider="core.nodes"] [data-testid="search-result-row"]', { hasText: 'KSampler' }).first().click()
+  await page.locator('[data-group="core.nodes"] [role="option"]', { hasText: 'KSampler' }).first().click()
   await expect(canvas).toHaveAttribute('data-placement-ghost', 'visible')
   await expect(page.getByTestId('placement-status')).toHaveCount(0)
   await expect(canvas).toBeFocused()
@@ -95,7 +135,7 @@ test('node search ghost appears at the selection cursor with zero movement and E
   await page.evaluate(() => (window.__dinksterTest!.app as unknown as { shell: { statusBarVisible: { set(value: boolean): void } } }).shell.statusBarVisible.set(true))
   await page.getByTestId('topbar-search').click()
   await page.getByTestId('universal-search-input').fill('@ KSampler')
-  await page.locator('[data-provider="core.nodes"] [data-testid="search-result-row"]', { hasText: 'KSampler' }).first().click()
+  await page.locator('[data-group="core.nodes"] [role="option"]', { hasText: 'KSampler' }).first().click()
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app as unknown as {
       createWorkflow(): { id: string }
@@ -114,7 +154,7 @@ test('search states, grouped overflow, and long results stay reachable and conta
   await page.getByTestId('topbar-search').click()
   const input = page.getByTestId('universal-search-input')
   const dialog = page.locator('.search-dialog')
-  const results = page.locator('.search-results')
+  const listbox = page.getByRole('listbox', { name: 'Search Dinkster' })
   await expect(input).toBeFocused()
   await capture(page, '01-after-zero-query-1600x950')
 
@@ -171,25 +211,25 @@ test('search states, grouped overflow, and long results stay reachable and conta
   })
 
   await input.fill('? long')
-  await expect(page.locator('[data-provider="visual.long"] [data-testid="search-result-row"]')).toHaveCount(5)
-  await expect(page.locator('[data-provider="visual.secondary"]')).toBeVisible()
-  const listbox = page.getByRole('listbox', { name: 'Search results' })
-  expect(await listbox.ariaSnapshot()).toContain('option "Show 7 more"')
+  const long = page.locator('[data-group="visual.long"]')
+  await expect(long.locator('[role="option"][data-kind="result"]')).toHaveCount(3)
+  await expect(page.locator('[data-group="visual.secondary"]')).toBeVisible()
+  const more = long.locator('[role="option"][data-kind="more"]')
+  await expect(more).toHaveText(/9 more long results/)
   await input.press('ArrowDown')
-  await expect(input).toHaveAttribute('aria-activedescendant', /option-1$/)
+  await expect(input).toHaveAttribute('aria-activedescendant', await long.locator('[role="option"]').nth(1).getAttribute('id') ?? '')
   await capture(page, '02-after-populated-long-active-1600x950')
 
-  const showMore = page.locator('[data-provider="visual.long"] .search-show-more')
-  for (let index = 0; index < 4; index += 1) await input.press('ArrowDown')
-  await expect(input).toHaveAttribute('aria-activedescendant', await showMore.getAttribute('id') ?? '')
+  for (let index = 0; index < 2; index += 1) await input.press('ArrowDown')
+  await expect(input).toHaveAttribute('aria-activedescendant', await more.getAttribute('id') ?? '')
   await input.press('Enter')
-  await expect(showMore).toHaveCount(0)
+  await expect(more).toHaveCount(0)
+  await expect(long.locator('[role="option"]')).toHaveCount(12)
   await expect(input).toBeFocused()
-  for (let index = 0; index < 10; index += 1) await input.press('ArrowDown')
+  for (let index = 0; index < 8; index += 1) await input.press('ArrowDown')
   const activeId = await input.getAttribute('aria-activedescendant')
   expect(activeId).not.toBeNull()
-  await expect(page.locator(`#${activeId}`)).toBeInViewport()
-  await expect(results).toBeVisible()
+  await expect(page.locator(`[id="${activeId}"]`)).toBeInViewport()
   await capture(page, '03-after-show-more-tail-1600x950')
   await input.press('Enter')
   const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
@@ -201,19 +241,17 @@ test('search states, grouped overflow, and long results stay reachable and conta
   await expect(input).toBeFocused()
 
   await input.fill('? none')
-  await expect(page.locator('[data-search-state="empty"]')).toContainText('No matches')
-  expect(await listbox.ariaSnapshot()).not.toContain('No matches')
+  await expect(page.locator('.dinkster-search-empty')).toContainText('No matches')
   await capture(page, '04-after-no-matches-1600x950')
 
   await input.fill('% wait')
-  await expect(page.locator('[data-provider="visual.loading"] [data-search-state="loading"]')).toBeVisible()
-  await expect(page.locator('[data-provider="visual.sync"] [data-testid="search-result-row"]')).toBeVisible()
-  expect(await listbox.ariaSnapshot()).not.toContain('Searching Streaming provider')
+  await expect(page.locator('[data-group="visual.loading"] .dinkster-search-note')).toHaveText('Searching streaming provider')
+  await expect(page.locator('[data-group="visual.sync"] [role="option"]')).toBeVisible()
   await capture(page, '05-after-streaming-loading-1600x950')
 
   await input.fill('! fail')
-  await expect(page.locator('[data-provider="visual.failure"] [data-search-state="error"]')).toContainText('Provider unavailable')
-  expect(await listbox.ariaSnapshot()).not.toContain('Provider unavailable')
+  await expect(page.locator('[data-group="visual.failure"] .dinkster-search-note')).toHaveText('Unavailable extension could not be searched.')
+  await expect(listbox).not.toContainText('private provider failure')
   await capture(page, '06-after-provider-failure-1600x950')
 
   for (const viewport of [
@@ -222,13 +260,13 @@ test('search states, grouped overflow, and long results stay reachable and conta
   ]) {
     await page.setViewportSize(viewport)
     await input.fill('? long')
-    await expect(page.locator('[data-provider="visual.long"]')).toBeVisible()
+    await expect(long).toBeVisible()
     if (viewport.width === 360) {
-      await page.locator('[data-provider="visual.long"] .search-show-more').click()
+      await long.locator('[role="option"][data-kind="more"]').click()
       for (let index = 0; index < 11; index += 1) await input.press('ArrowDown')
       const narrowActiveId = await input.getAttribute('aria-activedescendant')
       expect(narrowActiveId).not.toBeNull()
-      await expect(page.locator(`#${narrowActiveId}`)).toBeInViewport()
+      await expect(page.locator(`[id="${narrowActiveId}"]`)).toBeInViewport()
     }
     const box = await dialog.boundingBox()
     expect(box).not.toBeNull()
@@ -241,7 +279,7 @@ test('search states, grouped overflow, and long results stay reachable and conta
   }
 })
 
-test('manifest-gated extension providers use host groups, previews, actions, and live teardown', async ({ page }) => {
+test('manifest-gated extension providers are kinds of their own, show no preview, act, and tear down live', async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 950 })
   await page.goto('/')
   await expect(page.getByTestId('topbar-search')).toBeVisible()
@@ -262,24 +300,7 @@ test('manifest-gated extension providers use host groups, previews, actions, and
         detail: 'demo.pack / workflow.inspect / typed action descriptor',
         score: 2,
         action: { kind: 'host', action: 'settings.open', params: { category: 'General' } },
-        preview: {
-          version: 1,
-          title: 'Workflow inspection',
-          description: 'This long static description is extension data rendered entirely by the search host and must wrap without clipping or changing the dialog focus model.',
-          fields: [
-            { label: 'Source', value: 'Demo search pack' },
-            { label: 'Action', value: 'Open host settings' },
-            { label: 'Ownership', value: 'Host markup, semantic tokens, layout, focus, ARIA, and lifecycle' },
-          ],
-        },
-      }, {
-        id: 'title-only', title: 'Title-only result', score: 1.5,
-        action: { kind: 'host', action: 'settings.open', params: { category: 'General' } },
-        preview: { version: 1, title: 'Supplemental preview title' },
-      }, {
-        id: 'repeated-title', title: 'Repeated preview title', score: 1.25,
-        action: { kind: 'host', action: 'settings.open', params: { category: 'General' } },
-        preview: { version: 1, title: 'Repeated preview title' },
+        preview: { version: 1, title: 'Workflow inspection', description: 'Extension preview data the search host does not draw beside non-node rows.' },
       }],
     })
     api.searchProvider('demo.search.actions', {
@@ -295,65 +316,38 @@ test('manifest-gated extension providers use host groups, previews, actions, and
   const input = page.getByTestId('universal-search-input')
   await input.fill('? extension')
   await expect(input).toBeFocused()
-  const headings = page.locator('.search-result-group-header h2')
-  await expect(headings).toHaveText(['Demo workflows', 'Demo actions'])
-  const preview = page.getByTestId('search-result-preview')
-  await expect(preview).toHaveAccessibleName('Workflow inspection')
-  await expect(preview).toContainText('Host markup, semantic tokens, layout, focus, ARIA, and lifecycle')
-  await expect(page.getByRole('listbox', { name: 'Search results' }).locator('[data-testid="search-result-preview"]')).toHaveCount(0)
-  const previewId = await preview.getAttribute('id') ?? ''
-  const activeOption = page.locator('[data-provider="demo.search.workflows"] [aria-selected="true"]')
-  await expect(activeOption).toHaveAttribute('aria-describedby', `${previewId}-heading ${previewId}-content`)
-  await input.press('ArrowDown')
-  await expect(preview).toHaveAccessibleName('Supplemental preview title')
-  await expect(activeOption).toHaveAttribute('aria-describedby', `${previewId}-heading`)
-  await input.press('ArrowDown')
-  await expect(preview).toHaveAccessibleName('Repeated preview title')
-  expect(await activeOption.getAttribute('aria-describedby')).toBeNull()
-  await input.press('ArrowUp')
-  await input.press('ArrowUp')
-  await expect(preview).toHaveAccessibleName('Workflow inspection')
-  await expect(activeOption).toHaveAttribute('aria-describedby', `${previewId}-heading ${previewId}-content`)
+  await expect(page.locator('.dinkster-search-group-heading > span:first-child')).toHaveText(['Demo workflows', 'Demo actions'])
+  await expect(page.getByRole('tab', { name: /Demo workflows/ })).toBeVisible()
+  await expect(page.getByTestId('search-preview')).toHaveCount(0)
+  await input.press('Tab')
+  await expect(page.getByRole('tab', { name: /Demo workflows/ })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.locator('[data-group="demo.search.actions"]')).toHaveCount(0)
+  await input.press('Shift+Tab')
   await expect(input).toBeFocused()
-  expect(await page.evaluate(() => JSON.stringify(window.__dinksterTest!.app.activeTab()?.store.doc))).toBe(documentBefore)
 
   for (const viewport of [
-    { name: '09-extension-provider-preview-1600x950', width: 1600, height: 950 },
-    { name: '10-extension-provider-preview-1366x768', width: 1366, height: 768 },
-    { name: '11-extension-provider-preview-360x640', width: 360, height: 640 },
+    { name: '09-extension-provider-1600x950', width: 1600, height: 950 },
+    { name: '10-extension-provider-360x640', width: 360, height: 640 },
   ]) {
     await page.setViewportSize(viewport)
-    const dialogBox = await page.locator('.search-dialog').boundingBox()
-    const previewBox = await preview.boundingBox()
-    expect(dialogBox).not.toBeNull()
-    expect(previewBox).not.toBeNull()
-    expect(previewBox!.x).toBeGreaterThanOrEqual(dialogBox!.x)
-    expect(previewBox!.y).toBeGreaterThanOrEqual(dialogBox!.y)
-    expect(previewBox!.x + previewBox!.width).toBeLessThanOrEqual(dialogBox!.x + dialogBox!.width)
-    expect(previewBox!.y + previewBox!.height).toBeLessThanOrEqual(dialogBox!.y + dialogBox!.height)
+    const dialogBox = (await page.locator('.search-dialog').boundingBox())!
+    expect(dialogBox.x + dialogBox.width).toBeLessThanOrEqual(viewport.width)
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(viewport.width)
-    if (viewport.width === 360) {
-      const lastFieldBox = await preview.locator('dd').last().boundingBox()
-      expect(lastFieldBox).not.toBeNull()
-      expect(lastFieldBox!.y + lastFieldBox!.height).toBeLessThanOrEqual(previewBox!.y + previewBox!.height)
-      await expect(page.locator('[data-provider="demo.search.actions"] [role="option"]')).toBeVisible()
-    }
+    await expect(page.locator('[data-group="demo.search.actions"] [role="option"]')).toBeVisible()
     await capture(page, viewport.name)
   }
 
   await page.evaluate(() => window.__dinksterTest!.app.extensions.setContributionEnabled('demo.search.workflows', false))
-  await expect(page.locator('[data-provider="demo.search.workflows"]')).toHaveCount(0)
-  await expect(page.locator('[data-provider="demo.search.actions"]')).toBeVisible()
-  await expect(preview).toHaveCount(0)
+  await expect(page.locator('[data-group="demo.search.workflows"]')).toHaveCount(0)
+  await expect(page.locator('[data-group="demo.search.actions"]')).toBeVisible()
   await page.evaluate(() => {
     const extensions = window.__dinksterTest!.app.extensions
     extensions.setContributionEnabled('demo.search.workflows', true)
     extensions.setContributionEnabled('demo.search.actions', false)
   })
-  await expect(page.locator('[data-provider="demo.search.workflows"]')).toBeVisible()
-  await expect(page.locator('[data-provider="demo.search.actions"]')).toHaveCount(0)
-  await expect(preview).toBeVisible()
-  await page.locator('[data-provider="demo.search.workflows"] [aria-selected="true"]').click()
+  await expect(page.locator('[data-group="demo.search.workflows"]')).toBeVisible()
+  await expect(page.locator('[data-group="demo.search.actions"]')).toHaveCount(0)
+  await page.locator('[data-group="demo.search.workflows"] [aria-selected="true"]').click()
   await expect(page.getByRole('dialog', { name: 'Settings', exact: true })).toBeVisible()
   expect(await page.evaluate(() => JSON.stringify(window.__dinksterTest!.app.activeTab()?.store.doc))).toBe(documentBefore)
 })
@@ -364,7 +358,7 @@ test('Search Dinkster keeps the node title center under the placement click at e
   await page.evaluate(async () => {
     window.__dinksterTest!.app.registerSchemas([{
       type: 'auditSearchPlacementTest', displayName: 'audit Search Node', category: 'test', source: 'v3', isOutputNode: false,
-      items: [],
+      body: [],
     }])
     await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'audit-search-placement', root: 'g0',
@@ -385,7 +379,7 @@ test('Search Dinkster keeps the node title center under the placement click at e
     const before = await page.evaluate(() => Object.keys(window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes))
     await page.getByTestId('topbar-search').click()
     await page.getByTestId('universal-search-input').fill('@ audit Search Node')
-    await page.locator('[data-provider="core.nodes"] [data-testid="search-result-row"]', { hasText: 'audit Search Node' }).click()
+    await page.locator('[data-group="core.nodes"] [role="option"]', { hasText: 'audit Search Node' }).click()
     expect(await page.evaluate(() => Object.keys(window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes))).toEqual(before)
 
     await page.mouse.move(target.x, target.y)

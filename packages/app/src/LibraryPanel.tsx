@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, createUniqueId, For, onCleanup, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, createUniqueId, For, onCleanup, Show, type JSX } from 'solid-js'
 import type { ConnectionStatus } from '@dinkster/client'
 import type { CollectionEntry, CollectionSource, MessageParams } from '@dinkster/core'
 import { CollectionPanel, type CollectionPanelState } from './CollectionPanel.js'
@@ -7,7 +7,7 @@ import { useAppMessage } from './locale.js'
 import { ProductSelect } from './ProductSelect.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
 
-const DIRECT_LIBRARY_SOURCES = new Set(['packs', 'templates', 'workflows'])
+const DIRECT_LIBRARY_SOURCES = new Set(['packs', 'templates', 'workflows', 'boards'])
 const ACTIVITY_SOURCES = new Set(['history', 'runs'])
 type LibraryMessage = (key: string, params?: MessageParams) => string
 
@@ -21,6 +21,7 @@ export interface LibraryPanelProps {
   readonly sources: readonly CollectionSource[]
   readonly backend: () => LibraryBackendContext
   readonly refreshTick?: () => number
+  readonly catalogRecovery?: JSX.Element
   readonly onActivate?: (sourceId: string, entry: CollectionEntry) => void
   readonly onAction?: (sourceId: string, entry: CollectionEntry, actionId: string) => void
   readonly sourceActions?: readonly { sourceId: string; id: string; label: string }[]
@@ -177,9 +178,6 @@ function DirectLibraryState(props: { readonly state: CollectionPanelState; reado
   if (props.state.kind === 'loading') {
     return <ProductEmptyState tone="loading" title={props.message('library.state.loading.title', { source: source() })} hint={props.message('library.state.loading.directDetail', { source: props.state.sourceLabel, backend: props.backend.label })} />
   }
-  if (props.state.kind === 'error') {
-    return <ProductEmptyState tone="error" title={props.message('library.state.unavailable.title', { source: props.state.sourceLabel })} hint={props.state.message ?? props.message('library.state.unavailable.directDetail', { source: props.state.sourceLabel, backend: props.backend.label })} />
-  }
   if (props.state.kind === 'no-match') {
     return <ProductEmptyState title={props.message('library.state.noMatch.title', { source: source() })} hint={props.message('library.state.noMatch.directDetail')} />
   }
@@ -191,6 +189,11 @@ function DirectLibraryState(props: { readonly state: CollectionPanelState; reado
   }
   if (props.state.sourceLabel === 'Templates') {
     return <ProductEmptyState title={props.message('library.state.noTemplates.title')} hint={props.message('library.state.noTemplates.detail', { backend: props.backend.label })} />
+  }
+  if (props.state.sourceLabel === 'Boards') {
+    return props.backend.protocol === 'v1'
+      ? <ProductEmptyState title={props.message('library.state.savedBoardsUnavailable.title')} hint={props.message('library.state.savedBoardsUnavailable.detail')} />
+      : <ProductEmptyState title={props.message('library.state.noSavedBoards.title')} hint={props.message('library.state.noSavedBoards.detail', { backend: props.backend.label })} />
   }
   if (props.backend.protocol === 'v1') {
     return <ProductEmptyState title={props.message('library.state.savedWorkflowsUnavailable.title')} hint={props.message('library.state.savedWorkflowsUnavailable.detail')} />
@@ -204,9 +207,6 @@ function ActivityState(props: { readonly state: CollectionPanelState; readonly b
   if (props.state.kind === 'loading') {
     return <ProductEmptyState tone="loading" title={props.message('library.state.loading.title', { source: noun() })} hint={durable ? props.message('library.state.loading.runsDetail', { backend: props.backend.label }) : props.message('library.state.loading.historyDetail')} />
   }
-  if (props.state.kind === 'error') {
-    return <ProductEmptyState tone="error" title={props.message('library.state.unavailable.title', { source: props.state.sourceLabel })} hint={props.state.message ?? props.message('library.state.unavailable.activityDetail', { source: noun() })} />
-  }
   if (props.state.kind === 'no-match') {
     return <ProductEmptyState title={props.message('library.state.noMatch.title', { source: noun() })} hint={props.message(durable ? 'library.state.noMatch.runsDetail' : 'library.state.noMatch.historyDetail')} />
   }
@@ -218,12 +218,10 @@ function ActivityState(props: { readonly state: CollectionPanelState; readonly b
 
 function inheritedState(state: CollectionPanelState, message: LibraryMessage) {
   return <ProductEmptyState
-    tone={state.kind === 'error' ? 'error' : state.kind === 'loading' ? 'loading' : 'empty'}
+    tone={state.kind === 'loading' ? 'loading' : 'empty'}
     title={state.kind === 'loading'
       ? message('library.inherited.loading')
-      : state.kind === 'error'
-        ? state.message
-        : state.kind === 'no-match'
+      : state.kind === 'no-match'
           ? message('library.inherited.noMatches')
           : state.kind === 'no-compatible'
             ? message('library.inherited.noCompatible')
@@ -351,7 +349,9 @@ export function LibraryPanel(props: LibraryPanelProps) {
         modeKey="dinkster.library.view.v1"
         searchLabel={message('library.search', { source: sourceLabel().toLocaleLowerCase() })}
         searchPlaceholder={message('library.search', { source: sourceLabel().toLocaleLowerCase() })}
-        renderState={(state) => directSource()
+        renderState={(state) => sourceId() === 'packs' && props.catalogRecovery !== undefined
+          ? props.catalogRecovery
+          : directSource()
           ? <DirectLibraryState state={state} backend={props.backend()} message={message} />
           : activitySource()
             ? <ActivityState state={state} backend={props.backend()} message={message} />

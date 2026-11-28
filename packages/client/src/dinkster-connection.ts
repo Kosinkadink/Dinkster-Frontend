@@ -25,12 +25,14 @@
 
 import { credentialFetch, mintDelegation, type CollabCredentials, type Delegation, type MintDelegation } from './credentials.js'
 import { requestWithDeadline } from './request-deadline.js'
+import { RequestFailure, requestFetch, requestFailure, requestFailureReason } from './request-failure.js'
 import { decodeModelProviderStatus, decodeModelProviderSignIn, decodeModelProviderPoll,
   type ModelProviderStatus, type ModelProviderSignIn, type ModelProviderPoll } from './model-provider.js'
-import { decodeModelDownloadPlan, decodeModelDownloadJob, decodeModelDownloadJobs,
-  type ModelRequirement, type ModelDownloadPlan, type ModelDownloadJob } from './model-downloads.js'
+import { decodeModelDownloadPlan, decodeModelDownloadJob, decodeModelDownloadJobs, decodeModelPresence, ModelDownloadBusyError,
+  type ModelRequirement, type ModelDownloadRequirement, type ModelDownloadPlan, type ModelDownloadJob, type ModelDownloadSpace, type ModelPresence } from './model-downloads.js'
 import {
   asPromptId,
+  uuidv4,
   createSignal,
   canonicalJson,
   decodeEffectiveExtensionSnapshot,
@@ -56,6 +58,8 @@ import {
   validateDinksterGraph,
   type CompileArtifact,
   type ComfyTranslation,
+  type CallAnswer,
+  type CallRequest,
   type ConnectionId,
   type Diagnostic,
   type ExecutionArm,
@@ -68,7 +72,6 @@ import {
   type DinksterRawMessage,
   type ExecutionRef,
   type EffectiveExtensionSnapshot,
-  type InputSpec,
   type Json,
   type JsonObject,
   type NodeSchema,
@@ -92,6 +95,8 @@ import {
 } from './reconnecting-socket.js'
 import { DinksterValuesClient } from './values.js'
 import { expandDynamicPrompt } from './dynamic-prompts.js'
+import { callPackFunction } from './pack-functions.js'
+import { createLookupClient, type LookupClient } from './lookups.js'
 import { parseResultAssetOffer, type ResultAssetOffer } from './result-asset-offer.js'
 
 /** Existing /api/nodes capability flag for the placement submission sidecar. */
@@ -111,55 +116,11 @@ const asLinkTuple = (v: unknown): readonly [string, number] | undefined =>
     ? (v as [string, number])
     : undefined
 
-type MaterializedPathKind = 'combo' | 'other' | 'missing'
-
-/** Classify a materialized path through only the stored active branches. */
-function materializedPathKind(
-  inputs: readonly InputSpec[],
-  parts: readonly string[],
-  choices: Readonly<Record<string, string>>,
-  prefix: readonly string[] = [],
-): MaterializedPathKind {
-  if (parts.length === 0) return 'missing'
-  const input = inputs.find((candidate) => candidate.id === parts[0])
-  if (input === undefined) return 'missing'
-  const rest = parts.slice(1)
-  const path = [...prefix, input.id]
-  const construct = path.join('.')
-  const dynamic = input.dynamic
-  if (dynamic?.kind === 'dynamicCombo') {
-    const selected = choices[construct]
-    const active = dynamic.materialization === 'wire15'
-      ? dynamic.options.find((option) => option.key === selected)
-      : undefined
-    if (active === undefined) return 'other'
-    return rest.length === 0
-      ? 'combo'
-      : materializedPathKind(active.inputs, rest, choices, path)
-  }
-  if (dynamic?.kind === 'autogrow') {
-    return rest.length >= 2
-      ? materializedPathKind(dynamic.template, rest.slice(1), choices, [...path, rest[0]!])
-      : 'other'
-  }
-  if (dynamic?.kind === 'dynamicSlot') {
-    if (rest.length === 0) return 'other'
-    const shared = materializedPathKind(dynamic.inputs, rest, choices, path)
-    if (shared !== 'missing') return shared
-    const selected = choices[construct]
-    const active = dynamic.variants?.find((variant) => variant.key === selected)
-    return active === undefined
-      ? 'missing'
-      : materializedPathKind(active.inputs, rest, choices, path)
-  }
-  return rest.length === 0 ? 'other' : 'missing'
-}
-
 /**
  * Convert a compiled V1 prompt to the native Dinkster graph wire. Link tuples
  * become {$link: {node, output}} by indexing compiler-owned outputIds; only
- * legacy prompts use the catalog's declared outputs. DynamicCombo selectors stay in the V1
- * prompt but move to slotVariants instead of remaining native inputs.
+ * legacy prompts use the catalog's declared outputs. Choice keys travel in
+ * slotVariants, never as inputs.
  */
 export function promptToDinksterGraph(prompt: Prompt, resolve: SchemaResolver): PromptToGraphResult {
   const nodes: Record<string, { nodeType: string; inputs: Record<string, DinksterInputWire>; outputMembers?: Readonly<Record<string, readonly string[]>>; slotVariants?: Readonly<Record<string, string>> }> = {}
@@ -180,10 +141,7 @@ export function promptToDinksterGraph(prompt: Prompt, resolve: SchemaResolver): 
   if (diagnostics.length > 0) return { ok: false, diagnostics }
   for (const [nodeId, node] of Object.entries(prompt)) {
     const inputs: Record<string, DinksterInputWire> = {}
-    const nodeSchema = resolve(node.class_type)
     for (const [inputId, value] of Object.entries(node.inputs)) {
-      if (nodeSchema !== undefined &&
-          materializedPathKind(inputsOf(nodeSchema), inputId.split('.'), node.slotVariants ?? {}) === 'combo') continue
       const link = asLinkTuple(value)
       if (link === undefined) {
         inputs[inputId] = value
@@ -783,6 +741,8 @@ export interface DinksterConnectionConfig extends CollabCredentials {
   readonly clientId: string
   /** Immutable window project; folder preferences never change global priorities. */
   readonly project?: string
+  /** Receives each committed /api/nodes body once the backend has finished composing it. */
+  readonly keepSchemas?: (payload: DinksterNodesPayload) => void
   /** WS endpoint override; defaults to baseUrl with ws(s) scheme + /api/events. */
   readonly wsUrl?: string
   readonly fetchFn?: FetchLike
@@ -794,7 +754,7 @@ export interface DinksterConnectionConfig extends CollabCredentials {
 }
 
 export class ExecutionRequestError extends Error {
-  constructor(readonly diagnostic: Diagnostic) {
+  constructor(readonly diagnostic: Diagnostic, readonly status: number, readonly body?: Record<string, unknown>) {
     super(diagnostic.message)
   }
 }
@@ -809,7 +769,7 @@ const responseDiagnostic = (
     : `http-${status}`
   const message = typeof payload?.['message'] === 'string'
     ? payload['message']
-    : `HTTP ${status}: ${serverCode}`
+    : requestFailureReason(new RequestFailure('', '', status)) ?? 'The request could not be completed.'
   return diag('error', 'runtime', `execution.${operation}.${serverCode}`, message, {
     data: {
       status,
@@ -1021,6 +981,8 @@ export interface MountDescriptor {
   /** Server-reported catalog size when the mount index provides it. */
   readonly entryCount?: number
   readonly scanProgress?: MountScanProgress
+  readonly error?: string
+  readonly saveError?: string
 }
 
 export interface MountGrantOptions {
@@ -1037,6 +999,7 @@ export interface MountLocations {
 
 export interface MountSettings {
   readonly mounts: readonly MountDescriptor[]
+  readonly revision?: string
   readonly outputMount?: string
   readonly activeOutputMount?: string
   readonly restartRequired?: boolean
@@ -1068,7 +1031,7 @@ export interface ModelSettings {
 
 export interface ModelSettingsState {
   readonly settings: ModelSettings
-  readonly locations: readonly (ModelLocation & { readonly mounts: readonly string[]; readonly enabled: boolean; readonly active: boolean })[]
+  readonly locations: readonly (ModelLocation & { readonly mounts: readonly string[]; readonly enabled: boolean; readonly active: boolean; readonly space?: ModelDownloadSpace })[]
   readonly revision: string
   readonly project: string
   readonly changesAllowed: boolean
@@ -1102,7 +1065,17 @@ function decodeModelSettingsState(value: unknown): ModelSettingsState {
     const configured = locations.find((row) => row.id === parsed.id)
     if (configured === undefined || configured.path !== parsed.path || configured.mode !== parsed.mode ||
       configured.visibility !== parsed.visibility || configured.kind !== parsed.kind) return invalid()
-    return { ...parsed, mounts: raw['mounts'], enabled: raw['enabled'], active: raw['active'] }
+    const space = raw['space']
+    let measured: ModelDownloadSpace | undefined
+    if (space !== undefined) {
+      if (!record(space)) return invalid()
+      if (space['status'] === 'unavailable') measured = { status: 'unavailable' }
+      else if (space['status'] === 'available' && nonemptyString(space['filesystem']) && integerNonnegative(space['freeBytes']))
+        measured = { status: 'available', filesystem: space['filesystem'], freeBytes: space['freeBytes'] }
+      else return invalid()
+    }
+    return { ...parsed, mounts: raw['mounts'], enabled: raw['enabled'], active: raw['active'],
+      ...(measured === undefined ? {} : { space: measured }) }
   })
   if (facts.length !== locations.length || new Set(facts.map((row) => row.id)).size !== facts.length) return invalid()
   const hiddenModels = value['hiddenModels'] ?? []
@@ -1363,8 +1336,11 @@ function libraryStorage(value: unknown): LibraryStorage {
 }
 
 export interface ProjectNeeds {
+  readonly canWrite?: boolean
+  readonly hasInstalledNodes?: boolean
   readonly packs: readonly { readonly pack: string; readonly version: string | null }[]
-  readonly installed: readonly { readonly pack: string; readonly version: string | null }[]
+  /** Installation facts are supplied only by a running engine. */
+  readonly installed?: readonly { readonly pack: string; readonly version: string | null }[]
   readonly extra: readonly string[]
   readonly unknown: readonly { readonly scope: string; readonly id: string }[]
 }
@@ -1379,18 +1355,65 @@ export interface AccountProjectChoices {
   readonly projects: readonly { readonly id: string; readonly displayName: string | null }[]
 }
 
+export interface ProjectCreation {
+  readonly filesFolder?: string
+  readonly startWith?:
+    | { readonly kind: 'empty' }
+    | { readonly kind: 'workflow'; readonly name: string; readonly content: string }
+    | { readonly kind: 'project'; readonly project: string }
+}
+
+export class ProjectRevisionConflictError extends Error {
+  readonly status = 409
+  readonly serverError = this.message
+}
+
 export interface LibraryProject {
   readonly accountProject?: AccountProjectLink | null
   readonly id: string
   readonly uid?: string
   readonly name: string
   readonly created: string
+  /** Last successful opening, independent of the project's revision. */
+  readonly lastOpenedAt?: string | null
   readonly revision: number
   readonly deleted: boolean
+  /** When the record last changed; for a deleted project, when it was deleted. */
+  readonly modified?: string
+  /** The project's selected output folder, an absolute path; null when the process has none to name. */
+  readonly folder?: string | null
+  /** The parent of the input and output folders chosen when the project was made. */
+  readonly filesFolder?: string
   readonly environment?: { readonly id: string } & (
     { readonly lastSnapshot: string; readonly lastRunAt: string } |
     { readonly lastSnapshot: null; readonly lastRunAt: null }
   ) | null
+}
+
+/** One row of an asset list (`assets.list`): an identity with its aliases and every observation in `project`. */
+function decodeAssetCatalogEntry(raw: unknown, project: string, endpoint: string): LocalAssetCatalogEntry {
+  const asset = uploadedAssetRef(raw, undefined, endpoint)
+  const row = raw as Record<string, unknown>
+  if (!Array.isArray(row['aliases']) || !row['aliases'].every((alias) => typeof alias === 'string') ||
+      !Array.isArray(row['observations'])) throw new Error(`${endpoint}: malformed response`)
+  const observations = row['observations'].map((value): AssetObservation => {
+    const ref = uploadedAssetRef(value, undefined, endpoint)
+    const observation = value as Record<string, unknown>
+    const origin = observation['origin']
+    if (ref.digest !== asset.digest || typeof observation['id'] !== 'string' ||
+        typeof observation['originalName'] !== 'string' || typeof observation['kind'] !== 'string' ||
+        observation['project'] !== project || typeof observation['created'] !== 'number' ||
+        !Number.isFinite(observation['created']) || observation['created'] < 0 ||
+        typeof origin !== 'object' || origin === null || Array.isArray(origin) ||
+        !Object.values(origin).every((field) => typeof field === 'string')) {
+      throw new Error(`${endpoint}: malformed observation`)
+    }
+    return {
+      id: observation['id'], asset: ref, originalName: observation['originalName'], kind: observation['kind'],
+      origin: { ...origin } as Record<string, string>, project, created: observation['created'],
+    }
+  })
+  return { asset, aliases: [...row['aliases']] as string[], observations }
 }
 
 function decodeLibraryProject(value: unknown): LibraryProject {
@@ -1431,11 +1454,32 @@ function decodeLibraryProject(value: unknown): LibraryProject {
     }
     link = { issuer: record['issuer'], id: record['id'] }
   }
+  const folder = row['folder']
+  if (folder !== undefined && folder !== null && (typeof folder !== 'string' || folder.length === 0)) {
+    throw new Error('Malformed library project folder')
+  }
+  const filesFolder = row['filesFolder']
+  if (filesFolder !== undefined && (typeof filesFolder !== 'string' || filesFolder.length === 0)) {
+    throw new Error('Malformed library project files folder')
+  }
+  const modified = row['modified']
+  if (modified !== undefined && (typeof modified !== 'string' || !Number.isFinite(Date.parse(modified)))) {
+    throw new Error('Malformed library project modification time')
+  }
+  const lastOpenedAt = row['lastOpenedAt']
+  if (lastOpenedAt !== undefined && lastOpenedAt !== null &&
+    (typeof lastOpenedAt !== 'string' || !Number.isFinite(Date.parse(lastOpenedAt)))) {
+    throw new Error('Malformed library project opening time')
+  }
   return {
     ...(link === undefined ? {} : { accountProject: link }),
     id: row['id'], name: row['name'], created: row['created'], revision: row['revision'] as number, deleted: row['deleted'],
     ...(uid === undefined ? {} : { uid: uid as string }),
     ...(environment === undefined ? {} : { environment: environment as Exclude<LibraryProject['environment'], undefined> }),
+    ...(folder === undefined ? {} : { folder: folder as string | null }),
+    ...(filesFolder === undefined ? {} : { filesFolder: filesFolder as string }),
+    ...(modified === undefined ? {} : { modified: modified as string }),
+    ...(lastOpenedAt === undefined ? {} : { lastOpenedAt: lastOpenedAt as string | null }),
   }
 }
 
@@ -1446,6 +1490,8 @@ export interface AccountStatus {
   readonly canStartSignIn: boolean
   readonly signInUnavailableReason: 'account-unavailable' | 'account-sign-in-requires-engine-machine' | null
   readonly signedIn: boolean
+  /** Non-secret revision of the engine-verified browser binding, absent on older engines. */
+  readonly principalRevision?: string
   readonly profile: { readonly displayName: string | null; readonly email: string | null } | null
   readonly signIn: 'idle' | 'pending' | 'failed'
 }
@@ -1463,6 +1509,8 @@ function decodeAccountStatus(value: unknown): AccountStatus {
   }
   if (typeof row['available'] !== 'boolean' || typeof row['canStartSignIn'] !== 'boolean' ||
     typeof row['signedIn'] !== 'boolean' ||
+    !(row['principalRevision'] === undefined ||
+      typeof row['principalRevision'] === 'string' && row['principalRevision'].length > 0) ||
     !(reason === null || reason === 'account-unavailable' || reason === 'account-sign-in-requires-engine-machine') ||
     !(profile === null || typeof profile === 'object' && !Array.isArray(profile)) ||
     typeof signIn !== 'object' || signIn === null ||
@@ -1473,6 +1521,7 @@ function decodeAccountStatus(value: unknown): AccountStatus {
     canStartSignIn: row['canStartSignIn'],
     signInUnavailableReason: reason,
     signedIn: row['signedIn'],
+    ...(row['principalRevision'] === undefined ? {} : { principalRevision: row['principalRevision'] as string }),
     profile: person === null ? null : { displayName: text(person['displayName']), email: text(person['email']) },
     signIn: signIn['state'],
   }
@@ -1863,6 +1912,8 @@ export interface HistoryRunRecord {
   readonly startedAt?: number
   /** blake3:<64 hex> digest of the producing workflow document asset. */
   readonly sourceDocument?: string
+  /** The workflow's name when the run was submitted; absent when none was recorded. */
+  readonly workflowName?: string
   readonly principalId?: string
   readonly principalKind?: 'human' | 'agent'
   readonly nodeReceipts?: readonly NodeExecutionReceipt[]
@@ -1918,12 +1969,14 @@ const decodeHistoryRun = (v: unknown): HistoryRunRecord | undefined => {
     typeof r['executed'] === 'number' &&
     typeof r['cached'] === 'number' &&
     typeof r['skipped'] === 'number' &&
+    (r['workflowName'] === undefined || (typeof r['workflowName'] === 'string' && r['workflowName'] !== '')) &&
     receiptsValid
   )) return undefined
   const {
     principalId: _wirePrincipalId,
     principalKind: _wirePrincipalKind,
     thumbnail: wireThumbnail,
+    workflowName: wireWorkflowName,
     ...record
   } = r
   let thumbnail: MediaAssetRef | undefined
@@ -1939,6 +1992,7 @@ const decodeHistoryRun = (v: unknown): HistoryRunRecord | undefined => {
   return {
     ...record,
     ...(thumbnail === undefined ? {} : { thumbnail }),
+    ...(wireWorkflowName === undefined ? {} : { workflowName: wireWorkflowName }),
     ...(typeof r['principalId'] === 'string' ? { principalId: r['principalId'] } : {}),
     ...(r['principalKind'] === 'human' || r['principalKind'] === 'agent'
       ? { principalKind: r['principalKind'] }
@@ -1952,29 +2006,14 @@ export interface HistoryPage {
   readonly cursor?: string
 }
 
-/**
- * RFC 4122 v4 UUID. `crypto.randomUUID` exists only in secure contexts
- * (HTTPS or localhost), and this app is legitimately served over plain HTTP
- * on LAN/tailnet origins - where `getRandomValues` is still available, so
- * derive the UUID from it instead of failing every submit.
- */
-export function uuidv4(): string {
-  const c = globalThis.crypto as Crypto | undefined
-  if (typeof c?.randomUUID === 'function') return c.randomUUID()
-  const bytes = new Uint8Array(16)
-  if (typeof c?.getRandomValues === 'function') c.getRandomValues(bytes)
-  else for (let i = 0; i < 16; i++) bytes[i] = Math.floor(Math.random() * 256) // last-resort (non-browser shims)
-  bytes[6] = (bytes[6]! & 0x0f) | 0x40 // version 4
-  bytes[8] = (bytes[8]! & 0x3f) | 0x80 // RFC 4122 variant
-  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
-}
+export { uuidv4 } from '@dinkster/core'
 
 export class DinksterConnection {
   readonly id: ConnectionId
   private readonly baseUrl: string
   private readonly clientId: string
   private readonly project: string | undefined
+  private readonly keepSchemas: ((payload: DinksterNodesPayload) => void) | undefined
   private readonly fetchFn: FetchLike
   private readonly registryFetchFn: FetchLike
   private readonly registryStaticUrl: () => string
@@ -1983,10 +2022,11 @@ export class DinksterConnection {
   private readonly listeners = new Set<(e: NormalizedEvent) => void>()
   private readonly resumedListeners = new Set<() => void>()
   private readonly problemListeners = new Set<(problem: Diagnostic) => void>()
-  private readonly liveCompletionListeners = new Set<(execution: ExecutionRef) => void>()
+  private readonly liveTerminalListeners = new Set<(execution: ExecutionRef) => void>()
   private readonly memoryListeners = new Set<(status: MemoryStatus) => void>()
   private readonly mountListeners = new Set<() => void>()
   private readonly libraryListeners = new Set<() => void>()
+  private readonly lookupListeners = new Set<(functions: readonly string[]) => void>()
   private readonly socket: ReconnectingSocket
   private readonly jobIdFactory: () => string
   private protocolErrors = 0
@@ -2014,6 +2054,11 @@ export class DinksterConnection {
   private readonly packLocaleCatalogs = new Map<string, Promise<unknown | undefined>>()
 
   readonly status: ReadonlySignal<ConnectionStatus>
+  private readonly principalChanges = createSignal(0)
+  readonly principalGeneration: ReadonlySignal<number> = this.principalChanges
+  private principalRevision: string | undefined
+  private principalRequests = new AbortController()
+  private accountRequestGeneration = 0
   private readonly mountErrors = createSignal<string | undefined>(undefined)
   readonly mountError: ReadonlySignal<string | undefined> = this.mountErrors
   private mountRequestGeneration = 0
@@ -2024,12 +2069,21 @@ export class DinksterConnection {
     this.baseUrl = config.baseUrl
     this.clientId = config.clientId
     this.project = config.project
-    const fetchFn = config.fetchFn ?? ((url: string, init?: RequestInit) => fetch(url, init))
+    this.keepSchemas = config.keepSchemas
+    const fetchFn = requestFetch(config.fetchFn ?? ((url: string, init?: RequestInit) => fetch(url, init)))
     this.registryFetchFn = fetchFn
     this.registryStaticUrl = config.registryStaticUrl ?? (() => '')
-    this.fetchFn = config.token !== undefined || config.actorKind !== undefined
+    const authenticatedFetch = config.token !== undefined || config.actorKind !== undefined
       ? credentialFetch(config, fetchFn)
       : fetchFn
+    this.fetchFn = async (url, init) => {
+      const principal = this.principalRequests.signal
+      const signal = init?.signal === undefined || init.signal === null
+        ? principal : AbortSignal.any([principal, init.signal])
+      const response = await authenticatedFetch(url, this.principalRevision === undefined ? init : { ...init, signal })
+      principal.throwIfAborted()
+      return response
+    }
     this.jobIdFactory = config.jobIdFactory ?? uuidv4
     // Malformed KNOWN events (recognized type, missing required fields) are
     // protocol errors, never silent drops; unknown kinds and uncorrelated
@@ -2054,7 +2108,7 @@ export class DinksterConnection {
           if (response.status === 401 || response.status === 403) {
             throw await this.failExecutionRequest(response, 'ws-ticket')
           }
-          if (!response.ok) throw new Error(`WebSocket authentication failed: HTTP ${response.status}`)
+          if (!response.ok) throw await requestFailure(response)
           const body = await response.json() as { ticket?: unknown }
           if (typeof body.ticket !== 'string') throw new Error('WebSocket authentication returned no ticket')
           return `${wsUrl}${wsUrl.includes('?') ? '&' : '?'}ticket=${encodeURIComponent(body.ticket)}`
@@ -2096,16 +2150,17 @@ export class DinksterConnection {
   }
 
   private async failExecutionRequest(response: Response, operation: string): Promise<ExecutionRequestError> {
-    const problem = responseDiagnostic(response.status, await responsePayload(response), operation)
+    const payload = await responsePayload(response)
+    const problem = responseDiagnostic(response.status, payload, operation)
     this.emitProblem(problem)
     if (operation === 'events' || operation === 'ws-ticket') this.socket.disconnect()
-    return new ExecutionRequestError(problem)
+    return new ExecutionRequestError(problem, response.status, payload)
   }
 
-  /** Subscribe to persisted completed job_state messages, excluding fetched replays. */
-  onLiveCompletion(listener: (execution: ExecutionRef) => void): () => void {
-    this.liveCompletionListeners.add(listener)
-    return () => this.liveCompletionListeners.delete(listener)
+  /** Subscribe to persisted terminal job_state messages, excluding fetched replays. */
+  onLiveTerminal(listener: (execution: ExecutionRef) => void): () => void {
+    this.liveTerminalListeners.add(listener)
+    return () => this.liveTerminalListeners.delete(listener)
   }
 
   /** Subscribe to the server's droppable memory telemetry stream. */
@@ -2126,6 +2181,12 @@ export class DinksterConnection {
     return () => this.libraryListeners.delete(listener)
   }
 
+  /** The declared lookups whose kept answers a host event made old, by wire name. */
+  onLookupsChanged(listener: (functions: readonly string[]) => void): () => void {
+    this.lookupListeners.add(listener)
+    return () => this.lookupListeners.delete(listener)
+  }
+
   private emit(events: readonly NormalizedEvent[]): void {
     for (const e of events) for (const l of [...this.listeners]) l(e)
   }
@@ -2136,13 +2197,19 @@ export class DinksterConnection {
       if (raw.type === 'library_changed') for (const listener of [...this.libraryListeners]) listener()
       return
     }
+    if (live && !(raw instanceof ArrayBuffer) && raw.type === 'lookups_changed') {
+      const functions = Array.isArray(raw['functions']) ? raw['functions'].filter((name) => typeof name === 'string') : []
+      if (functions.length > 0) for (const listener of [...this.lookupListeners]) listener(functions)
+      return
+    }
     if (live && !(raw instanceof ArrayBuffer)) this.noteLiveJobEvent(raw)
     const events = this.normalizer.normalize(raw)
     this.emit(events)
-    if (!live || raw instanceof ArrayBuffer || raw.type !== 'job_state' || raw['state'] !== 'completed') return
+    if (!live || raw instanceof ArrayBuffer || raw.type !== 'job_state' ||
+      (raw['state'] !== 'completed' && raw['state'] !== 'failed' && raw['state'] !== 'cancelled')) return
     const jobId = raw['jobId']
     if (typeof jobId !== 'string' || jobId === '') return
-    for (const listener of [...this.liveCompletionListeners]) listener(this.executionFor(jobId))
+    for (const listener of [...this.liveTerminalListeners]) listener(this.executionFor(jobId))
   }
 
   // -- Schemas ----------------------------------------------------------------
@@ -2185,10 +2252,10 @@ export class DinksterConnection {
       // A supervisor gates every proxied route with 503 engine-not-ready
       // until the engine answers healthy. Surface that as its own error so
       // the app renders "starting", never a connection failure.
-      const gate = parseEngineNotReady(await res.json().catch(() => undefined))
+      const gate = parseEngineNotReady(await res.clone().json().catch(() => undefined))
       if (gate) throw new EngineNotReadyError(gate.state)
     }
-    if (!res.ok) throw new Error(`GET /api/nodes failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res)
     const raw: unknown = await res.json()
     if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
       throw new Error('GET /api/nodes: malformed schema payload')
@@ -2213,7 +2280,7 @@ export class DinksterConnection {
       }
       const extensionSnapshotDigest = payload.extensionSnapshotDigest
       const snapshotResponse = await this.fetchFn(`${this.baseUrl}/api/extensions/snapshot`, { signal })
-      if (!snapshotResponse.ok) throw new Error(`GET /api/extensions/snapshot failed: ${snapshotResponse.status}`)
+      if (!snapshotResponse.ok) throw await requestFailure(snapshotResponse)
       const snapshotBuffer = await snapshotResponse.arrayBuffer()
       const snapshotBytes = new Uint8Array(snapshotBuffer)
       const actualDigest = await sha256Digest(snapshotBuffer)
@@ -2249,8 +2316,26 @@ export class DinksterConnection {
     if (generation === this.schemaRequestGeneration) {
       this.registry = registry
       if (extensionSnapshotPair) this.extensionSnapshots.set(extensionSnapshotPair.digest, extensionSnapshotPair.snapshot)
+      if (payload.composing !== true) this.keepSchemas?.(payload)
     }
     return registry
+  }
+
+  /**
+   * The node table the always-on process recorded from this project's engine
+   * at its last run, served whatever the engine's state; undefined when there
+   * is none or the backend does not serve one.
+   */
+  async fetchProvisionalSchemas(): Promise<DinksterNodesPayload | undefined> {
+    const query = this.project === undefined ? '' : `?${new URLSearchParams({ project: this.project })}`
+    try {
+      const res = await this.fetchFn(`${this.baseUrl}/api/nodes/provisional${query}`)
+      if (!res.ok) return undefined
+      const raw: unknown = await res.json()
+      return typeof raw === 'object' && raw !== null && !Array.isArray(raw) ? raw as DinksterNodesPayload : undefined
+    } catch {
+      return undefined
+    }
   }
 
   /** The registry the connection currently submits against (last committed
@@ -2262,7 +2347,7 @@ export class DinksterConnection {
   /** Fetch the complete current execution-location catalog. */
   async fetchWorkers(): Promise<readonly WorkerInfo[]> {
     const res = await this.fetchFn(`${this.baseUrl}/api/workers`)
-    if (!res.ok) throw new Error(`GET /api/workers failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res)
     const workers = decodeWorkers(await res.json())
     if (workers === undefined) throw new Error('GET /api/workers: malformed response')
     return workers
@@ -2368,7 +2453,7 @@ export class DinksterConnection {
 
   async fetchPackSettings(packId: string): Promise<PackSettings> {
     const res = await this.fetchFn(`${this.baseUrl}/api/packs/${encodeURIComponent(packId)}/settings`)
-    if (!res.ok) throw new Error(`pack settings request failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res)
     const decoded = decodePackSettings(await res.json())
     if (decoded === undefined) throw new Error('pack settings response is malformed')
     return decoded
@@ -2383,10 +2468,7 @@ export class DinksterConnection {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(values),
     })
-    if (!res.ok) {
-      const body = await res.json().catch(() => undefined) as { error?: unknown } | undefined
-      throw new Error(typeof body?.error === 'string' ? body.error : `pack settings update failed: ${res.status}`)
-    }
+    if (!res.ok) throw await requestFailure(res, 'error')
     const decoded = decodePackSettings(await res.json())
     if (decoded === undefined) throw new Error('pack settings response is malformed')
     return decoded
@@ -2395,7 +2477,7 @@ export class DinksterConnection {
   /** Read memory telemetry. Item-level consumer details are opt-in. */
   async fetchMemoryStatus(details = false): Promise<MemoryStatus> {
     const res = await this.fetchFn(`${this.baseUrl}/memory/status${details ? '?details=1' : ''}`)
-    if (!res.ok) throw new Error(`GET /memory/status failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res)
     const status = decodeMemoryStatus(await res.json())
     if (status === undefined) throw new Error('GET /memory/status: malformed response')
     return status
@@ -2405,7 +2487,7 @@ export class DinksterConnection {
     const res = await this.fetchFn(`${this.baseUrl}/memory/reset-peak`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ device }),
     })
-    if (!res.ok) throw new Error(`POST /memory/reset-peak failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res)
   }
 
   async unloadMemory(device: string, consumer?: string, item?: string): Promise<{ readonly requestedBytes: number; readonly freedBytes: number }> {
@@ -2413,7 +2495,7 @@ export class DinksterConnection {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ device, ...(consumer === undefined ? {} : { consumers: [consumer] }), ...(item === undefined ? {} : { items: [item] }) }),
     })
-    if (!res.ok) throw new Error(`POST /cache/trim failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res)
     const result: unknown = await res.json()
     if (!record(result) || typeof result['requestedBytes'] !== 'number' || typeof result['freedBytes'] !== 'number') throw new Error('POST /cache/trim: malformed response')
     return { requestedBytes: result['requestedBytes'], freedBytes: result['freedBytes'] }
@@ -2488,6 +2570,8 @@ export class DinksterConnection {
        * the job wire and history, never part of execution identity.
        */
       readonly sourceDocument?: string
+      /** The workflow's name as the person sees it, kept with the run's record. */
+      readonly workflowName?: string
       /**
        * Retained original import metadata, not a representation of native
        * edits. An absent original prompt stays absent, distinct from {}.
@@ -2592,6 +2676,7 @@ export class DinksterConnection {
       targets,
       graph: graph as unknown as Json,
       ...(options?.sourceDocument !== undefined ? { sourceDocument: options.sourceDocument } : {}),
+      ...(options?.workflowName !== undefined ? { workflowName: options.workflowName } : {}),
       ...(options?.exportSnapshot !== undefined ? { exportSnapshot: options.exportSnapshot } : {}),
       ...(options?.previews !== undefined ? { previews: options.previews } : {}),
       ...(placementNodeIds.length > 0 ? { placement } : {}),
@@ -2768,7 +2853,7 @@ export class DinksterConnection {
     const url = `${this.baseUrl}/api/runs/${encodeURIComponent(runId)}/journal?scope=${encodeURIComponent(scope)}&after=${after}&limit=${limit}`
     const res = await this.fetchFn(url)
     if (res.status === 404) return undefined
-    if (!res.ok) throw new Error(`GET run journal failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res)
     const payload: unknown = await res.json()
     if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
       throw new Error('GET run journal: malformed response')
@@ -2810,17 +2895,18 @@ export class DinksterConnection {
     const inFlight = this.runLogBackfills.get(runId)
     if (inFlight !== undefined) return inFlight
     const pass = this.backfillRunLogPass(runId, scope).finally(() => {
-      this.runLogBackfills.delete(runId)
+      if (this.runLogBackfills.get(runId) === pass) this.runLogBackfills.delete(runId)
     })
     this.runLogBackfills.set(runId, pass)
     return pass
   }
 
   private async backfillRunLogPass(runId: string, scope: string): Promise<void> {
+    const principal = this.principalGeneration.get()
     let after = this.runLogCursors.get(runId) ?? 0
     for (let pages = 0; pages < RUN_JOURNAL_MAX_PAGES; pages++) {
       const page = await this.fetchRunJournal(runId, scope, after)
-      if (page === undefined) return
+      if (principal !== this.principalGeneration.get() || page === undefined) return
       for (const record of page.records) {
         if (record.name !== 'log') continue
         const wire = record.payload
@@ -2887,7 +2973,7 @@ export class DinksterConnection {
       const res = await fetchFn(`${this.baseUrl}/api/library/storage`, {
         method: 'GET', cache: 'no-store', ...(signal !== undefined ? { signal } : {}),
       })
-      if (!res.ok) throw new Error(`GET library storage failed: ${res.status}`)
+      if (!res.ok) throw await requestFailure(res)
       return libraryStorage(await res.json())
     }
     return read(this.fetchFn)
@@ -2901,11 +2987,28 @@ export class DinksterConnection {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ limitBytes }),
     })
-    if (!res.ok) throw new Error(`PUT library storage policy failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res)
     const value: unknown = await res.json()
     if (!record(value) || value['limitBytes'] !== limitBytes || value['collectionEnabled'] !== false) {
       throw new Error('Storage policy acknowledgment differs from the requested limit')
     }
+  }
+
+  private lookupClient: LookupClient | undefined
+
+  /** This backend's one lookup client: its answers are shared by fields, notes and button presses. */
+  get lookups(): LookupClient {
+    this.lookupClient ??= createLookupClient({ baseUrl: this.baseUrl, fetchFn: this.fetchFn })
+    return this.lookupClient
+  }
+
+  /** Run a node's declared pack function for a button press, with this backend's authority. */
+  callPackFunction(
+    request: CallRequest,
+    progress: (fraction: number, text: string) => void,
+    signal: AbortSignal,
+  ): Promise<CallAnswer> {
+    return callPackFunction({ baseUrl: this.baseUrl, fetchFn: this.fetchFn }, request, progress, signal)
   }
 
   clearLibraryStorage(): Promise<LibraryStorageCleanup> {
@@ -2916,7 +3019,7 @@ export class DinksterConnection {
     const res = await fetchFn(`${this.baseUrl}/api/library/storage/clear`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}),
     })
-    if (!res.ok && res.status !== 409) throw new Error(`POST library storage clear failed: ${res.status}`)
+    if (!res.ok && res.status !== 409) throw await requestFailure(res)
     const value: unknown = await res.json()
     if (!record(value) || typeof value['collectionEnabled'] !== 'boolean' ||
       !Array.isArray(value['blocked']) || !value['blocked'].every((reason: unknown) => typeof reason === 'string') ||
@@ -2935,7 +3038,7 @@ export class DinksterConnection {
       method: 'GET', cache: 'no-store', ...(signal !== undefined ? { signal } : {}),
     })
     if (res.status === 404) return undefined
-    if (!res.ok) throw new Error(`GET result asset offer failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res)
     const offer = parseResultAssetOffer(await res.json())
     if (offer === undefined || offer.scope !== scope || offer.token !== token) {
       throw new Error('Result asset offer is malformed or belongs to another source')
@@ -2949,7 +3052,7 @@ export class DinksterConnection {
       method: 'GET', cache: 'no-store',
     })
     if (res.status === 404) return undefined
-    if (!res.ok) throw new Error(`GET terminal result assets failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res)
     const value: unknown = await res.json()
     const invalid = (): never => { throw new Error('Terminal result assets are malformed or belong to another source') }
     if (!record(value) || value['scope'] !== scope || value['jobRef'] !== jobRef ||
@@ -3004,7 +3107,7 @@ export class DinksterConnection {
       body: bytes as BodyInit,
       ...(signal !== undefined ? { signal } : {}),
     })
-    if (!res.ok) throw new Error(`POST /api/assets failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res)
     const payload = (await res.json()) as { digest?: unknown }
     if (typeof payload.digest !== 'string') throw new Error('POST /api/assets: malformed response')
     return payload.digest
@@ -3031,36 +3134,38 @@ export class DinksterConnection {
     const res = await this.fetchFn(`${this.baseUrl}/api/assets/catalog?${query}`, {
       ...(options.signal !== undefined ? { signal: options.signal } : {}),
     })
-    if (!res.ok) throw new Error(`${endpoint} failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res)
     const payload = await res.json() as { assets?: unknown; cursor?: unknown } | null
     if (!payload || !Array.isArray(payload.assets) ||
         (payload.cursor !== undefined && (typeof payload.cursor !== 'string' || payload.cursor === ''))) {
       throw new Error(`${endpoint}: malformed response`)
     }
-    const assets = payload.assets.map((raw): LocalAssetCatalogEntry => {
-      const asset = uploadedAssetRef(raw, undefined, endpoint)
-      const row = raw as Record<string, unknown>
-      if (!Array.isArray(row['aliases']) || !row['aliases'].every((alias) => typeof alias === 'string') ||
-          !Array.isArray(row['observations'])) throw new Error(`${endpoint}: malformed response`)
-      const observations = row['observations'].map((value): AssetObservation => {
-        const ref = uploadedAssetRef(value, undefined, endpoint)
-        const observation = value as Record<string, unknown>
-        const origin = observation['origin']
-        if (ref.digest !== asset.digest || typeof observation['id'] !== 'string' ||
-            typeof observation['originalName'] !== 'string' || typeof observation['kind'] !== 'string' ||
-            observation['project'] !== project || typeof observation['created'] !== 'number' ||
-            !Number.isFinite(observation['created']) || observation['created'] < 0 ||
-            typeof origin !== 'object' || origin === null || Array.isArray(origin) ||
-            !Object.values(origin).every((field) => typeof field === 'string')) {
-          throw new Error(`${endpoint}: malformed observation`)
-        }
-        return {
-          id: observation['id'], asset: ref, originalName: observation['originalName'], kind: observation['kind'],
-          origin: { ...origin } as Record<string, string>, project, created: observation['created'],
-        }
-      })
-      return { asset, aliases: [...row['aliases']] as string[], observations }
+    const assets = payload.assets.map((raw) => decodeAssetCatalogEntry(raw, project, endpoint))
+    return { assets, ...(typeof payload.cursor === 'string' ? { cursor: payload.cursor } : {}) }
+  }
+
+  /** What one project's runs produced, newest first: the projects page's latest outputs. */
+  async listProjectOutputs(project: string, options: {
+    readonly limit?: number
+    readonly cursor?: string
+    readonly signal?: AbortSignal
+  } = {}): Promise<LocalAssetCatalogPage> {
+    const endpoint = 'GET /api/projects/{id}/outputs'
+    const query = new URLSearchParams()
+    if (options.limit !== undefined) query.set('limit', String(options.limit))
+    if (options.cursor !== undefined) query.set('cursor', options.cursor)
+    const res = await this.fetchFn(`${this.baseUrl}/api/projects/${encodeURIComponent(project)}/outputs?${query}`, {
+      cache: 'no-store',
+      ...(options.signal !== undefined ? { signal: options.signal } : {}),
     })
+    if (!res.ok) throw await requestFailure(res)
+    const payload = await res.json() as { assets?: unknown; cursor?: unknown } | null
+    // The last page carries a null cursor.
+    if (!payload || !Array.isArray(payload.assets) ||
+        (payload.cursor !== null && (typeof payload.cursor !== 'string' || payload.cursor === ''))) {
+      throw new Error(`${endpoint}: malformed response`)
+    }
+    const assets = payload.assets.map((raw) => decodeAssetCatalogEntry(raw, project, endpoint))
     return { assets, ...(typeof payload.cursor === 'string' ? { cursor: payload.cursor } : {}) }
   }
 
@@ -3077,7 +3182,7 @@ export class DinksterConnection {
     const res = await this.fetchFn(`${this.baseUrl}/api/assets/availability?${query}`, {
       ...(options.signal !== undefined ? { signal: options.signal } : {}),
     })
-    if (!res.ok) throw new Error(`${endpoint} failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res)
     const payload = await res.json() as { assets?: unknown } | null
     if (!payload || !Array.isArray(payload.assets)) throw new Error(`${endpoint}: malformed response`)
     const assets = new Map<string, AssetAvailability>()
@@ -3107,7 +3212,7 @@ export class DinksterConnection {
       method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file,
       ...(options.signal !== undefined ? { signal: options.signal } : {}),
     })
-    if (!res.ok) throw new Error(`POST /api/assets failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res)
     const payload: unknown = await res.json()
     const asset = uploadedAssetRef(payload, undefined, 'POST /api/assets')
     if ((payload as Record<string, unknown>)['digest'] !== asset.digest) throw new Error('POST /api/assets: malformed response')
@@ -3128,7 +3233,7 @@ export class DinksterConnection {
       body: bytes as BodyInit,
       ...(options.signal !== undefined ? { signal: options.signal } : {}),
     })
-    if (!res.ok) throw new Error(`POST /api/assets/image-document failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res)
     const adopted = adoptedImageDocument(await res.json())
     if (adopted === undefined ||
       (options.expectedDigest !== undefined && adopted.digest !== options.expectedDigest)) {
@@ -3147,7 +3252,7 @@ export class DinksterConnection {
       signal !== undefined ? { signal } : undefined,
     )
     if (res.status === 404 || res.status === 410) return undefined
-    if (!res.ok) throw new Error(`GET /api/assets/${digest}/dependencies failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res)
     const payload: unknown = await res.json()
     if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
       throw new Error('GET ImageDocument dependencies: malformed response')
@@ -3182,7 +3287,7 @@ export class DinksterConnection {
         ...(options.signal !== undefined ? { signal: options.signal } : {}),
       },
     )
-    if (!res.ok) throw new Error(`POST /api/assets/${digest}/render failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res)
     const rendered = renderedImageDocument(await res.json())
     if (rendered === undefined || rendered.provenance.documentDigest !== digest ||
       rendered.provenance.selector !== (options.selector ?? 'composite')) {
@@ -3215,7 +3320,7 @@ export class DinksterConnection {
       body: file,
       ...(options.signal !== undefined ? { signal: options.signal } : {}),
     })
-    if (!res.ok) throw new Error(`POST /api/assets/media failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res)
     return uploadedAssetRef(await res.json(), options.kind, 'POST /api/assets/media')
   }
 
@@ -3231,7 +3336,7 @@ export class DinksterConnection {
       body: file,
       ...(options.signal !== undefined ? { signal: options.signal } : {}),
     })
-    if (!res.ok) throw new Error(`POST /api/assets/latent failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res)
     return uploadedAssetRef(await res.json(), 'data/latent', 'POST /api/assets/latent')
   }
 
@@ -3253,7 +3358,7 @@ export class DinksterConnection {
       })
       let res = await request(hinted)
       if (hinted && res.status === 400) res = await request(false)
-      if (!res.ok) throw new Error(`POST /api/assets/guess failed: ${res.status}`)
+      if (!res.ok) throw await requestFailure(res)
       matches.push(...parseAssetGuessMatches(await res.json()))
     }
     return matches
@@ -3284,7 +3389,7 @@ export class DinksterConnection {
       const response = await this.registryFetchFn(url, {
         signal, credentials: 'omit', ...(cached?.etag ? { headers: { 'If-None-Match': cached.etag } } : {}),
       })
-      if (response.status !== 304 && !response.ok) throw new Error(`Registry replacements request failed: ${response.status}`)
+      if (response.status !== 304 && !response.ok) throw await requestFailure(response)
       const raw: unknown = response.status === 304 && cached ? cached.body : await response.json()
       if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw new Error('Malformed ComfyUI translation index')
       const index = raw as Record<string, unknown>
@@ -3297,7 +3402,7 @@ export class DinksterConnection {
         if (!pending) {
           pending = (async () => {
             const result = await this.registryFetchFn(path, { signal, credentials: 'omit' })
-            if (!result.ok) throw new Error(`Registry pack schemas request failed: ${result.status}`)
+            if (!result.ok) throw await requestFailure(result)
             const envelope = await result.json() as Record<string, unknown>
             if (envelope['packName'] !== pack || envelope['version'] !== version || !Array.isArray(envelope['schemas'])) throw new Error('Invalid registry schema envelope')
             return envelope['schemas'].map((entry: Record<string, unknown>) => {
@@ -3447,7 +3552,7 @@ export class DinksterConnection {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ workflows: [document], ...(this.project === undefined ? {} : { project: this.project }) }),
     })
-    if (!res.ok) throw new Error(`POST /api/workflows/plan failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res)
     const raw: unknown = await res.json()
     const invalid = () => new Error('invalid workflow requirement plan')
     if (typeof raw !== 'object' || raw === null) throw invalid()
@@ -3481,7 +3586,7 @@ export class DinksterConnection {
   async fetchAssetText(digest: string): Promise<string | undefined> {
     const res = await this.fetchFn(`${this.baseUrl}/api/assets/${encodeURIComponent(digest)}`)
     if (res.status === 404 || res.status === 410) return undefined
-    if (!res.ok) throw new Error(`GET /api/assets/${digest} failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res)
     return res.text()
   }
 
@@ -3495,7 +3600,7 @@ export class DinksterConnection {
   async fetchAssetBytes(digest: string, signal?: AbortSignal): Promise<ArrayBuffer | undefined> {
     const res = await this.fetchFn(`${this.baseUrl}/api/assets/${encodeURIComponent(digest)}`, signal ? { signal } : undefined)
     if (res.status === 404 || res.status === 410) return undefined
-    if (!res.ok) throw new Error(`GET /api/assets/${digest} failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res)
     return res.arrayBuffer()
   }
 
@@ -3505,7 +3610,7 @@ export class DinksterConnection {
       cache: 'no-store', ...(signal ? { signal } : {}),
     })
     if (res.status === 404) return undefined
-    if (!res.ok) throw new Error(`GET /api/assets/local failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res)
     return res.arrayBuffer()
   }
 
@@ -3513,10 +3618,28 @@ export class DinksterConnection {
     return `${this.baseUrl}/api/assets/${encodeURIComponent(digest)}`
   }
 
-  async planModelDownload(requirement: ModelRequirement, signal?: AbortSignal, source?: string): Promise<ModelDownloadPlan> {
+  /** Observe local model names without looking up sources or creating download plans. */
+  async checkModelPresence(models: readonly ModelRequirement[], signal?: AbortSignal): Promise<readonly ModelPresence[]> {
+    const rows: ModelPresence[] = []
+    for (let offset = 0; offset < models.length; offset += 256) {
+      const batch = models.slice(offset, offset + 256)
+      const response = await this.fetchFn(`${this.baseUrl}/api/models/presence`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, cache: 'no-store',
+        body: JSON.stringify({ models: batch, project: this.project ?? 'default', scope: 'local' }),
+        ...(signal === undefined ? {} : { signal }),
+      })
+      if (!response.ok) throw await requestFailure(response)
+      rows.push(...decodeModelPresence(await response.json(), batch))
+    }
+    return rows
+  }
+
+  async planModelDownload(requirement: ModelDownloadRequirement, signal?: AbortSignal, source?: string, location?: string): Promise<ModelDownloadPlan> {
     return decodeModelDownloadPlan(await this.modelDownloadRequest('plan', 'POST', {
       name: requirement.name, kind: requirement.kind, project: this.project ?? 'default', scope: 'local',
+      ...(requirement.asset === undefined ? {} : { asset: requirement.asset }),
       ...(source === undefined ? {} : { source }),
+      ...(location === undefined ? {} : { location }),
     }, signal))
   }
 
@@ -3545,11 +3668,13 @@ export class DinksterConnection {
       })
       if (res.status === 404 && method === 'GET' && path) return undefined
       if (!res.ok) {
-        const raw: unknown = await res.json().catch(() => undefined)
+        const raw: unknown = await res.clone().json().catch(() => undefined)
         if (path === 'plan' && res.status === 409 && record(raw) &&
           (raw['error'] === 'credential-required' || raw['error'] === 'provider-grant-required' || raw['error'] === 'civitai-access-required' || raw['error'] === 'model-hidden'))
-          return { status: raw['error'] }
-        throw new Error(`Model download ${method} failed: ${res.status}`)
+          return { ...raw, status: raw['error'], ...(typeof body?.['source'] === 'string' ? { source: body['source'] } : {}) }
+        if (path === 'start' && res.status === 409 && record(raw) && raw['error'] === 'model-download-busy')
+          throw new ModelDownloadBusyError()
+        throw await requestFailure(res)
       }
       return res.json() as Promise<unknown>
     }, 'Model download request timed out. Reconnect to inspect the existing job before retrying.', signal)
@@ -3586,7 +3711,7 @@ export class DinksterConnection {
         ...(body === undefined ? {} : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
       })
       // Never reflect provider replies or credential-bearing bodies into errors.
-      if (!res.ok) throw new Error(`Hugging Face request failed: ${res.status}`)
+      if (!res.ok) throw await requestFailure(res, false)
       return res.json() as Promise<unknown>
     }, 'Hugging Face request timed out. Check sign-in status before retrying.', signal)
   }
@@ -3595,7 +3720,7 @@ export class DinksterConnection {
     return requestWithDeadline(async (signal) => {
       const query = new URLSearchParams({ project: this.project ?? 'default' })
       const res = await this.fetchFn(`${this.baseUrl}/api/models/settings?${query}`, { signal, cache: 'no-store' })
-      if (!res.ok) throw new Error(`GET model settings failed: ${res.status}`)
+      if (!res.ok) throw await requestFailure(res)
       return decodeModelSettingsState(await res.json())
     })
   }
@@ -3606,7 +3731,7 @@ export class DinksterConnection {
       method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ settings, revision }),
     })
     if (res.status === 409) throw new Error('Model folders changed in another project. Refresh before saving.')
-    if (!res.ok) throw new Error(`PUT model settings failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res, 'error')
     return decodeModelSettingsState(await res.json())
   }
 
@@ -3614,7 +3739,7 @@ export class DinksterConnection {
     const res = await this.fetchFn(`${this.baseUrl}/api/models/locations/${encodeURIComponent(location)}/projects/${encodeURIComponent(this.project ?? 'default')}`, {
       method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled }),
     })
-    if (!res.ok) throw new Error(`PUT model project folder failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res)
     return decodeModelSettingsState(await res.json())
   }
 
@@ -3631,12 +3756,13 @@ export class DinksterConnection {
       const res = await this.fetchFn(`${this.baseUrl}/api/models/hidden/${encodeURIComponent(this.project ?? 'default')}`, {
         method, signal, cache: 'no-store', redirect: 'error', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
       })
-      if (!res.ok) throw new Error(`Model visibility request failed: ${res.status}`)
+      if (!res.ok) throw await requestFailure(res)
       return decodeModelSettingsState(await res.json())
     })
   }
 
   async fetchMountSettings(): Promise<MountSettings> {
+    const principal = this.principalRequests.signal
     const generation = ++this.mountRequestGeneration
     const promise = requestWithDeadline((signal) => this.readMountSettings(signal))
     this.newestMountFetch = { generation, promise }
@@ -3648,13 +3774,15 @@ export class DinksterConnection {
         this.newestMountFetch ?? current
       try {
         const settings = await current.promise
+        principal.throwIfAborted()
         if (newest().generation === current.generation) {
           this.mountErrors.set(undefined)
           return settings
         }
       } catch (error) {
+        principal.throwIfAborted()
         if (newest().generation === current.generation) {
-          this.mountErrors.set(error instanceof Error ? error.message : String(error))
+          this.mountErrors.set(requestFailureReason(error) ?? 'Folders could not be loaded.')
           throw error
         }
       }
@@ -3665,8 +3793,8 @@ export class DinksterConnection {
   private async readMountSettings(signal: AbortSignal): Promise<MountSettings> {
     const query = this.project && this.project !== 'default' ? `?${new URLSearchParams({ project: this.project })}` : ''
     const res = await this.fetchFn(`${this.baseUrl}/api/mounts${query}`, { signal })
-    if (!res.ok) throw new Error(`GET /api/mounts failed: ${res.status}`)
-    const payload = await res.json() as { mounts?: unknown; outputMount?: unknown; activeOutputMount?: unknown; mountChangesAllowed?: unknown; restartRequired?: unknown; pendingRemovals?: unknown }
+    if (!res.ok) throw await requestFailure(res)
+    const payload = await res.json() as { mounts?: unknown; revision?: unknown; outputMount?: unknown; activeOutputMount?: unknown; mountChangesAllowed?: unknown; restartRequired?: unknown; pendingRemovals?: unknown }
     // Compatibility: a response without the field (older backend) decodes
     // as false - read-only; a present non-boolean is a protocol error.
     if (payload.mountChangesAllowed !== undefined && typeof payload.mountChangesAllowed !== 'boolean') {
@@ -3690,16 +3818,20 @@ export class DinksterConnection {
         (progress['bytesDone'] as number) <= (progress['bytesTotal'] as number))
       return typeof row['id'] === 'string' && (row['mode'] === 'read' || row['mode'] === 'readwrite') &&
         typeof row['state'] === 'string' && (row['path'] === undefined || typeof row['path'] === 'string') &&
+        (row['error'] === undefined || typeof row['error'] === 'string') &&
+        (row['saveError'] === undefined || typeof row['saveError'] === 'string') &&
         (row['kind'] === undefined || typeof row['kind'] === 'string') &&
         (row['source'] === undefined || typeof row['source'] === 'string') &&
         (row['entryCount'] === undefined || (typeof row['entryCount'] === 'number' && Number.isSafeInteger(row['entryCount']) && row['entryCount'] >= 0)) && validProgress
     })
+    if (payload.revision !== undefined && typeof payload.revision !== 'string') throw new Error('GET /api/mounts: malformed revision')
     if (payload.outputMount != null && typeof payload.outputMount !== 'string') throw new Error('GET /api/mounts: malformed output mount')
     if (payload.activeOutputMount != null && typeof payload.activeOutputMount !== 'string') throw new Error('GET /api/mounts: malformed active output mount')
     if (payload.restartRequired !== undefined && typeof payload.restartRequired !== 'boolean') throw new Error('GET /api/mounts: malformed restartRequired')
     if (payload.pendingRemovals !== undefined && (!Array.isArray(payload.pendingRemovals) || !payload.pendingRemovals.every((id) => typeof id === 'string'))) throw new Error('GET /api/mounts: malformed pendingRemovals')
     return {
       mounts,
+      ...(typeof payload.revision === 'string' ? { revision: payload.revision } : {}),
       mountChangesAllowed: payload.mountChangesAllowed === undefined ? false : payload.mountChangesAllowed,
       ...(typeof payload.outputMount === 'string' ? { outputMount: payload.outputMount } : {}),
       ...(typeof payload.activeOutputMount === 'string' ? { activeOutputMount: payload.activeOutputMount } : {}),
@@ -3711,7 +3843,7 @@ export class DinksterConnection {
   async fetchAssetLocations(digest: string, signal?: AbortSignal): Promise<readonly string[]> {
     const query = new URLSearchParams({ digest, scope: 'local', project: this.project ?? 'default' })
     const res = await this.fetchFn(`${this.baseUrl}/api/mounts/locations?${query}`, signal === undefined ? undefined : { signal })
-    if (!res.ok) throw new Error(`GET asset locations failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res)
     const payload = await res.json() as { locations?: unknown }
     if (!Array.isArray(payload.locations)) throw new Error('GET asset locations: malformed response')
     return payload.locations.map((value: unknown) => {
@@ -3724,7 +3856,7 @@ export class DinksterConnection {
 
   async fetchMountLocations(): Promise<MountLocations> {
     const res = await this.fetchFn(`${this.baseUrl}/api/mounts/locations`)
-    if (!res.ok) throw new Error(`GET /api/mounts/locations failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res)
     const payload = await res.json() as { mounts?: unknown; activeMounts?: unknown; importMount?: unknown }
     if (!Array.isArray(payload.mounts)) throw new Error('GET /api/mounts/locations: malformed response')
     if (payload.importMount !== undefined && payload.importMount !== null &&
@@ -3733,13 +3865,15 @@ export class DinksterConnection {
       const row = value as Record<string, unknown> | null
       if (row === null || typeof row !== 'object' || typeof row['id'] !== 'string' || typeof row['path'] !== 'string') throw new Error('GET /api/mounts/locations: malformed location')
       if ((row['mode'] !== undefined && row['mode'] !== 'read' && row['mode'] !== 'readwrite') ||
-        ['state', 'source', 'kind'].some((key) => row[key] !== undefined && typeof row[key] !== 'string') ||
+        ['state', 'source', 'kind', 'error', 'saveError'].some((key) => row[key] !== undefined && typeof row[key] !== 'string') ||
         (row['entryCount'] !== undefined && (typeof row['entryCount'] !== 'number' || !Number.isSafeInteger(row['entryCount']) || row['entryCount'] < 0))) {
         throw new Error('GET /api/mounts/locations: malformed location facts')
       }
       return { id: row['id'], path: row['path'],
         ...(row['mode'] === 'read' || row['mode'] === 'readwrite' ? { mode: row['mode'] } : {}),
         ...(typeof row['state'] === 'string' ? { state: row['state'] } : {}),
+        ...(typeof row['error'] === 'string' ? { error: row['error'] } : {}),
+        ...(typeof row['saveError'] === 'string' ? { saveError: row['saveError'] } : {}),
         ...(typeof row['source'] === 'string' ? { source: row['source'] } : {}),
         ...(typeof row['kind'] === 'string' ? { kind: row['kind'] } : {}),
         ...(typeof row['entryCount'] === 'number' ? { entryCount: row['entryCount'] } : {}),
@@ -3760,12 +3894,12 @@ export class DinksterConnection {
       method: 'PUT', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ mounts, outputMount }),
     })
-    if (!res.ok) throw new Error(`PUT project folders failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res, 'error')
   }
 
   async retryMount(id: string): Promise<void> {
     const res = await this.fetchFn(`${this.baseUrl}/api/mounts/${encodeURIComponent(id)}/retry`, { method: 'POST' })
-    if (!res.ok) throw new Error(`POST mount retry failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res)
   }
 
   async listMounts(): Promise<readonly MountDescriptor[]> {
@@ -3777,7 +3911,7 @@ export class DinksterConnection {
       throw new Error('Unsupported asset selection kind')
     }
     const res = await this.fetchFn(`${this.baseUrl}/api/assets/selections?${new URLSearchParams({ kind, ...(project === undefined ? {} : { project }) })}`, signal === undefined ? undefined : { signal })
-    if (!res.ok) throw new Error(`GET asset selections failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res)
     const payload: unknown = await res.json()
     if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) throw new Error('Malformed asset selections')
     const body = payload as Record<string, unknown>
@@ -3805,7 +3939,7 @@ export class DinksterConnection {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ id }),
       })
-      if (!res.ok) throw new Error(`PUT /api/mounts/output failed: ${res.status}`)
+      if (!res.ok) throw await requestFailure(res, 'error')
     }
     // Folder ordering can already have pinned the default project's output.
     // Keep that override in sync with the persisted library default.
@@ -3818,16 +3952,26 @@ export class DinksterConnection {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ id, path, mode, ...(this.project !== undefined ? { project: this.project } : {}), ...options }),
     })
-    if (!res.ok) throw new Error(`POST /api/mounts failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res, 'error')
     const value = await res.json() as Record<string, unknown>
     if (typeof value['id'] !== 'string' || (value['mode'] !== 'read' && value['mode'] !== 'readwrite') ||
       typeof value['state'] !== 'string') throw new Error('POST /api/mounts: malformed response')
     return value as unknown as MountDescriptor
   }
 
+  async updateMountAccess(id: string, mode: 'read' | 'readwrite', revision: string): Promise<void> {
+    const query = new URLSearchParams({ project: this.project ?? 'default' })
+    const res = await this.fetchFn(`${this.baseUrl}/api/mounts/${encodeURIComponent(id)}/access?${query}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ mode, revision }),
+    })
+    if (!res.ok) throw await requestFailure(res, 'error')
+  }
+
   async removeMount(id: string): Promise<void> {
     const res = await this.fetchFn(`${this.baseUrl}/api/mounts/${encodeURIComponent(id)}`, { method: 'DELETE' })
-    if (!res.ok) throw new Error(`DELETE /api/mounts/${id} failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res)
   }
 
   async listMountEntries(mountId: string, req: { readonly q?: string; readonly path?: string; readonly recursive?: boolean; readonly cursor?: string; readonly limit?: number; readonly kind?: string; readonly signal?: AbortSignal } = {}): Promise<MountEntryPage> {
@@ -3839,7 +3983,7 @@ export class DinksterConnection {
     if (req.limit !== undefined) params.set('limit', String(req.limit))
     if (req.kind) params.set('kind', req.kind)
     const res = await this.fetchFn(`${this.baseUrl}/api/mounts/${encodeURIComponent(mountId)}/entries?${params}`, req.signal !== undefined ? { signal: req.signal } : undefined)
-    if (!res.ok) throw new Error(`GET mount entries failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res)
     const payload = await res.json() as { entries?: unknown; folders?: unknown; cursor?: unknown; total?: unknown }
     const entries = Array.isArray(payload.entries) ? payload.entries.filter((value): value is MountEntry => {
       if (typeof value !== 'object' || value === null) return false
@@ -3859,7 +4003,7 @@ export class DinksterConnection {
   async listMountFolder(mountId: string, path = ''): Promise<readonly MountFolderEntry[]> {
     const params = new URLSearchParams({ path, project: this.project ?? 'default' })
     const res = await this.fetchFn(`${this.baseUrl}/api/mounts/${encodeURIComponent(mountId)}/list?${params}`)
-    if (!res.ok) throw new Error(`GET mount folder failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res)
     const payload = await res.json() as { entries?: unknown }
     return Array.isArray(payload.entries) ? payload.entries.flatMap((value): MountFolderEntry[] => {
       if (typeof value !== 'object' || value === null) return []
@@ -3874,7 +4018,7 @@ export class DinksterConnection {
   async fetchAssetMetadata(digest: string): Promise<unknown | undefined> {
     const res = await this.fetchFn(`${this.baseUrl}/api/assets/${encodeURIComponent(digest)}/metadata`)
     if (res.status === 404 || res.status === 415 || res.status === 501) return undefined
-    if (!res.ok) throw new Error(`GET asset metadata failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res)
     return res.json()
   }
 
@@ -3888,16 +4032,21 @@ export class DinksterConnection {
     readonly scope: string
     readonly query?: string
     readonly label?: string
+    readonly mediaType?: string
+    /** Only this project's records, such as the projects page's workflow list for a project that is not open. */
+    readonly project?: string
     readonly limit?: number
     readonly cursor?: string
   }): Promise<LibraryPage> {
     const params = new URLSearchParams({ scope: req.scope })
     if (req.query !== undefined && req.query !== '') params.set('q', req.query)
     if (req.label !== undefined) params.set('label', req.label)
+    if (req.mediaType !== undefined) params.set('mediaType', req.mediaType)
+    if (req.project !== undefined) params.set('project', req.project)
     if (req.limit !== undefined) params.set('limit', String(req.limit))
     if (req.cursor !== undefined) params.set('cursor', req.cursor)
     const res = await this.fetchFn(`${this.baseUrl}/api/library?${params.toString()}`)
-    if (!res.ok) throw new Error(`GET /api/library failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res)
     const payload = (await res.json()) as { records?: unknown; cursor?: unknown }
     const records = Array.isArray(payload.records) ? payload.records.filter(isLibraryRecord) : []
     return {
@@ -3922,7 +4071,7 @@ export class DinksterConnection {
     if (req.cursor !== undefined) params.set('cursor', req.cursor)
     const suffix = params.size > 0 ? `?${params.toString()}` : ''
     const res = await this.fetchFn(`${this.baseUrl}/api/templates${suffix}`)
-    if (!res.ok) throw new Error(`GET /api/templates failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res)
     const payload = await res.json() as { templates?: unknown; cursor?: unknown }
     return {
       templates: Array.isArray(payload.templates)
@@ -3933,10 +4082,14 @@ export class DinksterConnection {
   }
 
   /** Fetch and validate one immutable blueprint through the owning backend transport. */
-  async fetchBlueprintBody(packId: string, blueprintId: string): Promise<WorkflowDocument | undefined> {
+  async fetchBlueprintBody(packId: string, blueprintId: string, expectedDigest?: string): Promise<WorkflowDocument | undefined> {
     const res = await this.fetchFn(`${this.baseUrl}/api/packs/${encodeURIComponent(packId)}/blueprints/${encodeURIComponent(blueprintId)}`)
     if (!res.ok) return undefined
-    try { return loadDocument(JSON.parse(await res.text()) as unknown).document }
+    try {
+      const text = await res.text()
+      if (expectedDigest !== undefined && `sha256:${sha256Hex(new TextEncoder().encode(text))}` !== expectedDigest) return undefined
+      return loadDocument(JSON.parse(text) as unknown).document
+    }
     catch { return undefined }
   }
 
@@ -3954,7 +4107,7 @@ export class DinksterConnection {
 
   private async fetchPackMedia(path: string, signal: AbortSignal): Promise<Blob> {
     const res = await this.fetchFn(`${this.baseUrl}${path}`, { signal })
-    if (!res.ok) throw new Error(`GET pack media failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res)
     return res.blob()
   }
 
@@ -3962,7 +4115,7 @@ export class DinksterConnection {
   async fetchTemplateBody(packId: string, templateId: string): Promise<WorkflowDocument | undefined> {
     const res = await this.fetchFn(`${this.baseUrl}/api/packs/${encodeURIComponent(packId)}/templates/${encodeURIComponent(templateId)}`)
     if (res.status === 404 || res.status === 410) return undefined
-    if (!res.ok) throw new Error(`GET template failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res)
     let loaded
     try {
       loaded = loadDocument(await res.json() as unknown)
@@ -3996,7 +4149,7 @@ export class DinksterConnection {
     if (req.cursor !== undefined) params.set('cursor', req.cursor)
     const suffix = params.size > 0 ? `?${params.toString()}` : ''
     const res = await this.fetchFn(`${this.baseUrl}/api/docs${suffix}`)
-    if (!res.ok) throw new Error(`GET /api/docs failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res)
     const payload = await res.json() as { docs?: unknown; cursor?: unknown }
     return {
       docs: Array.isArray(payload.docs)
@@ -4011,16 +4164,19 @@ export class DinksterConnection {
     const key = `${packId}\u0000${digest}`
     const cached = this.docsPages.get(key)
     if (cached !== undefined) return cached
+    const principal = this.principalRequests.signal
     const pending = this.fetchFn(
       `${this.baseUrl}/api/packs/${encodeURIComponent(packId)}/docs/pages/${encodeURIComponent(digest)}`,
     ).then(async (res) => {
       if (res.status === 404) return undefined
-      if (!res.ok) throw new Error(`GET docs page failed: ${res.status}`)
+      if (!res.ok) throw await requestFailure(res)
       const contentType = res.headers.get('Content-Type')?.split(';', 1)[0]?.trim().toLowerCase()
       if (contentType !== 'text/markdown') throw new Error('GET docs page: expected text/markdown')
-      return res.text()
+      const text = await res.text()
+      principal.throwIfAborted()
+      return text
     }).catch((error: unknown) => {
-      this.docsPages.delete(key)
+      if (this.docsPages.get(key) === pending) this.docsPages.delete(key)
       throw error
     })
     this.docsPages.set(key, pending)
@@ -4037,23 +4193,25 @@ export class DinksterConnection {
     const key = `${packId}\u0000${digest}`
     const cached = this.packLocaleCatalogs.get(key)
     if (cached !== undefined) return cached
+    const principal = this.principalRequests.signal
     const pending = this.fetchFn(
       `${this.baseUrl}/api/packs/${encodeURIComponent(packId)}/locales/${encodeURIComponent(digest)}`,
     ).then(async (res) => {
       if (res.status === 404) return undefined
-      if (!res.ok) throw new Error(`GET pack locale catalog failed: ${res.status}`)
+      if (!res.ok) throw await requestFailure(res)
       const contentType = res.headers.get('Content-Type')?.split(';', 1)[0]?.trim().toLowerCase()
       if (contentType !== 'application/json') {
         throw new Error('GET pack locale catalog: expected application/json')
       }
       try {
         const text = new TextDecoder('utf-8', { fatal: true }).decode(await res.arrayBuffer())
+        principal.throwIfAborted()
         return JSON.parse(text) as unknown
       } catch (error) {
         throw new Error('GET pack locale catalog: malformed response', { cause: error })
       }
     }).catch((error: unknown) => {
-      this.packLocaleCatalogs.delete(key)
+      if (this.packLocaleCatalogs.get(key) === pending) this.packLocaleCatalogs.delete(key)
       throw error
     })
     this.packLocaleCatalogs.set(key, pending)
@@ -4072,7 +4230,7 @@ export class DinksterConnection {
 
   async activeEnvironment(signal?: AbortSignal): Promise<{ readonly id: string; readonly snapshot: string } | null> {
     const res = await this.fetchFn(`${this.baseUrl}/api/environment`, { cache: 'no-store', ...(signal === undefined ? {} : { signal }) })
-    if (!res.ok) throw new Error(`GET /api/environment failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res)
     const payload: unknown = await res.json()
     if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) throw new Error('Malformed active environment')
     const value = (payload as Record<string, unknown>)['environment']
@@ -4084,14 +4242,16 @@ export class DinksterConnection {
     return { id: row['id'], snapshot: row['snapshot'] }
   }
 
-  async listProjects(cursor?: string, signal?: AbortSignal): Promise<{
+  /** One page of projects; deleted ones only when `includeDeleted` asks for them. */
+  async listProjects(cursor?: string, signal?: AbortSignal, includeDeleted = false): Promise<{
     readonly items: readonly LibraryProject[]
     readonly cursor: string | null
   }> {
     const query = new URLSearchParams({ limit: '100' })
     if (cursor !== undefined) query.set('cursor', cursor)
+    if (includeDeleted) query.set('includeDeleted', 'true')
     const res = await this.fetchFn(`${this.baseUrl}/api/projects?${query}`, { cache: 'no-store', ...(signal === undefined ? {} : { signal }) })
-    if (!res.ok) throw new Error(`GET /api/projects failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res)
     const payload = await res.json() as Record<string, unknown> | null
     if (!payload || !Array.isArray(payload['items']) ||
       !(payload['cursor'] === null || typeof payload['cursor'] === 'string' && payload['cursor'].length > 0)) {
@@ -4101,16 +4261,16 @@ export class DinksterConnection {
   }
 
   /** Registration is idempotent: the library's existing record wins. */
-  async registerProject(id: string, name: string, signal?: AbortSignal): Promise<LibraryProject> {
+  async registerProject(id: string, name: string, creation: ProjectCreation = {}, signal?: AbortSignal): Promise<LibraryProject> {
     const res = await this.fetchFn(`${this.baseUrl}/api/projects`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, name }), ...(signal === undefined ? {} : { signal }),
+      body: JSON.stringify({ id, name, ...creation }), ...(signal === undefined ? {} : { signal }),
     })
     if (res.status === 503) {
-      const gate = parseEngineNotReady(await res.json().catch(() => undefined))
+      const gate = parseEngineNotReady(await res.clone().json().catch(() => undefined))
       if (gate) throw new EngineNotReadyError(gate.state)
     }
-    if (!res.ok) throw new Error(`POST /api/projects failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res)
     const payload = await res.json() as { project?: unknown } | null
     const project = decodeLibraryProject(payload?.project)
     if (project.id !== id) throw new Error('Library returned another project')
@@ -4119,7 +4279,7 @@ export class DinksterConnection {
 
   async getProject(id: string, signal?: AbortSignal): Promise<LibraryProject> {
     const res = await this.fetchFn(`${this.baseUrl}/api/projects/${encodeURIComponent(id)}`, { cache: 'no-store', ...(signal === undefined ? {} : { signal }) })
-    if (!res.ok) throw new Error(`GET /api/projects failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res)
     const payload = await res.json() as { project?: unknown } | null
     const project = decodeLibraryProject(payload?.project)
     if (project.id !== id) throw new Error('Library returned another project')
@@ -4129,7 +4289,7 @@ export class DinksterConnection {
 
   async projectNeeds(id: string, signal?: AbortSignal): Promise<ProjectNeeds> {
     const res = await this.fetchFn(`${this.baseUrl}/api/projects/${encodeURIComponent(id)}/needs`, { cache: 'no-store', ...(signal === undefined ? {} : { signal }) })
-    if (!res.ok) throw new Error(`GET /api/projects/needs failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res)
     const invalid = () => new Error('Malformed project needs')
     const raw: unknown = await res.json()
     if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw invalid()
@@ -4147,8 +4307,8 @@ export class DinksterConnection {
       })
     }
     const packs = readPacks(body['packs'])
-    const installed = readPacks(body['installed'])
-    if (new Set(installed.map(({ pack }) => pack)).size !== installed.length) throw invalid()
+    const installed = body['installed'] === undefined ? undefined : readPacks(body['installed'])
+    if (installed !== undefined && new Set(installed.map(({ pack }) => pack)).size !== installed.length) throw invalid()
     const unknown = body['unknown'].map((raw: unknown) => {
       if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw invalid()
       const record = raw as Record<string, unknown>
@@ -4156,27 +4316,63 @@ export class DinksterConnection {
         typeof record['id'] !== 'string' || record['id'].length === 0) throw invalid()
       return { scope: record['scope'], id: record['id'] }
     })
-    return { packs, installed, extra: body['extra'] as string[], unknown }
+    for (const field of ['canWrite', 'hasInstalledNodes']) {
+      if (body[field] !== undefined && typeof body[field] !== 'boolean') throw invalid()
+    }
+    return { packs, ...(installed === undefined ? {} : { installed }), extra: body['extra'] as string[], unknown,
+      ...(body['canWrite'] === undefined ? {} : { canWrite: body['canWrite'] as boolean }),
+      ...(body['hasInstalledNodes'] === undefined ? {} : { hasInstalledNodes: body['hasInstalledNodes'] as boolean }),
+    }
+  }
+
+  private acceptAccountStatus(payload: unknown, generation: number): AccountStatus {
+    if (generation !== this.accountRequestGeneration) throw new DOMException('Account request superseded', 'AbortError')
+    const status = decodeAccountStatus(payload)
+    if (status.principalRevision !== undefined && status.principalRevision !== this.principalRevision) {
+      const reconnect = this.status.get() !== 'disconnected'
+      this.principalRevision = status.principalRevision
+      const previousRequests = this.principalRequests
+      this.principalRequests = new AbortController()
+      previousRequests.abort(new DOMException('Account changed', 'AbortError'))
+      this.valuesClient = undefined
+      this.mountErrors.set(undefined)
+      this.invalidateExtensionSnapshotPair()
+      this.registry = undefined
+      this.docsPages.clear()
+      this.packLocaleCatalogs.clear()
+      this.seenLiveJobs.clear()
+      this.runLogBackfills.clear()
+      this.runLogCursors.clear()
+      this.normalizer.reset()
+      this.principalChanges.update((value) => value + 1)
+      this.socket.disconnect()
+      if (reconnect) this.socket.connect()
+    }
+    return status
   }
 
   async accountStatus(signal?: AbortSignal): Promise<AccountStatus> {
-    return decodeAccountStatus(await this.accountRequest('GET', '/api/account', signal))
+    const generation = ++this.accountRequestGeneration
+    return this.acceptAccountStatus(await this.accountRequest('GET', '/api/account', signal), generation)
   }
 
   /** Starts native sign-in; the browser on the engine's machine opens `authorizationUrl`. */
   async startAccountSignIn(signal?: AbortSignal): Promise<AccountStatus & { readonly authorizationUrl: string }> {
+    const generation = ++this.accountRequestGeneration
     const payload = await this.accountRequest('POST', '/api/account/sign-in', signal) as Record<string, unknown> | null
     const url = payload?.['authorizationUrl']
     if (typeof url !== 'string' || !/^https?:\/\//.test(url)) throw new Error('Malformed account sign-in')
-    return { ...decodeAccountStatus(payload), authorizationUrl: url }
+    return { ...this.acceptAccountStatus(payload, generation), authorizationUrl: url }
   }
 
   async cancelAccountSignIn(signal?: AbortSignal): Promise<AccountStatus> {
-    return decodeAccountStatus(await this.accountRequest('DELETE', '/api/account/sign-in', signal))
+    const generation = ++this.accountRequestGeneration
+    return this.acceptAccountStatus(await this.accountRequest('DELETE', '/api/account/sign-in', signal), generation)
   }
 
   async signOutAccount(signal?: AbortSignal): Promise<AccountStatus> {
-    return decodeAccountStatus(await this.accountRequest('POST', '/api/account/sign-out', signal))
+    const generation = ++this.accountRequestGeneration
+    return this.acceptAccountStatus(await this.accountRequest('POST', '/api/account/sign-out', signal), generation)
   }
 
   async accountProjects(signal?: AbortSignal): Promise<AccountProjectChoices> {
@@ -4213,20 +4409,48 @@ export class DinksterConnection {
       ...(method === 'POST' || method === 'PUT' ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}),
       ...(signal === undefined ? {} : { signal }),
     })
-    const payload: unknown = await res.json().catch(() => undefined)
-    if (!res.ok) {
-      const code = (payload as { error?: unknown } | undefined)?.error
-      throw new Error(`${method} ${path} failed: ${typeof code === 'string' ? code : res.status}`)
-    }
-    return payload
+    if (!res.ok) throw await requestFailure(res)
+    return await res.json().catch(() => undefined) as unknown
   }
 
   renameProject(id: string, name: string, revision: number, signal?: AbortSignal): Promise<LibraryProject> {
     return this.patchProject(id, revision, { name }, signal)
   }
 
+  /** Marks the project deleted at `revision`; the library keeps its files, and refuses the default project. */
+  async deleteProject(id: string, revision: number, signal?: AbortSignal): Promise<LibraryProject> {
+    const res = await this.fetchFn(`${this.baseUrl}/api/projects/${encodeURIComponent(id)}`, {
+      method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ revision }), ...(signal === undefined ? {} : { signal }),
+    })
+    if (res.status === 409) throw new Error('Project changed elsewhere. Refresh before deleting.')
+    if (!res.ok) throw await requestFailure(res)
+    const payload = await res.json() as { project?: unknown } | null
+    const project = decodeLibraryProject(payload?.project)
+    if (project.id !== id || !project.deleted) throw new Error('Library did not delete the project')
+    return project
+  }
+
+  /** Clears the project's deleted mark at `revision`; its workflows and outputs come back with it. */
+  async restoreProject(id: string, revision: number, signal?: AbortSignal): Promise<LibraryProject> {
+    const res = await this.fetchFn(`${this.baseUrl}/api/projects/${encodeURIComponent(id)}/restore`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ revision }), ...(signal === undefined ? {} : { signal }),
+    })
+    if (res.status === 409) throw new Error('Project changed elsewhere. Refresh before restoring.')
+    if (!res.ok) throw await requestFailure(res)
+    const payload = await res.json() as { project?: unknown } | null
+    const project = decodeLibraryProject(payload?.project)
+    if (project.id !== id || project.deleted) throw new Error('Library did not restore the project')
+    return project
+  }
+
   setProjectExtraPacks(id: string, extra: readonly string[], revision: number, signal?: AbortSignal): Promise<LibraryProject> {
     return this.patchProject(id, revision, { packs: { extra } }, signal)
+  }
+
+  enableAllInstalledProjectPacks(id: string, revision: number, signal?: AbortSignal): Promise<LibraryProject> {
+    return this.patchProject(id, revision, { packs: { extra: [], allInstalled: true } }, signal)
   }
 
   private async patchProject(id: string, revision: number, patch: Readonly<Record<string, unknown>>, signal?: AbortSignal): Promise<LibraryProject> {
@@ -4234,8 +4458,12 @@ export class DinksterConnection {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ revision, patch }), ...(signal === undefined ? {} : { signal }),
     })
-    if (res.status === 409) throw new Error('Project changed elsewhere. Refresh before saving.')
-    if (!res.ok) throw new Error(`PATCH /api/projects failed: ${res.status}`)
+    if (res.status === 409) {
+      const failure: unknown = await res.json().catch(() => undefined)
+      const reason = typeof failure === 'object' && failure !== null && 'error' in failure ? failure.error : undefined
+      throw new ProjectRevisionConflictError(`Project changed elsewhere. Refresh before saving.${typeof reason === 'string' ? ` ${reason}` : ''}`)
+    }
+    if (!res.ok) throw await requestFailure(res)
     const payload = await res.json() as { project?: unknown } | null
     const project = decodeLibraryProject(payload?.project)
     if (project.id !== id) throw new Error('Library returned another project')
@@ -4248,7 +4476,7 @@ export class DinksterConnection {
       `${this.baseUrl}/api/library/${encodeURIComponent(id)}?scope=${encodeURIComponent(scope)}`,
     )
     if (res.status === 404) return undefined
-    if (!res.ok) throw new Error(`GET /api/library/${id} failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res)
     const payload: unknown = await res.json()
     if (!isLibraryRecord(payload)) throw new Error('GET /api/library: malformed response')
     return payload
@@ -4266,9 +4494,10 @@ export class DinksterConnection {
     const res = await this.fetchFn(`${this.baseUrl}/api/library`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(args),
+      // A new record belongs to this window's project; without it the engine files it in Default.
+      body: JSON.stringify({ ...args, ...(this.project !== undefined ? { project: this.project } : {}) }),
     })
-    if (!res.ok) throw new Error(`POST /api/library failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res)
     const payload: unknown = await res.json()
     if (!isLibraryRecord(payload)) throw new Error('POST /api/library: malformed response')
     return payload
@@ -4297,7 +4526,7 @@ export class DinksterConnection {
       body: JSON.stringify(patch),
     })
     if (res.status === 409) return { ok: false, conflict: true }
-    if (!res.ok) throw new Error(`PATCH /api/library/${id} failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res)
     const payload: unknown = await res.json()
     if (!isLibraryRecord(payload)) throw new Error('PATCH /api/library: malformed response')
     return { ok: true, record: payload }
@@ -4327,7 +4556,7 @@ export class DinksterConnection {
     if (req.limit !== undefined) params.set('limit', String(req.limit))
     if (req.cursor !== undefined) params.set('cursor', req.cursor)
     const res = await this.fetchFn(`${this.baseUrl}/api/history?${params.toString()}`)
-    if (!res.ok) throw new Error(`GET /api/history failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res)
     const payload = (await res.json()) as { records?: unknown; cursor?: unknown }
     const records = Array.isArray(payload.records)
       ? payload.records.flatMap((record) => {
@@ -4347,7 +4576,7 @@ export class DinksterConnection {
       `${this.baseUrl}/api/history/${encodeURIComponent(runId)}?scope=${encodeURIComponent(scope)}`,
     )
     if (res.status === 404 || res.status === 410) return undefined
-    if (!res.ok) throw new Error(`GET /api/history/${runId} failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res)
     const payload: unknown = await res.json()
     const record = decodeHistoryRun(payload)
     if (record === undefined) throw new Error('GET /api/history: malformed response')
@@ -4366,7 +4595,7 @@ export class DinksterConnection {
     )
     if (res.status === 204) return true
     if (res.status === 404) return false
-    throw new Error(`DELETE /api/history/${runId} failed: ${res.status}`)
+    throw await requestFailure(res)
   }
 
   /**
@@ -4390,7 +4619,7 @@ export class DinksterConnection {
     const res = await this.fetchFn(`${this.baseUrl}/api/history?${params.toString()}`, {
       method: 'DELETE',
     })
-    if (!res.ok) throw new Error(`DELETE /api/history failed: ${res.status}`)
+    if (!res.ok) throw await requestFailure(res)
     const payload = (await res.json()) as { deleted?: unknown }
     return typeof payload.deleted === 'number' ? payload.deleted : 0
   }
@@ -4406,13 +4635,15 @@ export class DinksterConnection {
       baseUrl: this.baseUrl,
       clientId: this.clientId,
       fetchFn: this.fetchFn,
+      lifetime: this.principalRequests.signal,
     })
     return this.valuesClient
   }
 
   /** Values keep the selected history record's original client identity. */
   historyValues(run: HistoryRunRecord): DinksterValuesClient {
-    return new DinksterValuesClient({ baseUrl: this.baseUrl, clientId: run.clientId, fetchFn: this.fetchFn })
+    return new DinksterValuesClient({ baseUrl: this.baseUrl, clientId: run.clientId, fetchFn: this.fetchFn,
+      lifetime: this.principalRequests.signal })
   }
 
   // -- WebSocket -----------------------------------------------------------------

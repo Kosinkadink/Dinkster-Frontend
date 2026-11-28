@@ -20,17 +20,7 @@
  *  I9  reroutes: link endpoints reference existing reroutes in the same graph
  *      def, at most one link drives each reroute, and reroute chains are
  *      acyclic (nets/boundaries cannot reference reroutes by construction)
- *  I10 value sources: key/id consistent, ids below the allocation cursor,
- *      every ValueSourceRef resolves in the same graph def, and no link may
- *      TARGET a value source (they produce, never consume; fan-out is fine)
- *  I11 selectors: key/id consistent, ids below the allocation cursor,
- *      candidate ids unique within their selector, a fixed policy names an
- *      existing candidate, every SelectorRef resolves (selector + candidate)
- *      in the same graph def, link SOURCES never name a candidate and link
- *      TARGETS always do (candidates consume, the output produces), at most
- *      one link drives each candidate, and reroute/selector driver chains
- *      (over ALL candidates, since policy can change) are acyclic
- *  I12 member-addressed link/net endpoints name persisted dynamic members;
+ *  I12 link/net endpoints inside a group member name persisted members;
  *      stale links cannot recreate sockets removed by explicit compaction
  */
 
@@ -38,7 +28,6 @@ import { diag, type Diagnostic } from './diagnostics.js'
 import {
   boundaryBindingKey,
   isNodeBoundaryBinding,
-  isSubtreeBinding,
   regionContractShapeProblems,
   resolveDynamicAddress,
   type BoundaryRouteLeg,
@@ -56,8 +45,6 @@ import {
   asNodeId,
   isPortEndpoint,
   isRerouteRef,
-  isSelectorRef,
-  isValueSourceRef,
   isWidgetTapRef,
   occurrenceKey,
   parseAllocatedId,
@@ -69,8 +56,8 @@ import {
   type OccurrenceRef,
   type PortRef,
 } from './ids.js'
-import { matchBoundaryItem, translateThroughCrossing } from './compile/crossing.js'
-import { selectorCandidateKey } from './reroute.js'
+import { matchBoundaryItem } from './compile/crossing.js'
+import { boundaryItems } from './format/document.js'
 
 const SUBGRAPH_PREFIX = '#'
 
@@ -142,13 +129,8 @@ const containsNul = (value: string): boolean => value.includes('\u0000')
 
 function endpointIdentityContainsNul(endpoint: LinkEndpoint): boolean {
   if (isRerouteRef(endpoint)) return containsNul(endpoint.reroute)
-  if (isValueSourceRef(endpoint)) return containsNul(endpoint.valueSource)
-  if (isSelectorRef(endpoint))
-    return containsNul(endpoint.selector) ||
-      (endpoint.candidate !== undefined && containsNul(endpoint.candidate))
   if (isWidgetTapRef(endpoint)) return containsNul(endpoint.node) || containsNul(endpoint.tap)
-  return containsNul(endpoint.node) || containsNul(endpoint.port) ||
-    endpoint.members?.some(containsNul) === true
+  return containsNul(endpoint.node) || containsNul(endpoint.port)
 }
 
 function occurrenceRefContainsNul(ref: OccurrenceRef): boolean {
@@ -159,14 +141,11 @@ function routeContainsNul(route: readonly BoundaryRouteLeg[]): boolean {
   return route.some((leg) =>
     containsNul(leg.graph) ||
     containsNul(leg.boundaryId) ||
-    (leg.binding.kind === 'valueSource' && containsNul(leg.binding.valueSource)) ||
     (isNodeBoundaryBinding(leg.binding) && (containsNul(leg.binding.node) ||
     (leg.binding.kind === 'widgetTap'
       ? containsNul(leg.binding.tap)
       : containsNul(leg.binding.port) ||
-        (leg.binding.viaReroute !== undefined && containsNul(leg.binding.viaReroute)) ||
-        leg.binding.members?.some(containsNul) === true ||
-        leg.binding.slots?.some(containsNul) === true))))
+        (leg.binding.viaReroute !== undefined && containsNul(leg.binding.viaReroute))))))
 }
 
 function occurrenceEndpointContainsNul(endpoint: OccurrenceLinkEndpoint): boolean {
@@ -174,7 +153,6 @@ function occurrenceEndpointContainsNul(endpoint: OccurrenceLinkEndpoint): boolea
     ? endpointIdentityContainsNul(endpoint.endpoint)
     : occurrenceRefContainsNul(endpoint.occurrence) ||
       containsNul(endpoint.address.port) ||
-      endpoint.address.members?.some(containsNul) === true ||
       routeContainsNul(endpoint.route)
 }
 
@@ -201,41 +179,32 @@ function topologyIdentityContainsNul(key: string, topology: OccurrenceTopology):
   })
 }
 
-/** Structural closure only; schema-backed crossings validate the family's address mode. */
+/** Structural closure only: each leg must be the one binding its owner hop's address selects. */
 export function routeMatchesOwnerChain(
   doc: Pick<WorkflowDocument, 'graphs'>,
   chain: readonly ResolvedOccurrenceHop[],
   startIndex: number,
   side: 'from' | 'to',
-  initialAddress: { readonly port: string; readonly members?: readonly string[] },
+  initialAddress: { readonly port: string },
   route: readonly BoundaryRouteLeg[],
 ): boolean {
   if (route.length !== chain.length - startIndex) return false
   let address = initialAddress
-  let inheritedDottedMember = false
   for (let offset = 0; offset < route.length; offset++) {
     const ownerHop = chain[startIndex + offset]!
     const graph = doc.graphs[ownerHop.bodyGraphId]!
     const leg = route[offset]!
     if (leg.graph !== graph.id) return false
-    const items = side === 'from' ? graph.boundary?.outputs : graph.boundary?.inputs
+    const items = side === 'from' ? boundaryItems(graph.boundary, 'outputs') : boundaryItems(graph.boundary, 'inputs')
     const match = matchBoundaryItem(items ?? [], address)
     if (!match.ok || match.item.id !== leg.boundaryId) return false
     const item = match.item
-    if (item.binds.kind === 'family' &&
-        !inheritedDottedMember && resolveDynamicAddress(address, ownerHop.node.dynamic).kind !== 'resolved')
-      return false
     const bindings = [item.binds, ...(item.alsoBinds ?? [])]
     const bindingMatches = bindings.filter((binding) =>
       boundaryBindingKey(binding) === boundaryBindingKey(leg.binding))
     if (bindingMatches.length !== 1)
       return false
     const binding = bindingMatches[0]!
-    if (binding.kind === 'valueSource') {
-      if (side !== 'from' || offset + 1 !== route.length || graph.valueSources?.[binding.valueSource] === undefined)
-        return false
-      continue
-    }
     if (!isNodeBoundaryBinding(binding)) return false
     if (binding.viaReroute !== undefined &&
         (side !== 'to' || offset + 1 !== route.length || graph.reroutes[binding.viaReroute] === undefined))
@@ -247,22 +216,7 @@ export function routeMatchesOwnerChain(
     if (offset + 1 < route.length) {
       const nextHop = chain[startIndex + offset + 1]!
       if (binding.kind === 'widgetTap' || binding.node !== nextHop.ref.node) return false
-      if (isSubtreeBinding(binding)) {
-        const translated = translateThroughCrossing({
-          kind: 'subtree', boundaryId: item.id, side: 'input', targetNode: binding.node,
-          constructPath: binding.port, hopMembers: binding.members ?? [], hopPaths: [],
-        }, address)
-        if (!translated.ok) return false
-        address = translated.ref
-        inheritedDottedMember = false
-      } else if (binding.kind === 'family' && address.members === undefined && address.port.startsWith(`${item.id}.`)) {
-        // The ancestor owns this dotted suffix; intermediate instances need not persist it.
-        address = { port: `${binding.port}${address.port.slice(item.id.length)}` }
-        inheritedDottedMember = true
-      } else {
-        address = { port: binding.port, ...(binding.members ? { members: binding.members } : {}) }
-        inheritedDottedMember = false
-      }
+      address = { port: binding.port }
     }
   }
   return true
@@ -279,26 +233,6 @@ function checkOccurrenceBodyEndpoint(
     diags.push(diag('error', 'invariant', 'doc.occurrenceTopology.endpointDangling', `${where}: ${message}`))
   if (isRerouteRef(endpoint)) {
     if (def.reroutes[endpoint.reroute] === undefined) dangling(`missing reroute '${endpoint.reroute}'`)
-    return
-  }
-  if (isValueSourceRef(endpoint)) {
-    if (def.valueSources?.[endpoint.valueSource] === undefined)
-      dangling(`missing value source '${endpoint.valueSource}'`)
-    else if (side === 'to') dangling(`value source '${endpoint.valueSource}' cannot consume`)
-    return
-  }
-  if (isSelectorRef(endpoint)) {
-    const selector = def.selectors?.[endpoint.selector]
-    if (selector === undefined) {
-      dangling(`missing selector '${endpoint.selector}'`)
-    } else if (endpoint.candidate !== undefined &&
-               !selector.candidates.some((candidate) => candidate.id === endpoint.candidate)) {
-      dangling(`missing selector candidate '${endpoint.selector}/${endpoint.candidate}'`)
-    } else if (side === 'from' && endpoint.candidate !== undefined) {
-      dangling(`selector candidate '${endpoint.selector}/${endpoint.candidate}' cannot produce`)
-    } else if (side === 'to' && endpoint.candidate === undefined) {
-      dangling(`selector output '${endpoint.selector}' cannot consume`)
-    }
     return
   }
   if (isWidgetTapRef(endpoint)) {
@@ -420,7 +354,7 @@ function checkOccurrenceTopologies(doc: WorkflowDocument, diags: Diagnostic[]): 
         if (endpoint.kind === 'body') {
           if (side === 'from' && isPortEndpoint(endpoint.endpoint) &&
               endpoint.endpoint.node === '$region' && endpoint.endpoint.port === 'index' &&
-              endpoint.endpoint.members === undefined && chain[chain.length - 1]!.node.region !== undefined) continue
+              chain[chain.length - 1]!.node.region !== undefined) continue
           checkOccurrenceBodyEndpoint(body, endpoint.endpoint, side, `${where} link '${link.id}' ${side}`, diags)
           continue
         }
@@ -499,11 +433,7 @@ function checkGraphDef(doc: WorkflowDocument, defId: string, def: GraphDef, diag
     seen.add(id)
     checkCursor(id, kind)
   }
-  // Allocation-cursor gate alone: for ids whose UNIQUENESS scope is narrower
-  // than the graph (selector candidates are addressed as (selector,
-  // candidate) pairs, and legitimate producers reuse candidate ids across
-  // selectors), but which still mint from the graph allocator when created
-  // by commands - so a canonical id at/above its cursor is corruption.
+  // Allocation-cursor gate: a canonical id at/above its cursor is corruption.
   const checkCursor = (id: string, kind: string) => {
     const parsed = parseAllocatedId(id)
     if (!parsed) return
@@ -548,71 +478,16 @@ function checkGraphDef(doc: WorkflowDocument, defId: string, def: GraphDef, diag
     checkId(reroute.id, 'reroute')
   }
 
-  // I10: value source key/id consistency + id allocation
-  for (const [key, vs] of Object.entries(def.valueSources ?? {})) {
-    if (key !== vs.id) {
-      diags.push(diag('error', 'invariant', 'doc.valueSource.keyMismatch', where(`value source key '${key}' != id '${vs.id}'`)))
-    }
-    checkId(vs.id, 'value source')
-  }
-
-  // I11: selector key/id consistency, id allocation, candidate ids, policy
-  for (const [key, sel] of Object.entries(def.selectors ?? {})) {
-    if (key !== sel.id) {
-      diags.push(diag('error', 'invariant', 'doc.selector.keyMismatch', where(`selector key '${key}' != id '${sel.id}'`)))
-    }
-    checkId(sel.id, 'selector')
-    const candidateIds = new Set<string>()
-    for (const c of sel.candidates) {
-      if (candidateIds.has(c.id)) {
-        diags.push(diag('error', 'invariant', 'doc.selector.candidateDuplicate', where(`selector '${sel.id}' has duplicate candidate id '${c.id}'`)))
-      }
-      // Candidate identity is selector-scoped (selectorCandidateKey), so no
-      // graph-wide duplicate check - but command-created candidates mint
-      // from the graph allocator, so canonical ids still take the cursor
-      // gate (solo nextOrdinal or actorCursors[actor]).
-      checkCursor(c.id, 'selector candidate')
-      candidateIds.add(c.id)
-    }
-    if (sel.policy.kind === 'fixed' && !candidateIds.has(sel.policy.candidate)) {
-      diags.push(diag('error', 'invariant', 'doc.selector.policyDangling', where(`selector '${sel.id}' fixed policy names missing candidate '${sel.policy.candidate}'`)))
-    }
-  }
-
   const nodeExists = (n: NodeId) => def.nodes[n] !== undefined
   const drivenInputs = new Map<string, string>() // portRefKey -> driver description
   // rerouteId -> first driving link; doubles as the driver index for the
   // acyclicity walk below (one pass over links, never O(R x L) rescans).
   const drivenReroutes = new Map<string, LinkData>()
-  // selectorCandidateKey -> first driving link (one driver per candidate).
-  const drivenSelectorCandidates = new Map<string, LinkData>()
-  // selectorId -> all candidate-driving links (drives the acyclicity walk:
-  // a selector's output depends on every candidate because policy can change).
-  const selectorDrivers = new Map<string, LinkData[]>()
 
   const checkEndpoint = (p: LinkEndpoint, what: string, code: string) => {
     if (isRerouteRef(p)) {
       if (!def.reroutes[p.reroute]) {
         diags.push(diag('error', 'invariant', code, where(`${what} references missing reroute '${p.reroute}'`)))
-        return false
-      }
-      return true
-    }
-    if (isValueSourceRef(p)) {
-      if (!def.valueSources?.[p.valueSource]) {
-        diags.push(diag('error', 'invariant', code, where(`${what} references missing value source '${p.valueSource}'`)))
-        return false
-      }
-      return true
-    }
-    if (isSelectorRef(p)) {
-      const sel = def.selectors?.[p.selector]
-      if (!sel) {
-        diags.push(diag('error', 'invariant', code, where(`${what} references missing selector '${p.selector}'`)))
-        return false
-      }
-      if (p.candidate !== undefined && !sel.candidates.some((c) => c.id === p.candidate)) {
-        diags.push(diag('error', 'invariant', code, where(`${what} references missing candidate '${p.candidate}' of selector '${p.selector}'`)))
         return false
       }
       return true
@@ -658,43 +533,10 @@ function checkGraphDef(doc: WorkflowDocument, defId: string, def: GraphDef, diag
       diags.push(diag('error', 'invariant', 'doc.link.keyMismatch', where(`link key '${key}' != id '${link.id}'`)))
     }
     checkId(link.id, 'link')
-    if (checkEndpoint(link.from, `link '${link.id}' source`, 'doc.link.dangling')) {
-      if (isSelectorRef(link.from) && link.from.candidate !== undefined) {
-        // I11: candidate endpoints consume, never produce
-        diags.push(
-          diag('error', 'invariant', 'doc.link.selectorCandidateSource', where(`Link ${link.id}: selector candidate ${link.from.selector}/${link.from.candidate} cannot produce values`)),
-        )
-      }
-    }
+    checkEndpoint(link.from, `link '${link.id}' source`, 'doc.link.dangling')
     if (checkEndpoint(link.to, `link '${link.id}' target`, 'doc.link.dangling')) {
-      if (isValueSourceRef(link.to)) {
-        // I10: value sources produce, never consume
-        diags.push(
-          diag('error', 'invariant', 'doc.link.valueSourceTarget', where(`link '${link.id}' targets value source '${link.to.valueSource}' (value sources cannot consume)`)),
-        )
-      } else if (isWidgetTapRef(link.to)) {
+      if (isWidgetTapRef(link.to)) {
         diags.push(diag('error', 'invariant', 'doc.link.tapTarget', where(`link '${link.id}' targets widget tap '${link.to.node}.${link.to.tap}' (taps cannot consume)`)))
-      } else if (isSelectorRef(link.to)) {
-        if (link.to.candidate === undefined) {
-          // I11: the selector output produces, never consumes
-          diags.push(
-            diag('error', 'invariant', 'doc.link.selectorOutputTarget', where(`link '${link.id}' targets selector '${link.to.selector}' output (outputs cannot consume)`)),
-          )
-        } else {
-          // I11: at most one driver per candidate
-          const key = selectorCandidateKey(link.to.selector, link.to.candidate)
-          const existing = drivenSelectorCandidates.get(key)
-          if (existing !== undefined) {
-            diags.push(
-              diag('error', 'invariant', 'doc.selector.multiDriver', where(`Selector ${link.to.selector}/${link.to.candidate}: links ${existing.id} and ${link.id} both drive this candidate`)),
-            )
-          } else {
-            drivenSelectorCandidates.set(key, link)
-            const list = selectorDrivers.get(link.to.selector)
-            if (list) list.push(link)
-            else selectorDrivers.set(link.to.selector, [link])
-          }
-        }
       } else if (isRerouteRef(link.to)) {
         // I9: at most one driver per reroute
         const existing = drivenReroutes.get(link.to.reroute)
@@ -711,14 +553,12 @@ function checkGraphDef(doc: WorkflowDocument, defId: string, def: GraphDef, diag
     }
   }
 
-  // I9 + I11: reroute/selector driver chains are acyclic. A selector output
-  // depends on every candidate (policy can change after the fact), and a tap
-  // depends on its input driver, so the walk follows all persisted aliases.
+  // I9: reroute driver chains are acyclic. A tap depends on its input
+  // driver, so the walk follows all persisted aliases.
   {
     const state = new Map<string, 'visiting' | 'done'>()
     const follow = (from: LinkEndpoint) => {
       if (isRerouteRef(from)) visit(`r:${from.reroute}`)
-      else if (isSelectorRef(from) && from.candidate === undefined) visit(`s:${from.selector}`)
       else if (isWidgetTapRef(from)) visit(`t:${portRefKey({ node: from.node, port: from.tap })}`)
     }
     const visit = (key: string) => {
@@ -729,9 +569,7 @@ function checkGraphDef(doc: WorkflowDocument, defId: string, def: GraphDef, diag
         diags.push(
           kind === 'r'
             ? diag('error', 'invariant', 'doc.reroute.cycle', where(`reroute chain through '${id}' forms a cycle`))
-            : kind === 's'
-              ? diag('error', 'invariant', 'doc.selector.cycle', where(`selector chain through '${id}' forms a cycle`))
-              : diag('error', 'invariant', 'doc.tap.cycle', where(`widget tap chain through '${id}' forms a cycle`)),
+            : diag('error', 'invariant', 'doc.tap.cycle', where(`widget tap chain through '${id}' forms a cycle`)),
         )
         state.set(key, 'done')
         return
@@ -740,13 +578,10 @@ function checkGraphDef(doc: WorkflowDocument, defId: string, def: GraphDef, diag
       if (key.startsWith('r:')) {
         const driver = drivenReroutes.get(key.slice(2))
         if (driver) follow(driver.from)
-      } else if (key.startsWith('s:')) {
-        for (const driver of selectorDrivers.get(key.slice(2)) ?? []) follow(driver.from)
       } else {
         const inputKey = key.slice(2)
         const link = Object.values(def.links).find((candidate) =>
-          !isRerouteRef(candidate.to) && !isSelectorRef(candidate.to) &&
-          !isValueSourceRef(candidate.to) && !isWidgetTapRef(candidate.to) &&
+          !isRerouteRef(candidate.to) && !isWidgetTapRef(candidate.to) &&
           portRefKey(candidate.to) === inputKey)
         if (link) follow(link.from)
         else {
@@ -758,7 +593,6 @@ function checkGraphDef(doc: WorkflowDocument, defId: string, def: GraphDef, diag
       if (state.get(key) === 'visiting') state.set(key, 'done')
     }
     for (const id of Object.keys(def.reroutes)) visit(`r:${id}`)
-    for (const id of Object.keys(def.selectors ?? {})) visit(`s:${id}`)
     for (const link of Object.values(def.links)) if (isWidgetTapRef(link.from)) follow(link.from)
   }
 
@@ -780,25 +614,25 @@ function checkGraphDef(doc: WorkflowDocument, defId: string, def: GraphDef, diag
   if (def.boundary) {
     const boundaryIds = new Set<string>()
     const boundaryReroutes = new Set<string>()
-    const boundaryValueSourceInputs = new Set<string>()
     for (const side of ['inputs', 'outputs'] as const) {
-      for (const item of def.boundary[side]) {
+      for (const item of boundaryItems(def.boundary, side)) {
         if (boundaryIds.has(item.id)) {
           diags.push(diag('error', 'invariant', 'doc.boundary.duplicateId', where(`duplicate boundary id '${item.id}'`)))
         }
         boundaryIds.add(item.id)
+        if (item.wireHidden !== undefined &&
+            !(side === 'inputs' && item.binds.kind === 'port' && item.promoted === true)) {
+          diags.push(diag('error', 'invariant', 'doc.boundary.wireHidden', where(`boundary '${item.id}' hides its wire but is not shown as a field on the subgraph node`)))
+        }
+        if (item.limits !== undefined && !(side === 'inputs' && item.promoted === true)) {
+          diags.push(diag('error', 'invariant', 'doc.boundary.limits', where(`boundary '${item.id}' has limits but is not a field on the subgraph node`)))
+        }
+        if (item.limits?.min !== undefined && item.limits.max !== undefined && item.limits.min > item.limits.max) {
+          diags.push(diag('error', 'invariant', 'doc.boundary.limits', where(`boundary '${item.id}' has a lowest limit above its highest`)))
+        }
         for (const b of [item.binds, ...(item.alsoBinds ?? [])]) {
           if (b.kind === 'unbound') {
             if (item.alsoBinds !== undefined || item.promoted !== undefined) diags.push(diag('error', 'invariant', 'doc.boundary.unbound', where(`unattached boundary '${item.id}' cannot fan out or promote a widget`)))
-            continue
-          }
-          if (b.kind === 'valueSource') {
-            if (!def.valueSources?.[b.valueSource]) diags.push(diag('error', 'invariant', 'doc.boundary.dangling', where(`boundary '${item.id}' binds missing value source '${b.valueSource}'`)))
-            if (item.alsoBinds !== undefined || side === 'outputs' && item.promoted !== undefined) diags.push(diag('error', 'invariant', 'doc.boundary.valueSource', where(`value source boundary '${item.id}' cannot fan out or promote an output`)))
-            if (side === 'inputs') {
-              if (boundaryValueSourceInputs.has(b.valueSource)) diags.push(diag('error', 'invariant', 'doc.boundary.valueSourceConflict', where(`multiple input boundaries bind value source '${b.valueSource}'`)))
-              boundaryValueSourceInputs.add(b.valueSource)
-            }
             continue
           }
           if (b.viaReroute !== undefined) {
@@ -854,22 +688,22 @@ function checkRegion(
     return
   }
 
-  const inputIds = new Set(body.boundary.inputs.map((item) => item.id as string))
-  const outputIds = new Set(body.boundary.outputs.map((item) => item.id as string))
+  const inputIds = new Set(boundaryItems(body.boundary, 'inputs').map((item) => item.id as string))
+  const outputIds = new Set(boundaryItems(body.boundary, 'outputs').map((item) => item.id as string))
   const elements = new Set(region.elementPorts ?? [])
   const states = new Set(region.statePorts ?? [])
   const outputRoles = region.outputRoles ?? {}
   const hasInput = (id: string): boolean =>
     Object.prototype.hasOwnProperty.call(node.values, id) ||
     Object.values(doc.graphs[graphId]!.links).some((link) =>
-      !isRerouteRef(link.to) && !isValueSourceRef(link.to) && !isSelectorRef(link.to) && !isWidgetTapRef(link.to) &&
+      !isRerouteRef(link.to) && !isWidgetTapRef(link.to) &&
       link.to.node === node.id && link.to.port === id) ||
     Object.values(doc.graphs[graphId]!.nets).some((net) => net.sinks.some((sink) => sink.node === node.id && sink.port === id))
 
   for (const id of elements) {
     if (!inputIds.has(id)) report('error', 'doc.region.elementPortUndeclared', `element port '${id}' is not a boundary input`, id, 'input')
     if (states.has(id)) report('error', 'doc.region.portRoleOverlap', `input '${id}' is both an element and state port`, id, 'input')
-    const boundary = body.boundary.inputs.find((item) => item.id === id)
+    const boundary = boundaryItems(body.boundary, 'inputs').find((item) => item.id === id)
     if (boundary?.promoted === true) {
       report('error', 'doc.region.elementPromoted', `element port '${id}' cannot promote a scalar widget`, id, 'input')
     }
@@ -978,14 +812,26 @@ function checkViewState(doc: WorkflowDocument, diags: Diagnostic[]) {
         diags.push(diag('warning', 'invariant', 'doc.view.danglingReroute', `[${defId}] view state for missing reroute '${rerouteId}'`))
       }
     }
-    for (const vsId of Object.keys(graphView.valueSources ?? {})) {
-      if (!def.valueSources?.[vsId]) {
-        diags.push(diag('warning', 'invariant', 'doc.view.danglingValueSource', `[${defId}] view state for missing value source '${vsId}'`))
+    const membership = graphView.groupMembership
+    if (membership !== undefined) {
+      const live = { nodes: def.nodes, reroutes: def.reroutes, groups: graphView.groups ?? {}, boundary: graphView.boundary ?? {} }
+      for (const kind of ['nodes', 'reroutes', 'groups', 'boundary'] as const) {
+        for (const [id, parent] of Object.entries(membership[kind])) {
+          if (!Object.hasOwn(live[kind], id) || !Object.hasOwn(live.groups, parent))
+            diags.push(diag('warning', 'invariant', 'doc.view.danglingGroupMember', `[${defId}] group membership '${kind}.${id}' references a missing item or group`))
+        }
       }
-    }
-    for (const selId of Object.keys(graphView.selectors ?? {})) {
-      if (!def.selectors?.[selId]) {
-        diags.push(diag('warning', 'invariant', 'doc.view.danglingSelector', `[${defId}] view state for missing selector '${selId}'`))
+      for (const id of Object.keys(membership.groups)) {
+        const seen = new Set<string>([id])
+        let parent = membership.groups[id]
+        while (parent !== undefined) {
+          if (seen.has(parent)) {
+            diags.push(diag('warning', 'invariant', 'doc.view.groupCycle', `[${defId}] cyclic group membership at '${id}'`))
+            break
+          }
+          seen.add(parent)
+          parent = membership.groups[parent]
+        }
       }
     }
     for (const netId of graphView.collapsedNets ?? []) {

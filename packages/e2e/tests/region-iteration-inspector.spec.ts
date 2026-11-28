@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, openRailPanel, waitForWorkspaceReady, nativeTest as test } from './fixtures.js'
+import { chooseOption } from '../choices.js'
 
 const proofDir = process.env['DINKSTER_REGION_INSPECTOR_PROOF_DIR']
 if (proofDir !== undefined) mkdirSync(proofDir, { recursive: true })
@@ -10,7 +11,7 @@ test('inspects simple and nested region iterations by exact retained runtime ide
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'region-inspector-proof', schemaWire: 1 },
+    dinkster: { version: 'region-inspector-proof', schemaWire: 2 },
     packs: {},
     nodes: {},
   } }))
@@ -48,8 +49,10 @@ test('inspects simple and nested region iterations by exact retained runtime ide
         },
         body: {
           id: 'body', name: 'Body', links: {}, nets: {}, reroutes: {}, boundary: {
-            inputs: [{ id: 'item', binds: { kind: 'port', node: 'source', port: 'in' } }],
-            outputs: [{ id: 'value', binds: { kind: 'port', node: 'source', port: 'value' } }],
+            body: [
+              { kind: 'input', id: 'item', binds: { kind: 'port', node: 'source', port: 'in' } },
+              { kind: 'output', id: 'value', binds: { kind: 'port', node: 'source', port: 'value' } },
+            ],
           }, nextOrdinal: 4,
           nodes: {
             source: { id: 'source', type: 'ProofSource', title: 'Renamed selector', values: {} },
@@ -59,8 +62,10 @@ test('inspects simple and nested region iterations by exact retained runtime ide
         },
         nested: {
           id: 'nested', name: 'Nested', links: {}, nets: {}, reroutes: {}, boundary: {
-            inputs: [{ id: 'item', binds: { kind: 'port', node: 'leaf', port: 'in' } }],
-            outputs: [{ id: 'value', binds: { kind: 'port', node: 'leaf', port: 'value' } }],
+            body: [
+              { kind: 'input', id: 'item', binds: { kind: 'port', node: 'leaf', port: 'in' } },
+              { kind: 'output', id: 'value', binds: { kind: 'port', node: 'leaf', port: 'value' } },
+            ],
           }, nextOrdinal: 2,
           nodes: { leaf: { id: 'leaf', type: 'ProofSource', title: 'Nested result', values: {} } },
         },
@@ -72,11 +77,11 @@ test('inspects simple and nested region iterations by exact retained runtime ide
     }
     app.registerSchemas([
       { type: 'ProofSource', displayName: 'Proof Source', category: 'proof', source: 'v3', isOutputNode: false,
-        items: [
+        body: [
           { kind: 'input', id: 'in', type: { kind: 'concrete', name: 'INT' }, optional: false },
           { kind: 'output', id: 'value', type: { kind: 'concrete', name: 'INT' } },
         ] },
-      { type: 'ProofSink', displayName: 'No-output step', category: 'proof', source: 'v3', isOutputNode: false, items: [] },
+      { type: 'ProofSink', displayName: 'No-output step', category: 'proof', source: 'v3', isOutputNode: false, body: [] },
     ] as never)
     const diagnostics = (await app.openDocument(workflow as never, 'Iteration inspector proof'))
     if (diagnostics.length > 0) throw new Error(JSON.stringify(diagnostics))
@@ -135,9 +140,9 @@ test('inspects simple and nested region iterations by exact retained runtime ide
     await page.screenshot({ path: join(proofDir, 'region-iteration-simple-map.png'), animations: 'disabled', fullPage: true })
   }
 
-  const selects = inspector.locator('select')
-  await selects.nth(0).selectOption({ label: 'Iteration 1' })
-  await selects.nth(1).selectOption({ label: 'No-output step' })
+  const selects = inspector.getByRole('combobox')
+  await chooseOption(selects.nth(0), 'Iteration 1')
+  await chooseOption(selects.nth(1), 'No-output step')
   await expect(inspector).toContainText('This body node has no inspectable outputs.')
   await page.evaluate(() => {
     const tabs = window.__dinksterTest!.app.tabs
@@ -154,10 +159,10 @@ test('inspects simple and nested region iterations by exact retained runtime ide
   if (proofDir !== undefined) {
     await page.screenshot({ path: join(proofDir, 'region-iteration-absent-output.png'), animations: 'disabled', fullPage: true })
   }
-  await expect(selects.nth(1)).toHaveValue('outer[0]/sink')
+  await expect(selects.nth(1)).toHaveText('No-output step')
   await expect(inspector).toContainText('This body node has no inspectable outputs.')
 
-  await selects.nth(0).selectOption({ label: 'Iteration 2' })
+  await chooseOption(selects.nth(0), 'Iteration 2')
   await expect(inspector).toContainText('Cached or coalesced')
   await expect(inspector).toContainText('outer[1]/source:value')
   await page.evaluate(() => {
@@ -168,14 +173,14 @@ test('inspects simple and nested region iterations by exact retained runtime ide
       runtimeNodeId: 'outer', iterations: 2,
     } as never)
   })
-  await expect(selects.nth(0)).toHaveValue(JSON.stringify([{ nodeId: 'outer', iteration: 1 }]))
+  await expect(selects.nth(0)).toHaveText('Iteration 2')
   await expect(inspector).toContainText('Cached or coalesced')
   await expect(inspector).toContainText('outer[1]/source:value')
   if (proofDir !== undefined) {
     await page.screenshot({ path: join(proofDir, 'region-iteration-cached.png'), animations: 'disabled', fullPage: true })
   }
 
-  await selects.nth(0).selectOption({ label: 'Iteration 2 / inner iteration 3' })
+  await chooseOption(selects.nth(0), 'Iteration 2 / inner iteration 3')
   await expect(inspector).toContainText('Nested result')
   await expect(inspector).toContainText('This nested intermediate is no longer retained.')
 

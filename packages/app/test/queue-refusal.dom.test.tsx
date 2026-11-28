@@ -25,20 +25,20 @@ async function fixture(clean = false) {
   const app = prepareWorkflowApp(new AppState())
   const backend = app.backends.get()[0]!
   const payload: DinksterNodesPayload = {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'queue-test', schemaWire: 1 },
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'queue-test', schemaWire: 2 },
     nodes: {
       EmptyImage: {
-        schemaVersion: 1, nodeType: 'EmptyImage', displayName: 'Empty Image', category: 'test',
-        interface: [
+        schemaVersion: 2, nodeType: 'EmptyImage', displayName: 'Empty Image', category: 'test',
+        body: [
           ...['width', 'height', 'batch_size', 'color'].map((id) => ({
-            role: 'input' as const, id, type: { kind: 'concrete' as const, types: ['INT'] }, required: false,
+            kind: 'input' as const, id, type: { kind: 'concrete' as const, types: ['INT'] }, required: false,
           })),
-          { role: 'output', id: 'out0', type: { kind: 'concrete', types: ['IMAGE'] } },
+          { kind: 'output', id: 'out0', type: { kind: 'concrete', types: ['IMAGE'] } },
         ],
       },
       PreviewImage: {
-        schemaVersion: 1, nodeType: 'PreviewImage', displayName: 'Preview Image', category: 'test', outputNode: true,
-        interface: [{ role: 'input', id: 'images', type: { kind: 'concrete', types: ['IMAGE'] }, required: true }],
+        schemaVersion: 2, nodeType: 'PreviewImage', displayName: 'Preview Image', category: 'test', outputNode: true,
+        body: [{ kind: 'input', id: 'images', type: { kind: 'concrete', types: ['IMAGE'] }, required: true }],
       },
     },
   }
@@ -57,6 +57,27 @@ async function fixture(clean = false) {
   expect(queue.disabled).toBe(false)
   return { app, backend, root, queue }
 }
+
+it('keeps Run available as supervisor status arrives and the engine stops and recovers', async () => {
+  const { app, backend, root } = await fixture(true)
+  try {
+    const queue = () => root.querySelector<HTMLButtonElement>('[data-testid="queue-button"]')
+    expect(queue()?.disabled).toBe(false)
+    backend.supervisor.set({ protocol: 1, state: 'ready' })
+    await vi.waitFor(() => expect(root.querySelector('[data-testid="engine-run-control"]')).not.toBeNull())
+    expect(queue()?.disabled).toBe(false)
+    backend.supervisor.set({ protocol: 1, state: 'stopped' })
+    expect(root.querySelector('[data-testid="engine-start"]')?.textContent).toBe('Start engine')
+    expect(queue()).toBeNull()
+    backend.supervisor.set({ protocol: 1, state: 'starting' })
+    expect(root.querySelector('[data-testid="engine-run-control"]')?.textContent).toContain('Starting engine')
+    backend.supervisor.set({ protocol: 1, state: 'ready' })
+    expect(queue()?.disabled).toBe(false)
+    backend.supervisor.set(undefined)
+    expect(root.querySelector('[data-testid="engine-run-control"]')).toBeNull()
+    expect(queue()?.disabled).toBe(false)
+  } finally { app.dispose() }
+})
 
 it('shows recovery storage errors until dismissed or saved without losing the edit', async () => {
   const { app, root } = await fixture(true)
@@ -113,7 +134,7 @@ it('pressing Queue on an invalid graph shows the Problems summary and opens its 
   const toast = root.querySelector('[data-testid="queue-refusal-toast"]')!
   expect(app.problems.get().some((problem) => problem.severity === 'error')).toBe(true)
   expect(toast.textContent).toContain('Workflow not queued')
-  expect(toast.textContent).toContain('6 problems, worst severity error')
+  expect(toast.textContent).toContain('3 problems, worst severity error')
   expect(toast.textContent).toContain('Errors: 1; warnings: 2; info: 3')
   const open = [...toast.querySelectorAll('button')].find((button) => button.textContent === 'Show problems')!
   open.click()

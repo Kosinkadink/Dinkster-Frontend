@@ -6,7 +6,17 @@
  */
 
 import { desktopSaveBridge } from './desktop-bridge.js'
+import { failureMessage } from './request-failure.js'
+import { createAppPageTabs } from './app-page-tabs.js'
+import { isPageTab, type PageTab } from './page-tabs.js'
+import type { PaletteEntry } from './NodePalette.js'
 import {
+  BOARD_MAX_NAME,
+  BOARD_MAX_EXTENT,
+  BOARD_MIN_SIDE,
+  type BoardRect,
+  isDinksterRegionEntry,
+  type DinksterGraphWire,
   CORE_VIRTUAL_NODE_KINDS,
   activeLocale,
   analyzeSelectionExecution,
@@ -15,38 +25,55 @@ import {
   asNodeId,
   asPortId,
   asPromptId,
+  boardMediaKindOf,
   canonicalJson,
   canonicalTypeIdOf,
+  automaticValuesOfJob,
   companionSourcesOf,
   compile,
   documentResolver,
   coreCommandRegistry,
   initializeBoundaryViews,
   type BoundaryPositionResolver,
+  type NodeHeightResolver,
+  type GroupGeometryResolver,
   coreMenuContributions,
   createMenuRegistry,
   createReplacementRegistry,
   createSearchRegistry,
   createSignal,
   effectiveOccurrenceTopology,
+  resolveOccurrenceLinkEndpoint,
   effectiveTopologyDrivesPort,
   effectiveWidgetDefault,
   elaborateInterface,
+  type ElaborateOptions,
+  elabInputsOf,
+  elabOutputsOf,
   buildGraphConnectivity,
   documentNodeResolver,
   detectFormat,
   diag,
+  DocumentStore,
   createLocalSession,
   connectSharedSession,
   type HistorySnapshot,
   type HistorySnapshotRecord,
+  type LinkEndpoint,
+  type PatchOp,
+  replayHistoryOps,
+  jsonSameValue,
+  invertOps,
   type DocumentSession,
   type SharedDocumentSession,
   type CollabSessionDescriptor,
   type SessionConflict,
+  type SessionOp,
+  type NumericCorrection,
   emptyGates,
   environmentDrift,
   executionKey,
+  exposedKey,
   ExtensionHost,
   type ExtensionHostOptions,
   type ExtensionEditorKind,
@@ -67,7 +94,6 @@ import {
   isPortEndpoint,
   nodeStatesFromDinksterJob,
   numericStepConstraints,
-  outputCountInputsOf,
   outputsOf,
   occurrenceDynamicView,
   EMPTY_SUBGRAPH_DEFINITION,
@@ -77,9 +103,19 @@ import {
   projectWorkspaceCompileArtifact,
   randomNumericValue,
   registerSchemaRules,
+  isSameTypeMigration,
   replacementInvocation,
   scanReplacements,
   stepNumericValue,
+  storedNumberFixes,
+  storedSaveTargetFixes,
+  type StoredSaveTargetFix,
+  storedRuleFixes,
+  applyStoredProblemFixes,
+  type StoredNumberFix,
+  type StoredProblemFix,
+  type PressOutcome,
+  type PressOptions,
   subgraphDefIdOf,
   resetMenuContributions,
   schemaForEditorRole,
@@ -98,6 +134,8 @@ import {
   type ControllerInputProvenance,
   type ControllerInputSource,
   type ControllerNodeInputSource,
+  inGoneMember,
+  wiresFromNode,
   type ControllerMode,
   type Diagnostic,
   type DiagnosticAnchor,
@@ -134,6 +172,7 @@ import {
   type Vec2,
   type CompileArtifact,
 } from '@dinkster/core'
+import { lookupAnswersOf, recordRunAnswers } from './lookup-demand.js'
 import {
   DINKSTER_GRAPH_FEATURE_PLACEMENT,
   DinksterConnection,
@@ -141,14 +180,21 @@ import {
   PackInstallError,
   ExecutionStore,
   createScopedClient,
+  createLookupClient,
+  type LookupClient,
   discoverBackend,
-  hydrateDinksterCompletedExecution,
+  hydrateDinksterTerminalExecution,
+  noEngineOpen,
   probeSupervisorStatus,
   reconcileDinksterExecutions,
   restartSupervisorEngine,
+  subscribeRequestFailures,
   type ConnectionStatus,
+  type ModelDownloadJob,
+  type ModelDownloadRequirement,
   type ExecutionState,
   type ExecutionStatus,
+  type HistoryRunRecord,
   type LibraryRecord,
   type LibraryProject,
   type ProjectNeeds,
@@ -178,7 +224,7 @@ import {
   webcamKind,
   type TextWidgetEditorExtension,
 } from '@dinkster/widgets'
-import { BYPASSED_BADGE, boundaryPositions, canvasGridLayer, defaultTokens, MAX_SCALE, MIN_SCALE, MUTED_BADGE, type Viewport } from '@dinkster/canvas'
+import { BYPASSED_BADGE, boundaryPositions, buildScene, groupItemGeometry, canvasGridLayer, defaultTokens, MAX_SCALE, MIN_SCALE, MUTED_BADGE, type Model3dCameraState, type Model3dTransform, type Viewport } from '@dinkster/canvas'
 import { canvasMeasures } from './canvas-measures.js'
 import { batch, createComponent } from 'solid-js'
 import { layoutGroups, moveTabToGroup, repairEditorLayout } from './editor-layout.js'
@@ -189,7 +235,9 @@ import seedBasic from '../../core/fixtures/workflows/seed-basic.json'
 import seedSubgraph from '../../core/fixtures/workflows/seed-subgraph.json'
 import type { CanvasLens } from './data-lens.js'
 import { registerLocaleSetting } from './locale.js'
+import { runClock } from './execution-activity.js'
 import { registerThemeSetting } from './theme.js'
+import { ModelDownloadsController, type ModelDownloadState, type ModelDownloadTask } from './model-downloads.js'
 import {
   assetGuessCandidateToRef,
   installAssetConsent,
@@ -212,10 +260,9 @@ import {
   type ImportAssetDigestHint,
 } from './import-asset-autoresolve.js'
 import { createCoreLensRegistry } from './lenses.js'
-import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, EditorBindingRegistry, EditorRegistry, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, type EditorBindingContext, type EditorKindDescriptor } from './editors.js'
-import { isCurveValue, type CurveValue } from '@dinkster/widgets'
+import { APP_EDITOR_KIND, EditorBindingRegistry, EditorRegistry, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, type EditorBindingContext, type EditorKindDescriptor } from './editors.js'
 import { validFile3dAsset } from './file3d-preview.js'
-import { isAssetRef, savedAssetLocation, stampAssetLocations, workflowAssetOccurrences, type AssetLocationHint } from './workflow-asset-locations.js'
+import { isAssetRef, savedAssetLocation, stampAssetLocations, workflowAssetOccurrences, workflowModelOccurrences, type AssetLocationHint, type WorkflowModelOccurrence } from './workflow-asset-locations.js'
 import { DockLayout } from './dock-layout.js'
 import { EditorSplitStore } from './editor-split-store.js'
 import { setPanelOpen } from './panel-location.js'
@@ -224,9 +271,13 @@ import { resolveNodeOccurrence } from './problem-display.js'
 import { ShellLayout } from './shell-layout.js'
 import { pollSupervisor } from './supervisor-poll.js'
 import { CommandRegistry, KeybindingRegistry, SettingsRegistry, SETTINGS_STORAGE_KEY, type AppCommand } from './settings.js'
+import { registerAutomaticFixSettings } from './automatic-fixes.js'
+import { createActionHost, type ButtonPlace } from './button-presses.js'
+import { ProblemFixes, problemFixKey } from './problem-fixes.js'
 import { RemoteTemplateCatalog, type RemoteTemplateDescriptor } from './template-catalog.js'
 import type { CatalogNode } from './node-catalog.js'
 import { activeProjectId, migrateBrowserProjects, scopedSharedName, scopedStorageKey } from './projects.js'
+import { keepSchemas, keptRegistry, newerKeptTable, readKeptSchemas } from './kept-schemas.js'
 import { ExtensionEditorHost, HostUiContributionRegistry, HostUiProviderHost } from './host-ui.js'
 import { ExtensionWorld } from './extension-world.js'
 import { registerCoreWidgetEditors } from './editors/widget-editors.js'
@@ -243,6 +294,10 @@ import {
   type PersistedExecutionResult,
 } from './execution-result-persistence.js'
 import { COLLAB_SCOPE, httpCollabTransport, stableActorId, type CollabTransport } from './collab.js'
+import { BoardWorkspace, type BoardEntry } from './board-workspace.js'
+import { inspectBoardMediaMetadata } from './board-media.js'
+import { buildParamRows } from './app-view-rows.js'
+import { installBoardPages } from './BoardPage.js'
 import { PresenceChannel } from './collab-presence.js'
 import {
   connectSharedWorkerSession,
@@ -257,6 +312,7 @@ import type {
   WorkspaceTabRecord,
   WorkspaceTabSnapshot,
 } from './workspace-worker-authority.js'
+import { boundaryItems, boundaryOf } from '@dinkster/core'
 
 export type RegionKind = 'map' | 'fold' | 'while'
 
@@ -277,6 +333,7 @@ type WorkspaceExecutionMessage =
       readonly timestamp?: number
       readonly jobRef?: string
       readonly sourceDocument?: string
+      readonly workflowName?: string
     }
 
 interface WorkspaceRegistration {
@@ -290,6 +347,7 @@ interface WorkspaceRegistration {
   readonly timestamp?: number
   readonly jobRef?: string
   readonly sourceDocument?: string
+  readonly workflowName?: string
 }
 
 const workspaceRecord = (value: unknown): value is Readonly<Record<string, unknown>> => {
@@ -394,10 +452,12 @@ const decodeWorkspaceRegistration = (
   const timestamp = value['timestamp']
   const jobRef = value['jobRef']
   const sourceDocument = value['sourceDocument']
+  const workflowName = value['workflowName']
   if (ref === undefined || rawArtifact === undefined ||
     (timestamp !== undefined && !workspaceNumber(timestamp)) ||
     (jobRef !== undefined && !workspaceString(jobRef)) ||
     (sourceDocument !== undefined && !workspaceString(sourceDocument)) ||
+    (workflowName !== undefined && !workspaceString(workflowName)) ||
     !workspaceInteger(rawArtifact['revision']) ||
     !workspaceString(rawArtifact['connection']) || rawArtifact['connection'] !== ref.connection ||
     !workspaceString(rawArtifact['schemaHash']) || !workspaceString(rawArtifact['semanticHash']) ||
@@ -420,6 +480,7 @@ const decodeWorkspaceRegistration = (
     ...(timestamp === undefined ? {} : { timestamp }),
     ...(jobRef === undefined ? {} : { jobRef }),
     ...(sourceDocument === undefined ? {} : { sourceDocument }),
+    ...(workflowName === undefined ? {} : { workflowName }),
   }
 }
 
@@ -690,10 +751,12 @@ const decodeWorkspaceExecutionEvent = (value: unknown): NormalizedEvent | undefi
         (value['origin'] !== undefined && value['origin'] !== 'stdout' && value['origin'] !== 'stderr' &&
           value['origin'] !== 'logging' && value['origin'] !== 'capture') ||
         (value['logger'] !== undefined && typeof value['logger'] !== 'string') ||
+        (value['code'] !== undefined && !workspaceString(value['code'])) ||
         (value['pythonLevel'] !== undefined && typeof value['pythonLevel'] !== 'string')) return undefined
       return {
         kind: 'log', execution, timestamp,
         level: value['level'], message: value['message'], seq: value['seq'],
+        ...(value['code'] === undefined ? {} : { code: value['code'] as string }),
         ...(value['runtimeNodeId'] === undefined ? {} : { runtimeNodeId: value['runtimeNodeId'] as string }),
         ...(value['emittedAt'] === undefined ? {} : { emittedAt: value['emittedAt'] as number }),
         ...(value['origin'] === undefined ? {} : { origin: value['origin'] as 'stdout' | 'stderr' | 'logging' | 'capture' }),
@@ -736,10 +799,10 @@ const REGION_DEFINITIONS: Readonly<Record<RegionKind, FreshDefinitionInitializer
   map: {
     nodes: { n0: { id: 'n0' as never, type: 'dinkster.utilities.primitive_float', values: {} } },
     links: {}, nets: {}, reroutes: {},
-    boundary: {
-      inputs: [{ id: 'item' as never, displayName: 'Item', binds: { kind: 'port', node: 'n0' as never, port: 'value' as never } }],
-      outputs: [{ id: 'result' as never, displayName: 'Result', binds: { kind: 'port', node: 'n0' as never, port: 'FLOAT' as never } }],
-    },
+    boundary: boundaryOf(
+      [{ id: 'item' as never, displayName: 'Item', binds: { kind: 'port', node: 'n0' as never, port: 'value' as never } }],
+      [{ id: 'result' as never, displayName: 'Result', binds: { kind: 'port', node: 'n0' as never, port: 'FLOAT' as never } }],
+    ),
     nextOrdinal: 1,
   },
   fold: {
@@ -753,13 +816,13 @@ const REGION_DEFINITIONS: Readonly<Record<RegionKind, FreshDefinitionInitializer
       l3: { id: 'l3' as never, from: { node: 'n1' as never, port: 'INT' as never }, to: { node: 'n0' as never, port: 'values.a' as never } },
       l4: { id: 'l4' as never, from: { node: 'n2' as never, port: 'INT' as never }, to: { node: 'n0' as never, port: 'values.b' as never } },
     }, nets: {}, reroutes: {},
-    boundary: {
-      inputs: [
+    boundary: boundaryOf(
+      [
         { id: 'item' as never, displayName: 'Item', binds: { kind: 'port', node: 'n1' as never, port: 'value' as never } },
         { id: 'state' as never, displayName: 'State', binds: { kind: 'port', node: 'n2' as never, port: 'value' as never } },
       ],
-      outputs: [{ id: 'result' as never, displayName: 'Result', binds: { kind: 'port', node: 'n0' as never, port: 'INT' as never } }],
-    },
+      [{ id: 'result' as never, displayName: 'Result', binds: { kind: 'port', node: 'n0' as never, port: 'INT' as never } }],
+    ),
     nextOrdinal: 5,
   },
   while: {
@@ -768,13 +831,13 @@ const REGION_DEFINITIONS: Readonly<Record<RegionKind, FreshDefinitionInitializer
       n1: { id: 'n1' as never, type: 'dinkster.utilities.primitive_boolean', values: { value: false } },
     },
     links: {}, nets: {}, reroutes: {},
-    boundary: {
-      inputs: [{ id: 'state' as never, displayName: 'State', binds: { kind: 'port', node: 'n0' as never, port: 'value' as never } }],
-      outputs: [
+    boundary: boundaryOf(
+      [{ id: 'state' as never, displayName: 'State', binds: { kind: 'port', node: 'n0' as never, port: 'value' as never } }],
+      [
         { id: 'result' as never, displayName: 'Result', binds: { kind: 'port', node: 'n0' as never, port: 'FLOAT' as never } },
         { id: 'continue' as never, displayName: 'Continue', binds: { kind: 'port', node: 'n1' as never, port: 'BOOLEAN' as never } },
       ],
-    },
+    ),
     nextOrdinal: 2,
   },
 }
@@ -882,25 +945,21 @@ export interface AdvancementPlan {
   readonly modeGenerations: ReadonlyMap<string, number>
 }
 
-type AdvancementInputLocation = { readonly graphId: string } & (
-  | { readonly nodeId: string; readonly inputId: string }
-  | { readonly valueSourceId: string }
-)
+interface BoardAdvancementPlan {
+  readonly apply: () => void
+  readonly dispose: () => void
+}
+
+type AdvancementInputLocation = { readonly graphId: string; readonly nodeId: string; readonly inputId: string }
 
 const advancementInputKey = (step: AdvancementInputLocation): string =>
-  JSON.stringify('valueSourceId' in step
-    ? ['graphs', step.graphId, 'valueSources', step.valueSourceId, 'value']
-    : ['graphs', step.graphId, 'nodes', step.nodeId, 'values', step.inputId])
+  JSON.stringify(['graphs', step.graphId, 'nodes', step.nodeId, 'values', step.inputId])
 
 const controllerSourceLocation = (source: ControllerInputSource): AdvancementInputLocation =>
-  'valueSource' in source
-    ? { graphId: source.graph, valueSourceId: source.valueSource }
-    : { graphId: source.graph, nodeId: source.occurrence.node, inputId: source.valueKey }
+  ({ graphId: source.graph, nodeId: source.occurrence.node, inputId: source.valueKey })
 
 const controllerStoredValue = (document: WorkflowDocument, location: AdvancementInputLocation): Json | undefined =>
-  'valueSourceId' in location
-    ? document.graphs[location.graphId]?.valueSources?.[location.valueSourceId]?.value
-    : document.graphs[location.graphId]?.nodes[location.nodeId]?.values[location.inputId]
+  document.graphs[location.graphId]?.nodes[location.nodeId]?.values[location.inputId]
 
 const controllerInputKey = (
   runtimeId: string,
@@ -971,8 +1030,8 @@ export function comboRefreshAdvancementPlan(
   for (const graph of Object.values(document.graphs)) for (const node of Object.values(graph.nodes)) {
     const schema = registry.resolve(node.type)
     if (!schema) continue
-    for (const input of schema.items) {
-      const widget = input.kind === 'input' ? input.widget : undefined
+    for (const input of inputsOf(schema)) {
+      const widget = input.widget
       if (widget?.widgetType !== 'COMBO' || widget.controller !== 'after_refresh' || widget.remote?.route !== route) continue
       const mode = node.controllers?.[input.id] ?? widget.controllerInitial ?? 'randomize'
       if (mode === 'fixed') continue
@@ -1004,8 +1063,9 @@ export function comboRefreshAdvancement(
     const linkDriven = Object.values(graph.links).some((link) => 'port' in link.to && link.to.node === node.id && link.to.port === step.inputId)
       || Object.values(graph.nets).some((net) => net.sinks.some((sink) => sink.node === node.id && sink.port === step.inputId))
     if (linkDriven) continue
-    const input = resolve(node.type)?.items.find((item) => item.kind === 'input' && item.id === step.inputId)
-    const widget = input?.kind === 'input' ? input.widget : undefined
+    const schema = resolve(node.type)
+    const input = schema === undefined ? undefined : inputsOf(schema).find((item) => item.id === step.inputId)
+    const widget = input?.widget
     if (widget?.widgetType !== 'COMBO' || widget.controller !== 'after_refresh' || widget.remote?.route !== plan.route) continue
     const mode = node.controllers?.[step.inputId] ?? widget.controllerInitial ?? 'randomize'
     if (mode !== step.mode) continue
@@ -1034,14 +1094,12 @@ function effectiveControllerState(
   let mode: ControllerMode | undefined
   let valueSourceCount = sources.length
   for (const [index, source] of sources.entries()) {
-    const graph = document.graphs[source.graph]
-    const node = 'valueSource' in source ? undefined : graph?.nodes[source.occurrence.node]
-    const literal = 'valueSource' in source ? graph?.valueSources?.[source.valueSource] : undefined
+    const node = document.graphs[source.graph]?.nodes[source.occurrence.node]
     if (current === undefined) {
       current = controllerStoredValue(document, controllerSourceLocation(source))
       if (current !== undefined) valueSourceCount = index + 1
     }
-    if (mode === undefined) mode = 'valueSource' in source ? literal?.controller : node?.controllers?.[source.valueKey]
+    if (mode === undefined) mode = node?.controllers?.[source.valueKey]
   }
   if (current === undefined && (widget.default !== undefined || !optional)) {
     current = effectiveWidgetDefault(widget)
@@ -1065,9 +1123,8 @@ export function controllerAdvancement(
 
 /** The batch invocation for a set of advancement steps ([] -> undefined). */
 export function advancementInvocation(steps: readonly AdvancementStep[]): CommandInvocation | undefined {
-  const invocations = steps.map((step) => 'valueSourceId' in step
-    ? { command: 'valueSource.setValue', params: { graphId: step.graphId, valueSourceId: step.valueSourceId, value: step.value } }
-    : { command: 'node.setValue', params: { graphId: step.graphId, nodeId: step.nodeId, inputId: step.inputId, value: step.value } })
+  const invocations = steps.map((step) =>
+    ({ command: 'node.setValue', params: { graphId: step.graphId, nodeId: step.nodeId, inputId: step.inputId, value: step.value } }))
   return invocations.length > 0 ? { command: 'batch', params: { invocations } as unknown as Json } : undefined
 }
 
@@ -1103,7 +1160,7 @@ export function controllerAdvancementPlan(
     if (input === undefined) continue
     const location = controllerSourceLocation(owner)
     const graph = document.graphs[owner.graph]
-    if ('valueSourceId' in location ? !graph?.valueSources?.[location.valueSourceId] : !graph?.nodes[location.nodeId]) continue
+    if (!graph?.nodes[location.nodeId]) continue
     const state = effectiveControllerState(document, input.sources, input.widget, input.optional)
     if (state.current === undefined || state.mode === 'fixed') continue
     let value: Json
@@ -1170,7 +1227,6 @@ const LEGACY_BOOLEAN_TOKENS: ReadonlyMap<string, boolean> = new Map([
 export interface CanvasBridge {
   readonly selectedNodes: () => readonly string[]
   readonly groupMembers: (graphId: string, groupId: string) => readonly string[] | undefined
-  readonly showValueSource?: (tabId: string, graphId: string, valueSourceId: string) => void
   /** App-level actions live here so commands do not reach into renderer internals. */
   readonly deleteSelection: () => void | Promise<void>
   readonly selectAll: () => void
@@ -1182,6 +1238,10 @@ export interface CanvasBridge {
     type: string,
     expected?: { readonly schemaKey: string; readonly backendId: string },
   ) => boolean
+  /** The blueprints node search lists, so Ctrl+K finds the same ones. */
+  readonly blueprintEntries?: () => readonly PaletteEntry[]
+  /** Arms the placement ghost for the blueprint entry of that type, as node search does. */
+  readonly armBlueprintPlacement?: (type: string, backendId: string) => boolean
   readonly createEmptySubgraph?: (position?: Vec2) => boolean | Promise<boolean>
   /** Extracts the captured selection and group contents with the default name. */
   readonly extractSubgraph?: () => boolean | Promise<boolean>
@@ -1219,8 +1279,12 @@ export interface WidgetFocus {
 export interface DiagnosticFocusRequest {
   readonly tab: Tab
   readonly anchor: DiagnosticAnchor
+  /** Mark this field without opening its editor. */
+  readonly focusRow?: string
   readonly openAssetInput?: string
   readonly missingAssetDigest?: string
+  /** The problem Show on canvas picked; the node's box opens on its line. */
+  readonly diagnostic?: Diagnostic
   /** Current view context for solver anchors that carry only a port. */
   readonly portInstancePath?: readonly string[]
 }
@@ -1301,17 +1365,6 @@ export interface Tab {
   readonly replacesFrozenTabId?: string
 }
 
-export interface CurveEditorTarget {
-  readonly tabId: string
-  readonly graphId: string
-  readonly nodeId: string
-  readonly inputId: string
-  readonly instancePath: readonly string[]
-  readonly openedStoredValue: Json | undefined
-  readonly openedSchemaDefault: unknown
-  readonly openedValue: CurveValue
-}
-
 export interface GlslEditorTarget {
   readonly tabId: string
   readonly graphId: string
@@ -1323,8 +1376,7 @@ export interface GlslEditorTarget {
   readonly openedValue: string
 }
 
-const isSessionOnlyEditorKind = (kind: string): boolean =>
-  kind === CURVE_EDITOR_KIND || kind === GLSL_EDITOR_KIND
+const isSessionOnlyEditorKind = (kind: string): boolean => kind === GLSL_EDITOR_KIND
 
 /** A tab's live shared-session membership (session-only; never persisted). */
 export interface CollabTabState {
@@ -1377,10 +1429,141 @@ export type ProblemOwner = string | symbol
 /** A Problems entry: the diagnostic plus the owner it belongs to. */
 export type OwnedDiagnostic = Diagnostic & { readonly owner: ProblemOwner }
 
-export interface MigrationNotice {
+/** A change the editor made by itself, reported in its tab's notice. */
+export interface Adjustment {
+  readonly kind: 'replaced' | 'removedChoice' | 'numberOutsideLimits'
+  /** Restoring this value keeps the same numeric cause from being corrected again. */
+  readonly numberCauses?: readonly Pick<StoredNumberFix, 'before' | 'stamp' | 'owner'>[]
+  readonly graphId: string
+  readonly nodeId: string
+  /** Where choosing the change in Review takes the canvas. */
+  readonly anchor?: DiagnosticAnchor
+  /** The single changed field, when the entry identifies one. */
+  readonly rowValueKey?: string
+  /** The node's name when the change was made. */
+  readonly node: string
+  /** What changed, worded by whoever made the change. */
+  readonly details: readonly string[]
+  /** Changed rows, outputs or replaced nodes this change counts as. */
+  readonly count: number
+}
+
+/** Each workflow tab's report of the editor's own changes, kept until it is saved or closed. */
+export interface AdjustmentNotice {
   readonly owner: string
-  readonly entries: readonly OwnedDiagnostic[]
-  readonly undoRecord: HistorySnapshotRecord
+  readonly adjustments: readonly Adjustment[]
+  /** The recorded patches of every batch that made them, oldest first. */
+  readonly records: readonly (HistorySnapshotRecord & { readonly before: WorkflowDocument })[]
+  /** The kind of adjustment each record made, in the order of `records`. */
+  readonly recordKinds: readonly Adjustment['kind'][]
+  /** Dismissed by its cross: only the status bar count remains. */
+  readonly dismissed: boolean
+  /** Brought back by the status bar count, which opens it with Review. */
+  readonly reopened?: boolean
+  /** The tab's revision at which Undo or Redo was refused, until the document changes. */
+  readonly refusedAt?: number
+  /** The last Undo: what Redo puts back, and how many adjustments the user had changed since and Undo kept. */
+  readonly undone?: { readonly redo: readonly PatchOp[]; readonly kept: number }
+}
+
+/** `ready`: Undo takes everything back; `undone`: Redo puts it back; `refused`: something changed since. */
+export type AdjustmentNoticeState = 'ready' | 'undone' | 'refused'
+
+/** Each graph's instance path through its first reachable occurrence. */
+const firstOccurrencePaths = (document: WorkflowDocument): Map<string, readonly NodeId[]> => {
+  const paths = new Map<string, readonly NodeId[]>([[document.root, []]])
+  for (const [graphId, path] of paths) for (const node of Object.values(document.graphs[graphId]?.nodes ?? {})) {
+    const child = subgraphDefIdOf(node.type)
+    if (child !== undefined && !paths.has(child)) paths.set(child, [...path, node.id])
+  }
+  return paths
+}
+
+const holdsRecorded = (document: WorkflowDocument, ops: readonly PatchOp[]): boolean => {
+  try {
+    return replayHistoryOps(document, ops, { requireRecordedValues: true }).stale === undefined
+  } catch {
+    return false
+  }
+}
+
+const pathsOverlap = (a: readonly (string | number)[], b: readonly (string | number)[]): boolean =>
+  a.slice(0, Math.min(a.length, b.length)).every((segment, index) => segment === b[index])
+
+/** The nodes a recorded op belongs to: the node itself, its view entry, or both ends of a link. */
+const opNodeKeys = (op: PatchOp): readonly string[] => {
+  const path = op.path
+  if (path[0] === 'graphs' && path[2] === 'nodes' && path.length >= 4) return [`${path[1]}/${path[3]}`]
+  if (path[0] === 'view' && path[1] === 'graphs' && path[3] === 'nodes' && path.length >= 5) return [`${path[2]}/${path[4]}`]
+  if (path[0] !== 'graphs' || path[2] !== 'links' || path.length < 4) return []
+  const ends = new Set<string>()
+  const collect = (value: Json | undefined): void => {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) return
+    const object = value as JsonObject
+    if (typeof object['node'] === 'string') ends.add(`${path[1]}/${object['node']}`)
+    collect(object['from'])
+    collect(object['to'])
+  }
+  if (op.op !== 'remove') collect(op.value)
+  if (op.op !== 'add') collect(op.oldValue)
+  return [...ends]
+}
+
+/** A replace of a node's whole `dynamic` split into one op per construct, so each removed choice can be put back alone. */
+const splitDynamicOps = (ops: readonly PatchOp[]): readonly PatchOp[] => ops.flatMap((op): readonly PatchOp[] => {
+  const path = op.path
+  if (op.op !== 'replace' || path.length !== 5 || path[0] !== 'graphs' || path[2] !== 'nodes' || path[4] !== 'dynamic') return [op]
+  const isObject = (value: Json): value is JsonObject => typeof value === 'object' && value !== null && !Array.isArray(value)
+  const before = op.oldValue
+  const after = op.value
+  if (!isObject(before) || !isObject(after)) return [op]
+  return [...new Set([...Object.keys(before), ...Object.keys(after)])].flatMap((key): readonly PatchOp[] => {
+    const old = before[key]
+    const value = after[key]
+    const at = [...path, key]
+    if (jsonSameValue(old, value)) return []
+    if (old === undefined) return [{ op: 'add', path: at, value: value! }]
+    if (value === undefined) return [{ op: 'remove', path: at, oldValue: old }]
+    return [{ op: 'replace', path: at, value, oldValue: old }]
+  })
+})
+
+/** Corrected numbers and removed choices are restored per field; replaced nodes stay whole. */
+const adjustmentKeys = (op: PatchOp, kind: Adjustment['kind']): readonly string[] => {
+  const path = op.path
+  if (kind === 'numberOutsideLimits' && path[0] === 'graphs' && path[2] === 'nodes' && path[4] === 'values' && path.length === 6)
+    return [`${path[1]}/${path[3]}#values.${path[5]}`]
+  if (kind === 'removedChoice' && path[0] === 'graphs' && path[2] === 'nodes' && path[4] === 'dynamic' && path.length >= 6)
+    return [`${path[1]}/${path[3]}#${path[5]}`]
+  return opNodeKeys(op)
+}
+
+/** Connected addresses, keeping input ports, output ports and widget taps distinct. */
+const graphAttachments = (graph: GraphDef): ReadonlyMap<string, readonly [NodeId, string, 'input' | 'output' | 'tap' | 'construct']> => {
+  const ends = new Map<string, readonly [NodeId, string, 'input' | 'output' | 'tap' | 'construct']>()
+  const add = (node: NodeId, port: string, kind: 'input' | 'output' | 'tap' | 'construct'): void => {
+    const end = [node, port, kind] as const
+    ends.set(JSON.stringify(end), end)
+  }
+  const endpoint = (end: LinkEndpoint, side: 'input' | 'output'): void => {
+    if ('node' in end) add(end.node, 'tap' in end ? end.tap : end.port, 'tap' in end ? 'tap' : side)
+  }
+  for (const link of Object.values(graph.links)) {
+    endpoint(link.from, 'output')
+    endpoint(link.to, 'input')
+  }
+  for (const net of Object.values(graph.nets)) {
+    endpoint(net.source, 'output')
+    for (const sink of net.sinks) endpoint(sink, 'input')
+  }
+  for (const side of ['inputs', 'outputs'] as const) for (const item of boundaryItems(graph.boundary, side)) {
+    for (const binding of [item.binds, ...item.alsoBinds ?? []]) {
+      if (binding.kind === 'widgetTap') add(binding.node, binding.tap, 'tap')
+      else if (binding.kind === 'construct') add(binding.node, binding.port, 'construct')
+      else if (binding.kind === 'port') add(binding.node, binding.port, side === 'inputs' ? 'input' : 'output')
+    }
+  }
+  return ends
 }
 
 const sameProblemIdentity = (a: OwnedDiagnostic, b: OwnedDiagnostic): boolean =>
@@ -2278,6 +2461,12 @@ interface BackendBase {
   readonly label: string
   readonly baseUrl: string
   readonly registry: Signal<SchemaRegistry | undefined>
+  /**
+   * Built from the node table this browser kept from the backend's last
+   * answer. Only the canvas draws from it, and only until `registry` is held;
+   * nothing that needs the backend reads it.
+   */
+  readonly keptRegistry: Signal<SchemaRegistry | undefined>
   readonly comfyTranslations: Signal<readonly ComfyTranslation[]>
   readonly comfyTranslationsUnavailable: Signal<boolean>
   /** Execution locations advertised by the current native server life. */
@@ -2304,6 +2493,14 @@ interface BackendBase {
   /** Request the latest native advisory snapshot. */
   readonly refreshDiagnostics: () => void
   readonly scopedClient: RefreshableScopedClient
+  /**
+   * The one lookup client for this backend: every field, note, list and
+   * button press asks declared lookups through it, so equal calls share one
+   * answer. Its partition follows the held schema epoch.
+   */
+  readonly lookups: LookupClient
+  /** Counts changes to what `lookups` holds, so views that show answers rebuild. */
+  readonly lookupGeneration: Signal<number>
   /** Clear remote-choice authority after a schema/server generation change. */
   readonly invalidateRemoteChoices: () => void
   /**
@@ -2342,7 +2539,7 @@ export interface ProjectPackInstallationReview {
 export interface ProjectNeedsReview {
   readonly backend: Backend
   readonly project: LibraryProject
-  readonly needs: ProjectNeeds
+  readonly needs: ProjectNeeds & { readonly installed: ProjectNeeds['packs'] }
   readonly enable: readonly string[]
   readonly changes: ProjectNeeds['packs']
   readonly requested?: ProjectNeeds['packs']
@@ -2411,11 +2608,7 @@ const readableRegionTemplateLayout = (document: WorkflowDocument): WorkflowDocum
     const previous = document.view.graphs[graphId]
     const hasDependentGeometry =
       Object.keys(graph.reroutes).length > 0 ||
-      Object.keys(graph.valueSources ?? {}).length > 0 ||
-      Object.keys(graph.selectors ?? {}).length > 0 ||
       Object.keys(previous?.reroutes ?? {}).length > 0 ||
-      Object.keys(previous?.valueSources ?? {}).length > 0 ||
-      Object.keys(previous?.selectors ?? {}).length > 0 ||
       Object.keys(previous?.groups ?? {}).length > 0 ||
       previous?.boundary !== undefined
     if (queue.length !== nodeIds.length || hasDependentGeometry) {
@@ -2435,6 +2628,18 @@ const readableRegionTemplateLayout = (document: WorkflowDocument): WorkflowDocum
     return [graphId, { ...previous, nodes }]
   }))
   return { ...document, view: { ...document.view, graphs: graphViews } }
+}
+
+/** A box off the screen, at a picture's size, for drawing a view that is not shown. */
+function offscreenContainer(width: number, height: number): HTMLDivElement {
+  const container = document.createElement('div')
+  container.style.position = 'fixed'
+  container.style.left = '-100000px'
+  container.style.top = '0'
+  container.style.width = `${width}px`
+  container.style.height = `${height}px`
+  document.body.append(container)
+  return container
 }
 
 export class AppState {
@@ -2490,7 +2695,9 @@ export class AppState {
   /** Incremented to open the top bar's layout menu from a command. */
   readonly layoutMenuRequests = createSignal(0)
   readonly searchCatalog = createSignal<readonly CatalogNode[]>([])
+  readonly searchCatalogRequests = createSignal(0)
   readonly nodeInstallRequest = createSignal<(CatalogNode & { readonly backendId: string }) | undefined>(undefined)
+  readonly nodeCatalogSetupRequested = createSignal(false)
   readonly projectNeedsReview = createSignal<ProjectNeedsReview | undefined>(undefined)
   readonly projectPackNotification = createSignal<{ readonly message: string } | undefined>(undefined)
   private readonly projectNeedsChecks = new WeakMap<Backend, object>()
@@ -2502,7 +2709,6 @@ export class AppState {
   readonly projectPackInstallations = new Map<Backend, 'applying' | 'uncertain'>()
   /** Unacknowledged mutations survive closing the prompt until the installed node is observed. */
   readonly nodeInstallUncertain = new Map<string, string>()
-  readonly templateGalleryOpen = createSignal(false)
   /** Node docs page requested by the canvas, palette, or F1 command. */
   readonly nodeHelpRequest = createSignal<NodeHelpRequest | undefined>(undefined)
   /**
@@ -2676,7 +2882,7 @@ export class AppState {
   private readonly localExtensions = new ExtensionHost(this.extensionTargets)
   private readonly extensionWorlds = new Map<ConnectionId, Map<string, ExtensionWorld>>()
   private readonly extensionWorldLoads = new WeakMap<ExtensionWorld, Promise<void>>()
-  private readonly submissionWorlds = new Map<AbortController, { readonly tab: Tab; readonly world: ExtensionWorld | undefined }>()
+  private readonly submissionWorlds = new Map<AbortController, { readonly tab: Tab | undefined; readonly world: ExtensionWorld | undefined }>()
   private readonly deniedExtensionPrivileges: readonly FrontendPrivilege[]
   private selectedExtensionWorld: ExtensionWorld | undefined
 
@@ -2776,7 +2982,7 @@ export class AppState {
   }
 
   /** A posted submission can outlive its tab and transfer ownership to a run. */
-  private retainSubmissionWorld(tab: Tab, artifact: CompileArtifact): { readonly signal: AbortSignal; readonly release: () => void; readonly markPosted: () => void } {
+  private retainSubmissionWorld(tab: Tab | undefined, artifact: CompileArtifact): { readonly signal: AbortSignal; readonly release: () => void; readonly markPosted: () => void } {
     const registry = this.retainedRegistries.get(artifact)
     const digest = registry?.extensionSnapshotPair?.digest
     const world = digest === undefined ? undefined : this.extensionWorlds.get(artifact.connection)?.get(digest)
@@ -2827,13 +3033,32 @@ export class AppState {
    * the Context panel. Undefined while no widget editor is open.
    */
   readonly widgetFocus: Signal<WidgetFocus | undefined> = createSignal<WidgetFocus | undefined>(undefined)
+  /**
+   * The boundary row selected in the Boundary panel: one item of the
+   * definition `graphId` in tab `tabId`. Session state; the panel shows it
+   * only while the same tab and definition are in view.
+   */
+  readonly boundaryFocus: Signal<{ readonly tabId: string; readonly graphId: string; readonly item: string } | undefined> =
+    createSignal<{ readonly tabId: string; readonly graphId: string; readonly item: string } | undefined>(undefined)
 
   /** Default backend's schema registry (single-backend code path). */
   readonly registry: Signal<SchemaRegistry | undefined>
   readonly tabs: Signal<readonly Tab[]> = createSignal<readonly Tab[]>([])
   readonly activeTabId: Signal<string> = createSignal('')
-  /** Never serialized: identifies the one input projected by the curve editor. */
-  readonly curveEditorTarget: Signal<CurveEditorTarget | undefined> = createSignal<CurveEditorTarget | undefined>(undefined)
+  readonly pages: ReturnType<typeof createAppPageTabs>
+  readonly boards: BoardWorkspace
+  readonly boardCardSubmissions = createSignal<ReadonlyMap<string, {
+    readonly controller: AbortController
+    readonly entry: BoardEntry
+    readonly places?: readonly BoardRect[]
+  }>>(new Map())
+  private readonly uninstallBoardPages: () => void
+  readonly boardResultErrors = createSignal<ReadonlyMap<BoardEntry, string>>(new Map())
+  private readonly boardResultDeliveries = new Map<string, {
+    readonly entry: BoardEntry; readonly execution: ExecutionState; readonly generation: number
+    readonly abort: AbortController; pending: boolean
+  }>()
+  private readonly unsubscribeBoardResults: () => void
   /** Never serialized: identifies the first-party GLSL source editor session. */
   readonly glslEditorTarget: Signal<GlslEditorTarget | undefined> = createSignal<GlslEditorTarget | undefined>(undefined)
   /**
@@ -2844,12 +3069,95 @@ export class AppState {
   readonly dirtyTabs: Signal<ReadonlySet<string>> = createSignal<ReadonlySet<string>>(new Set())
   readonly clearedTabResults = createSignal<ReadonlyMap<string, string>>(new Map())
   readonly problems: Signal<readonly OwnedDiagnostic[]> = createSignal<readonly OwnedDiagnostic[]>([])
-  /** Session-only open-time migration summaries; never stored in documents. */
-  readonly migrationNotices = createSignal<ReadonlyMap<string, MigrationNotice>>(new Map())
+  /** Session-only reports of the editor's own changes, per tab; never stored in documents. */
+  readonly adjustmentNotices = createSignal<ReadonlyMap<string, AdjustmentNotice>>(new Map())
   readonly queueRefusal = createSignal<Tab | undefined>(undefined)
   readonly frozenEditRefusal = createSignal<{ readonly tabId: string } | undefined>(undefined)
   readonly cancellingExecutions = createSignal<ReadonlySet<string>>(new Set())
   readonly assetConsent: Signal<AssetConsentRequest | undefined> = createSignal<AssetConsentRequest | undefined>(undefined)
+  private readonly modelDownloadControllers = new Map<Backend, Map<string, ModelDownloadsController>>()
+  private readonly observedModelDownloads = new Map<Backend, readonly ModelDownloadJob[]>()
+  private readonly modelDownloadsChanged = createSignal(0)
+  readonly modelDownloadTasks = createSignal<ReadonlyMap<Backend, readonly ModelDownloadTask[]>>(new Map())
+
+  modelDownloadsFor(backend: Backend, project = activeProjectId()): ModelDownloadsController {
+    let projects = this.modelDownloadControllers.get(backend)
+    if (!projects) { projects = new Map(); this.modelDownloadControllers.set(backend, projects) }
+    let controller = projects.get(project)
+    if (!controller) {
+      controller = new ModelDownloadsController(backend.connection, project, (jobs) => {
+        this.observedModelDownloads.set(backend, jobs)
+        this.publishModelDownloadTasks(backend)
+      })
+      projects.set(project, controller)
+      controller.rows.subscribe(() => this.publishModelDownloadTasks(backend))
+    }
+    return controller
+  }
+
+  /** Exact per-variant state, including transfers discovered outside this window. */
+  modelDownloadStateFor(backend: Backend, requirement: ModelDownloadRequirement, project = activeProjectId()): ReadonlySignal<ModelDownloadState | undefined> {
+    const get = (): ModelDownloadState | undefined => {
+      const row = this.modelDownloadControllers.get(backend)?.get(project)?.rows.get().find((entry) =>
+        entry.requirement.name === requirement.name && entry.requirement.kind === requirement.kind &&
+        entry.requirement.asset?.digest === requirement.asset?.digest)
+      const job = [...(this.observedModelDownloads.get(backend) ?? [])].reverse().find((entry) =>
+        entry.project === project && entry.name === requirement.name && entry.kind === requirement.kind &&
+        entry.digest === requirement.asset?.digest)
+      if (!job) return row
+      if (row && row.job?.jobId !== job.jobId && ['completed', 'cancelled', 'failed'].includes(job.status)) return row
+      if (row?.job?.jobId === job.jobId && !['completed', 'cancelled', 'failed'].includes(job.status) &&
+        (['completed', 'cancelled', 'failed'].includes(row.job.status) || row.job.received > job.received)) return row
+      return { requirement, pending: row?.pending ?? false, job }
+    }
+    return { get, subscribe: (listener) => {
+      const unsubscribe = this.modelDownloadsChanged.subscribe(() => listener(get()))
+      const stop = !this.disposed && this.backends.get().includes(backend)
+        ? this.modelDownloadsFor(backend, project).observe() : () => {}
+      return () => { unsubscribe(); stop() }
+    } }
+  }
+
+  private publishModelDownloadTasks(backend: Backend): void {
+    const tasks = new Map<string, ModelDownloadTask>()
+    const addJob = (job: ModelDownloadJob): void => {
+      if (['completed', 'cancelled', 'failed'].includes(job.status)) { tasks.delete(job.jobId); return }
+      tasks.set(job.jobId, { key: job.jobId, name: job.name, size: job.size, received: job.received, queued: false })
+    }
+    const observed = new Map((this.observedModelDownloads.get(backend) ?? []).map((job) => [job.jobId, job]))
+    for (const job of observed.values()) addJob(job)
+    for (const [project, controller] of this.modelDownloadControllers.get(backend) ?? []) {
+      for (const row of controller.rows.get()) {
+        if (row.job) {
+          const latest = observed.get(row.job.jobId)
+          if (!latest || (!['completed', 'cancelled', 'failed'].includes(latest.status) &&
+            (['completed', 'cancelled', 'failed'].includes(row.job.status) || row.job.received >= latest.received))) addJob(row.job)
+        }
+        if (row.queued && row.plan?.status === 'consent-required') {
+          const key = `queue:${JSON.stringify([project, row.requirement.name, row.requirement.kind, row.requirement.asset?.digest])}`
+          tasks.set(key, { key, name: row.requirement.name, size: row.plan.size, received: 0, queued: true })
+        }
+      }
+    }
+    this.modelDownloadTasks.update((current) => {
+      const next = new Map(current)
+      if (tasks.size) next.set(backend, [...tasks.values()]); else next.delete(backend)
+      return next
+    })
+    this.modelDownloadsChanged.update((revision) => revision + 1)
+  }
+
+  private releaseModelDownloads(backend: Backend): void {
+    for (const controller of this.modelDownloadControllers.get(backend)?.values() ?? []) {
+      if (this.assetConsent.get()?.modelDownloadController === controller) this.assetConsent.set(undefined)
+      controller.dispose()
+    }
+    this.modelDownloadControllers.delete(backend)
+    this.observedModelDownloads.delete(backend)
+    this.publishModelDownloadTasks(backend)
+  }
+  readonly storageOpenRequest = createSignal<{ readonly id: string; readonly hiddenModels: boolean } | undefined>(undefined)
+  private modelReview: AbortController | undefined
   readonly importAssetResolution: Signal<ImportAssetResolutionRequest | undefined> = createSignal<ImportAssetResolutionRequest | undefined>(undefined)
   /**
    * Live solver diagnostics for the graph currently on the canvas (type
@@ -2862,6 +3170,7 @@ export class AppState {
   /** Problems-to-canvas handoff; CanvasHost revalidates the anchor before acting. */
   readonly diagnosticFocus: Signal<DiagnosticFocusRequest | undefined> = createSignal<DiagnosticFocusRequest | undefined>(undefined)
   readonly logs: Signal<readonly AppLogEntry[]> = createSignal<readonly AppLogEntry[]>([])
+  private readonly unsubscribeRequestFailures = subscribeRequestFailures((failure) => this.log('error', 'Requests', failure.message), true)
   /**
    * All connected backends; index 0 is the default (never removable). Most
    * users have exactly one and see none of the multi-backend chrome.
@@ -3029,6 +3338,16 @@ export class AppState {
     this.deniedExtensionPrivileges = Object.freeze([...(options?.deniedExtensionPrivileges ?? [])])
     this.collabTransport = options?.collabTransport ?? httpCollabTransport()
     this.collabActorId = stableActorId()
+    const boardProject = activeProjectId()
+    this.boards = new BoardWorkspace({
+      transport: this.collabTransport,
+      actorId: this.collabActorId,
+      project: boardProject,
+      backend: () => this.collabBackend()?.baseUrl,
+      mediaConnection: (baseUrl) => activeProjectId() === boardProject
+        ? this.backends.get().find((backend) => backend.baseUrl === baseUrl)?.connection : undefined,
+      onConflict: (id, message) => this.reportProblems(id, [diag('warning', 'collab', 'board.session.conflict', message)]),
+    })
     this.workspaceEvents = options?.workspaceEvents ?? (
       typeof globalThis.SharedWorker === 'function' && typeof globalThis.BroadcastChannel === 'function'
         ? new BroadcastChannel(scopedSharedName('dinkster-workspace-executions'))
@@ -3037,6 +3356,27 @@ export class AppState {
     ;(this.workspaceEvents as WorkspaceEventChannel & { unref?: () => void } | undefined)?.unref?.()
     this.workspaceEvents?.addEventListener('message', this.receiveWorkspaceEvent)
     this.settings.register({ id: 'canvas.grid.visible', get name() { return t('settings.canvas.grid.visible') }, type: 'boolean', defaultValue: true })
+    this.settings.register({
+      id: 'canvas.detailMode',
+      get name() { return t('settings.canvas.detailMinPercent.name') },
+      get description() { return t('settings.canvas.detailMode.description') },
+      type: 'combo',
+      defaultValue: 'automatic',
+      get options() { return [
+        { value: 'automatic', label: t('settings.canvas.detailMode.automatic') },
+        { value: 'fixed', label: t('settings.canvas.detailMode.fixed') },
+      ] },
+    })
+    this.settings.register({
+      id: 'canvas.detailMinPercent',
+      get name() { return t('settings.canvas.detailMinPercent.fixedName') },
+      get description() { return t('settings.canvas.detailMinPercent.description') },
+      type: 'number',
+      defaultValue: defaultTokens.detailMinScale * 100,
+      min: 10,
+      max: 75,
+      step: 1,
+    })
     registerLocaleSetting(this.settings)
     registerThemeSetting(this.settings)
     this.settings.register({
@@ -3046,13 +3386,7 @@ export class AppState {
       type: 'boolean',
       defaultValue: false,
     })
-    this.settings.register({
-      id: 'execution.reviewUpgrades',
-      get name() { return t('shell.reviewUpgrades.label') },
-      get description() { return t('settings.execution.reviewUpgrades.description') },
-      type: 'boolean',
-      defaultValue: false,
-    })
+    registerAutomaticFixSettings(this.settings)
     this.settings.register({ id: 'canvas.bookmarkTransitions', get name() { return t('settings.canvas.bookmarkTransitions') }, type: 'boolean', defaultValue: true })
     this.settings.register({
       id: 'canvas.smoothWheelZoom',
@@ -3090,14 +3424,13 @@ export class AppState {
     this.settings.register({ id: 'canvas.minimap.bookmarks', get name() { return t('settings.canvas.minimap.bookmarks') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'canvas.minimap.visible', get name() { return t('settings.canvas.minimap.visible') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'canvas.minimap.nodes', get name() { return t('settings.canvas.minimap.nodes') }, type: 'boolean', defaultValue: true })
-    this.settings.register({ id: 'canvas.minimap.bypass', get name() { return t('settings.canvas.minimap.bypass') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'canvas.minimap.noodles', get name() { return t('settings.canvas.minimap.noodles') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'canvas.minimap.groups', get name() { return t('settings.canvas.minimap.groups') }, type: 'boolean', defaultValue: true })
-    this.settings.register({ id: 'canvas.minimap.reroutes', get name() { return t('settings.canvas.minimap.reroutes') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'canvas.minimap.errors', get name() { return t('settings.canvas.minimap.errors') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'features.namedNets.enabled', get name() { return t('settings.features.namedNets') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'features.seedController.enabled', get name() { return t('settings.features.seedController') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'features.appView.enabled', get name() { return t('settings.features.appView') }, type: 'boolean', defaultValue: false })
+    this.settings.register({ id: 'features.board.enabled', get name() { return t('settings.features.board') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'tooltips.delayMs', get name() { return t('settings.tooltips.delayMs') }, type: 'number', defaultValue: 500, min: 0, max: 5000, step: 50 })
     this.settings.register({
       id: 'execution.previews',
@@ -3143,6 +3476,15 @@ export class AppState {
       this.panels.all().map(({ id, placement, allowedPlacements, order }) =>
         ({ id, placement, allowedPlacements, order })))
     this.editorSplits = new EditorSplitStore(this.settings)
+    this.pages = createAppPageTabs(this)
+    this.uninstallBoardPages = installBoardPages(this)
+    const resultSubscriptions = [this.store.executions, this.boards.entries, this.backendsTick]
+      .map((signal) => signal.subscribe(() => this.deliverBoardResults()))
+    this.unsubscribeBoardResults = () => {
+      for (const unsubscribe of resultSubscriptions) unsubscribe()
+      for (const delivery of this.boardResultDeliveries.values()) delivery.abort.abort()
+      this.boardResultDeliveries.clear()
+    }
     // Stale-modal guard (see modalPanel above): registry churn that removes
     // the open modal's panel - or moves it off 'modal' - closes the modal
     // state itself, so a later re-register can never resurrect the dialog.
@@ -3164,7 +3506,21 @@ export class AppState {
         if (execution) void this.cancelExecution(execution.ref)
       },
     })
-    register('workflow.save', 'command.workflow.save', 'Ctrl+S', () => { const tab = activeTabNow(); if (tab) void this.saveWorkflow(tab.id) }, () => {
+    register('workflow.save', 'command.workflow.save', 'Ctrl+S', () => {
+      const page = this.pages.tabs().find((tab) => tab.id === this.activeTabId.get())
+      if (page && isPageTab(page)) {
+        const descriptor = this.pages.descriptor(page.pageId)
+        if (descriptor?.dirty?.() === true) void descriptor.save?.()
+        return
+      }
+      const tab = activeTabNow()
+      if (tab) void this.saveWorkflow(tab.id)
+    }, () => {
+      const page = this.pages.tabs().find((tab) => tab.id === this.activeTabId.get())
+      if (page && isPageTab(page)) {
+        const descriptor = this.pages.descriptor(page.pageId)
+        return descriptor?.save !== undefined && descriptor.dirty?.() === true
+      }
       const tab = activeTabNow()
       return tab !== undefined && tab.execution === undefined && this.backendForTab(tab).protocol === 'dinkster'
     })
@@ -3257,10 +3613,11 @@ export class AppState {
     this.settings.register({ id: 'search.registryUrl', get name() { return t('search.registryUrl.name') }, get description() { return t('search.registryUrl.description') }, category: 'search', type: 'string', defaultValue: 'https://registry.dinkster.org/static' })
     this.frontendDoors.canvasLayer('core.canvas.grid', canvasGridLayer(defaultTokens))
     this.frontendDoors.nodeDecoration('core.node.mode', {
+      // The decoration contract has no title placement, so the mode tabs name their side.
       decorate: (node) => node.mode === 'muted'
-        ? { badges: [MUTED_BADGE] }
+        ? { badges: [{ ...MUTED_BADGE, placement: 'above' }] }
         : node.mode === 'bypassed'
-          ? { badges: [BYPASSED_BADGE] }
+          ? { badges: [{ ...BYPASSED_BADGE, placement: 'above' }] }
           : undefined,
     })
     registerCoreWidgets(this.frontendDoors)
@@ -3268,7 +3625,7 @@ export class AppState {
     this.textEditorExtensionRegistry.register(new SchemaTextCompletionProvider())
     for (const contribution of coreMenuContributions()) this.menuRegistry.register(
       contribution.id === 'core.widget.expose' || contribution.id === 'core.node.preview.expose'
-        ? { ...contribution, resolve: (context) => this.appViewEnabled ? contribution.resolve(context) : [] }
+        ? { ...contribution, resolve: (context) => this.exposureEnabled ? contribution.resolve(context) : [] }
         : contribution,
     )
     // Reset-to-default items are schema-aware: they resolve through the
@@ -3326,6 +3683,20 @@ export class AppState {
       if ([...executions.values()].some((execution) => execution.status === 'completed' &&
         this.store.canRestoreCompleted(execution.ref))) this.refreshPersistedExecutionResults()
     })
+    // Once per run: a recorded lookup answer the editor does not hold makes that call old.
+    // Reconnects and restores hand over the same records again as new arrays.
+    const recordedRuns = new Set<string>()
+    this.store.executions.subscribe((executions) => {
+      for (const key of recordedRuns) if (!executions.has(key)) recordedRuns.delete(key)
+      for (const [key, execution] of executions) {
+        const records = execution.automaticValues
+        const calls = execution.artifact?.automaticCalls
+        if (records === undefined || calls === undefined || recordedRuns.has(key)) continue
+        recordedRuns.add(key)
+        const lookups = this.backendFor(execution.ref.connection)?.lookups
+        if (lookups !== undefined) recordRunAnswers(lookups, calls, records)
+      }
+    })
     let previousProblems: readonly OwnedDiagnostic[] = []
     this.problems.subscribe((problems) => {
       // Identity-based: owner-scoped replace/drop retains other owners'
@@ -3349,7 +3720,7 @@ export class AppState {
       for (const key of [...executionStatuses.keys()]) {
         if (executions.has(key)) continue
         executionStatuses.delete(key)
-        this.advancementPlans.delete(key)
+        this.dropAdvancement(key)
       }
       for (const execution of executions.values()) {
         const key = executionKey(execution.ref)
@@ -3371,7 +3742,7 @@ export class AppState {
           execution.status === 'error' ||
           execution.status === 'cancelled' ||
           (execution.status === 'interrupted' && !this.store.isProvisionallyLost(execution.ref))
-        ) this.advancementPlans.delete(key)
+        ) this.dropAdvancement(key)
         if (
           previous !== undefined &&
           previous !== execution.status &&
@@ -3468,7 +3839,7 @@ export class AppState {
     // Mirror tab, document, and active-tab changes back into storage.
     this.tabs.subscribe(() => {
       for (const [controller, { tab }] of this.submissionWorlds) {
-        if (this.liveTabContinuing(tab.store) === undefined) controller.abort()
+        if (tab !== undefined && this.liveTabContinuing(tab.store) === undefined) controller.abort()
       }
       this.selectExtensionWorld()
       this.watchTabDocuments()
@@ -3477,17 +3848,12 @@ export class AppState {
     })
     this.activeTabId.subscribe((activeId) => {
       this.workflowOpenIntent += 1
-      this.templateGalleryOpen.set(false)
       this.selectExtensionWorld()
-      const curveTarget = this.curveEditorTarget.get()
       const glslTarget = this.glslEditorTarget.get()
-      if (curveTarget && curveTarget.tabId !== activeId) this.curveEditorTarget.set(undefined)
-      if (glslTarget && glslTarget.tabId !== activeId) this.glslEditorTarget.set(undefined)
-      if ((curveTarget && curveTarget.tabId !== activeId) ||
-          (glslTarget && glslTarget.tabId !== activeId)) {
+      if (glslTarget && glslTarget.tabId !== activeId) {
+        this.glslEditorTarget.set(undefined)
         this.tabs.update((list) => list.map((tab) =>
-          (tab.id === curveTarget?.tabId && tab.editorKind === CURVE_EDITOR_KIND) ||
-          (tab.id === glslTarget?.tabId && tab.editorKind === GLSL_EDITOR_KIND)
+          tab.id === glslTarget.tabId && tab.editorKind === GLSL_EDITOR_KIND
             ? { ...tab, editorKind: GRAPH_EDITOR_KIND }
             : tab))
       }
@@ -3526,6 +3892,8 @@ export class AppState {
         for (const tab of this.tabs.get()) {
           if (tab.editorKind === APP_EDITOR_KIND) this.setTabEditorKind(tab.id, GRAPH_EDITOR_KIND)
         }
+      }
+      if (!this.exposureEnabled) {
         for (const [tabId, lens] of this.lenses.get()) {
           if (lens === 'exposure') this.setLens(tabId, 'standard')
         }
@@ -3539,6 +3907,17 @@ export class AppState {
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
+    this.unsubscribeBoardResults()
+    this.unsubscribeRequestFailures()
+    this.uninstallBoardPages()
+    for (const key of this.advancementPlans.keys()) this.dropAdvancement(key)
+    this.boards.dispose()
+    for (const projects of this.modelDownloadControllers.values()) for (const controller of projects.values()) controller.dispose()
+    this.modelDownloadControllers.clear()
+    this.observedModelDownloads.clear()
+    this.modelDownloadTasks.set(new Map())
+    this.modelDownloadsChanged.update((revision) => revision + 1)
+    this.pages.dispose()
     for (const request of this.pendingComparisonCompiles.values()) {
       if (request.frame !== undefined) cancelAnimationFrame(request.frame)
       if (request.timer !== undefined) clearTimeout(request.timer)
@@ -3549,6 +3928,7 @@ export class AppState {
     this.pendingSelectionScopes.clear()
     this.unsubscribePackLocale()
     this.unsubscribeAppView()
+    for (const submission of this.boardCardSubmissions.get().values()) submission.controller.abort()
     for (const controller of this.submissionWorlds.keys()) controller.abort()
     this.submissionWorlds.clear()
     for (const worlds of this.extensionWorlds.values()) for (const world of worlds.values()) world.dispose()
@@ -3564,6 +3944,9 @@ export class AppState {
     this.persistWatchers.clear()
     for (const check of this.workflowAssetChecks.values()) check.controller.abort()
     this.workflowAssetChecks.clear()
+    for (const check of this.workflowModelChecks.values()) check.controller.abort()
+    this.workflowModelChecks.clear()
+    this.modelReview?.abort()
     this.workspaceEvents?.removeEventListener?.('message', this.receiveWorkspaceEvent)
     this.workspaceEvents?.close?.()
     globalThis.removeEventListener?.('storage', this.receiveStorage)
@@ -3638,7 +4021,7 @@ export class AppState {
       this.workspaceAuthorityEnabled = false
       this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag(
         'error', 'command', 'workspace.tabs.failed',
-        `Shared tab workspace unavailable: ${error instanceof Error ? error.message : String(error)}`,
+        failureMessage(error, 'Shared tab workspace unavailable.'),
       )])
       throw error
     }
@@ -3744,7 +4127,7 @@ export class AppState {
       (error: unknown) => {
         if (this.workspaceTabConnection === connection) this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag(
           'error', 'command', 'workspace.tabs.mutationFailed',
-          `Shared tab change failed: ${error instanceof Error ? error.message : String(error)}`,
+          failureMessage(error, 'Shared tab change failed.'),
         )])
       },
     ).finally(() => {
@@ -3836,8 +4219,8 @@ export class AppState {
       const nextTabs = [...nextLive, ...frozen]
       this.tabs.set(nextTabs)
       const localFrozenActive = frozen.some((tab) => tab.id === this.activeTabId.get())
-      if (opening && this.activeTabId.get() === active && !localFrozenActive && nextLive.some((tab) => tab.id === snapshot.active)) this.activeTabId.set(snapshot.active)
-      else if (!nextTabs.some((tab) => tab.id === this.activeTabId.get())) this.activeTabId.set(nextLive[0]?.id ?? '')
+      if (opening && this.activeTabId.get() === active && !localFrozenActive && !this.pages.tabs().some((tab) => tab.editorKind === 'page' && tab.id === active) && nextLive.some((tab) => tab.id === snapshot.active)) this.activeTabId.set(snapshot.active)
+      else if (!this.pages.tabs().some((tab) => tab.id === this.activeTabId.get())) this.activeTabId.set(nextLive[0]?.id ?? '')
       publicationChangedTabs = this.tabs.get() !== nextTabs
     } finally {
       this.applyingWorkspaceTabs = false
@@ -3897,7 +4280,7 @@ export class AppState {
       'warning',
       'command',
       'workspace.tabs.reconnecting',
-      `Shared tab workspace reconnecting: ${error.message}`,
+      failureMessage(error, 'Shared tab workspace reconnecting.'),
     )])
     this.disableWorkspaceAuthority(true)
     let delay = 250
@@ -3977,7 +4360,7 @@ export class AppState {
         {
           actorId: this.workspaceActorId,
           schemaResolverFor: (document) => documentResolver(document, resolve),
-          boundaryPositionsFor: this.boundaryPositionResolver(resolve),
+          ...this.geometryResolvers(resolve),
           onConflict: (conflict) => this.reportProblems(tab.id, conflict.diagnostics),
           onError: (message) => this.reportProblems(tab.id, [
             diag('error', 'command', 'workspace.authority.failed', message),
@@ -4009,7 +4392,11 @@ export class AppState {
       // undo record at the swap. A differing shared document (another window
       // established the workspace first) invalidates the records, so they
       // stay behind.
-      if (sameDocument) session.adoptHistory(tab.store.historySnapshot())
+      if (sameDocument) {
+        session.adoptHistory(tab.store.historySnapshot())
+        const kept = this.keptNumberFixes.get(tab.store)
+        if (kept !== undefined) this.keptNumberFixes.set(session, new Map(kept))
+      }
       const current = live
       const backend = this.backendForTab(current)
       const replacement: Tab = { ...current, store: session }
@@ -4038,7 +4425,7 @@ export class AppState {
         'error',
         'command',
         'workspace.authority.failed',
-        `Shared workspace unavailable: ${error instanceof Error ? error.message : String(error)}`,
+        failureMessage(error, 'Shared workspace unavailable.'),
       )])
     }
   }
@@ -4099,8 +4486,207 @@ export class AppState {
   private readonly workflowAssetLocations = new WeakMap<DocumentSession, Map<string, AssetLocationHint>>()
   private workflowOpenIntent = 0
 
+  private readonly workflowModelChecks = new Map<DocumentSession, {
+    readonly backend: Backend
+    readonly registry: SchemaRegistry | undefined
+    readonly document: WorkflowDocument
+    readonly signature: string
+    readonly status: ConnectionStatus
+    readonly controller: AbortController
+  }>()
+
+  private refreshWorkflowModels(tab: Tab): void {
+    const backend = this.backendForTab(tab)
+    const registry = this.registryForTab(tab)
+    const document = tab.store.doc
+    const occurrences = registry === undefined || backend.protocol !== 'dinkster' ? [] : workflowModelOccurrences(document, registry.resolve, lookupAnswersOf(backend.lookups))
+      .filter((occurrence) => occurrence.asset === undefined)
+    const signature = JSON.stringify(occurrences)
+    const status = backend.connection.status.get()
+    const previous = this.workflowModelChecks.get(tab.store)
+    if (previous?.backend === backend && previous.registry === registry && previous.document === document &&
+        previous.signature === signature && previous.status === status) return
+    previous?.controller.abort()
+    const check = { backend, registry, document, signature, status, controller: new AbortController() }
+    this.workflowModelChecks.set(tab.store, check)
+    const isCurrent = (): boolean => !this.disposed && !check.controller.signal.aborted &&
+      this.workflowModelChecks.get(tab.store) === check && this.tabs.get().includes(tab) &&
+      tab.store.doc === document && this.backendForTab(tab) === backend && this.registryForTab(tab) === registry
+    const publish = (diagnostics: readonly Diagnostic[]): void => {
+      if (!isCurrent()) return
+      this.problems.update((problems) => [
+        ...problems.filter((problem) => problem.owner !== tab.id || !problem.code.startsWith('model.availability.')),
+        ...diagnostics.map((diagnostic) => ({ ...diagnostic, owner: tab.id })),
+      ])
+    }
+    const problem = (occurrence: WorkflowModelOccurrence, state: string, params: Record<string, string> = {}, plannable = false): Diagnostic =>
+      diag('error', 'validation', `model.availability.${state}`, t(`modelPresence.${state}`, { name: occurrence.name, backend: backend.label, ...params }), {
+        refs: [{ graphId: occurrence.graph, nodeId: occurrence.node, valueKey: occurrence.input, direction: 'input' }],
+        ...(occurrence.instancePath === undefined ? {} : { anchor: {
+          occurrence: { instancePath: occurrence.instancePath.map(asNodeId), node: asNodeId(occurrence.node) },
+        } }),
+        data: { name: occurrence.name, kind: occurrence.kind, graph: occurrence.graph, node: occurrence.node,
+          input: occurrence.input, backend: backend.id, plannable },
+      })
+    const invalid = occurrences.filter((occurrence) => !occurrence.valid).map((occurrence) => problem(occurrence, 'invalid'))
+    const wanted = occurrences.filter((occurrence) => occurrence.valid)
+    // Keep an open problem box stable during a fresh read, but never retain another binding's result.
+    publish([...invalid, ...this.problems.get().filter((entry) => entry.owner === tab.id &&
+      entry.code.startsWith('model.availability.') && entry.code !== 'model.availability.invalid' &&
+      entry.data?.['backend'] === backend.id && wanted.some((item) =>
+        item.graph === entry.data?.['graph'] && item.node === entry.data['node'] && item.input === entry.data['input'] &&
+        item.name === entry.data['name'] && item.kind === entry.data['kind'] &&
+        JSON.stringify(item.instancePath) === JSON.stringify(entry.anchor?.occurrence?.instancePath)))])
+    if (backend.protocol !== 'dinkster' || wanted.length === 0) return
+    const unchecked = (): void => publish([...invalid, diag('warning', 'validation', 'model.availability.unchecked',
+      t('modelPresence.unchecked', { backend: backend.label }))])
+    if (status !== 'connected') return unchecked()
+    const signal = AbortSignal.any([check.controller.signal, AbortSignal.timeout(5000)])
+    void backend.connection.checkModelPresence(wanted.map(({ name, kind }) => ({ name, kind })), signal).then((rows) => {
+      if (!isCurrent()) return
+      if (signal.aborted) return unchecked()
+      publish([...invalid, ...rows.flatMap((row, index) => {
+        if (row.status === 'local') return []
+        const locations = row.status === 'folder-disabled' ? row.disabledLocations : []
+        const folder = locations[0] ?? ''
+        return [problem(wanted[index]!, row.status, { folder: locations.length > 1
+          ? t('modelPresence.moreFolders', { folder, count: locations.length - 1 }) : folder },
+          row.status === 'missing' && row.plannable)]
+      })])
+    }).catch(unchecked)
+  }
+
+  /** Missing model identities and their diagnostics from the current workflow checks. */
+  missingWorkflowModels(tab: Tab): { readonly models: readonly ModelDownloadRequirement[]; readonly diagnostics: readonly Diagnostic[] } | undefined {
+    const check = this.workflowModelChecks.get(tab.store)
+    const backend = this.backendForTab(tab)
+    const current = (): boolean => !this.disposed && this.tabs.get().includes(tab) &&
+      check?.document === tab.store.doc && check.backend === this.backendForTab(tab) && check.registry === this.registryForTab(tab)
+    if (!current() || backend.protocol !== 'dinkster') return undefined
+    const ownedProblems = this.problems.get().filter((entry) => entry.owner === tab.id)
+    const problems = ownedProblems.filter((entry) =>
+      entry.code === 'model.availability.missing' &&
+      entry.data?.['backend'] === backend.id && typeof entry.data['name'] === 'string' && typeof entry.data['kind'] === 'string')
+    const registry = this.registryForTab(tab)
+    const exactProblems = this.workflowAssetChecks.get(tab.store)?.backend === backend ? ownedProblems.filter((entry) =>
+      entry.code === 'asset.availability.missing') : []
+    const matches = (entry: Diagnostic, occurrence: WorkflowModelOccurrence): boolean => occurrence.asset !== undefined &&
+      entry.data?.['digest'] === occurrence.asset.digest && entry.data['graph'] === occurrence.graph &&
+      entry.data['node'] === occurrence.node && entry.data['input'] === occurrence.input
+    const exactOccurrences = registry === undefined ? [] : workflowModelOccurrences(tab.store.doc, registry.resolve,
+      lookupAnswersOf(backend.lookups)).filter((occurrence) => exactProblems.some((entry) => matches(entry, occurrence)))
+    const exactModels = exactOccurrences.map((occurrence): ModelDownloadRequirement => ({
+      name: occurrence.name, kind: occurrence.kind, asset: occurrence.asset!,
+    }))
+    const keys = new Set<string>()
+    const models = [...problems.map((entry): ModelDownloadRequirement => ({
+      name: entry.data!['name'] as string, kind: entry.data!['kind'] as string,
+    })), ...exactModels].filter((requirement) => {
+      const key = JSON.stringify([requirement.name, requirement.kind, requirement.asset?.digest])
+      if (keys.has(key)) return false
+      keys.add(key)
+      return true
+    })
+    return { models, diagnostics: [...problems, ...exactProblems.filter((entry) =>
+      exactOccurrences.some((occurrence) => matches(entry, occurrence)))] }
+  }
+
+  /** Review this workflow's missing models only while its checked document and backend remain current. */
+  reviewModelDownload(tab: Tab, diagnostic?: Diagnostic): void {
+    const missing = this.missingWorkflowModels(tab)
+    if (!missing?.models.length || (diagnostic !== undefined && !missing.diagnostics.includes(diagnostic))) return
+    const registry = this.registryForTab(tab)
+    const exact = diagnostic?.code === 'asset.availability.missing' && registry !== undefined
+      ? workflowModelOccurrences(tab.store.doc, registry.resolve, lookupAnswersOf(this.backendForTab(tab).lookups)).find((occurrence) =>
+        occurrence.asset?.digest === diagnostic.data?.['digest'] && occurrence.graph === diagnostic.data?.['graph'] &&
+        occurrence.node === diagnostic.data?.['node'] && occurrence.input === diagnostic.data?.['input']) : undefined
+    const focusedModel = exact ? { name: exact.name, kind: exact.kind, asset: exact.asset! } : (diagnostic && missing.models.find((model) => model.asset === undefined &&
+      model.name === diagnostic.data?.['name'] && model.kind === diagnostic.data?.['kind']))
+    this.openModelDownloads(this.backendForTab(tab), missing.models, { workflowTitle: tab.title, tab, missing: missing.models,
+      ...(focusedModel === undefined ? {} : { focusedModel }),
+    })
+  }
+
+  /** Review without submitting a run; supplied sources must come from authoritative model metadata. */
+  openModelDownloads(backend: Backend, models: readonly (ModelDownloadRequirement & { readonly source?: string })[], options: {
+    readonly workflowTitle?: string
+    readonly focusedModel?: ModelDownloadRequirement
+    readonly missing?: readonly ModelDownloadRequirement[]
+    readonly tab?: Tab
+    readonly signal?: AbortSignal
+    readonly stillCurrent?: () => boolean
+  } = {}): void {
+    if (this.disposed || backend.protocol !== 'dinkster' || !this.backends.get().includes(backend) || models.length === 0) return
+    const { tab, workflowTitle } = options
+    const document = tab?.store.doc
+    const registry = tab && this.registryForTab(tab)
+    const project = activeProjectId()
+    const current = (): boolean => !this.disposed && activeProjectId() === project && this.backends.get().includes(backend) &&
+      !options.signal?.aborted && (options.stillCurrent?.() ?? true) &&
+      (!tab || (this.tabs.get().includes(tab) && this.backendForTab(tab) === backend &&
+        tab.store.doc === document && this.registryForTab(tab) === registry))
+    if (!current()) return
+    this.modelReview?.abort()
+    const controller = new AbortController()
+    this.modelReview = controller
+    const transfers = this.modelDownloadsFor(backend, project)
+    transfers.ensure(models)
+    if (options.missing) transfers.ensure(options.missing, true)
+    for (const requirement of models) {
+      const row = this.modelDownloadStateFor(backend, requirement, project).get()
+      if (requirement.source !== undefined && !row?.source && !row?.plan && !row?.job)
+        transfers.setSource(requirement, requirement.source)
+    }
+    const invalidate = (): void => { if (!current()) controller.abort() }
+    const unsubscribe = [this.backendsTick.subscribe(invalidate),
+      ...(tab ? [this.tabs.subscribe(invalidate), tab.store.document.subscribe(invalidate)] : [])]
+    installAssetConsent({
+      models, ...(workflowTitle === undefined ? {} : { workflowTitle }), slot: this.assetConsent,
+      ...(options.focusedModel === undefined ? {} : { focusedModel: options.focusedModel }),
+      signal: options.signal ? AbortSignal.any([controller.signal, options.signal]) : controller.signal,
+      beforeRetry: current,
+      modelDownloads: { connection: backend.connection, controller: transfers, providerConnection: backend.connection, backendUrl: backend.baseUrl, project },
+      enableLocation: async (location) => { await backend.connection.setModelLocationEnabled(location, true) },
+      unhideModel: async (identity) => { await backend.connection.unhideModel(identity) },
+      locateModel: (requirement, status) => {
+        if (tab) this.locateModelDownload(tab, backend, requirement, status)
+        else if (status === 'destination-required' && current()) this.storageOpenRequest.set({ id: backend.id, hiddenModels: false })
+      },
+      onSettled: () => {
+        unsubscribe.forEach((dispose) => dispose())
+        if (this.modelReview === controller) this.modelReview = undefined
+      },
+    })
+  }
+
+  openModelStorage(tab: Tab, diagnostic: Diagnostic): void {
+    if (!this.tabs.get().includes(tab) || !this.problems.get().some((entry) => entry === diagnostic && entry.owner === tab.id) ||
+        (diagnostic.code !== 'model.availability.model-hidden' && diagnostic.code !== 'model.availability.folder-disabled')) return
+    const backend = this.backendForTab(tab)
+    if (diagnostic.data?.['backend'] !== backend.id) return
+    this.storageOpenRequest.set({ id: backend.id, hiddenModels: diagnostic.code === 'model.availability.model-hidden' })
+  }
+
+  private locateModelDownload(tab: Tab, backend: Backend, requirement: ModelDownloadRequirement, status: 'duplicate' | 'destination-required'): void {
+    if (this.disposed || !this.tabs.get().includes(tab) || this.backendForTab(tab) !== backend) return
+    if (status === 'destination-required') {
+      this.storageOpenRequest.set({ id: backend.id, hiddenModels: false })
+      return
+    }
+    const registry = this.registryForTab(tab)
+    const occurrence = registry && workflowModelOccurrences(tab.store.doc, registry.resolve, lookupAnswersOf(backend.lookups))
+      .find((entry) => entry.name === requirement.name && entry.kind === requirement.kind &&
+        entry.asset?.digest === requirement.asset?.digest)
+    if (!occurrence) return
+    this.activeTabId.set(tab.id)
+    this.diagnosticFocus.set({ tab, openAssetInput: occurrence.input,
+      anchor: { occurrence: { instancePath: (occurrence.instancePath ?? []).map(asNodeId), node: asNodeId(occurrence.node) } },
+    })
+  }
+
   private refreshWorkflowAssets(tab: Tab): void {
     if (this.disposed || tab.execution) return
+    this.refreshWorkflowModels(tab)
     const backend = this.backendForTab(tab)
     const occurrences = workflowAssetOccurrences(tab.store.doc)
     const signature = JSON.stringify(occurrences)
@@ -4133,9 +4719,12 @@ export class AppState {
     }).then(async (rows) => {
       if (signal.aborted) return unchecked()
       const missing = new Set(rows.filter((row) => row.status === 'missing').map((row) => row.digest))
+      const registry = this.registryForTab(tab)
+      const models = registry === undefined ? [] : workflowModelOccurrences(tab.store.doc, registry.resolve, lookupAnswersOf(backend.lookups))
       publish(occurrences.filter(({ asset }) => missing.has(asset.digest)).map((occurrence) => {
         const { graph, node, input, index, asset } = occurrence
         const hint = this.workflowAssetLocations.get(tab.store)?.get(asset.digest) ?? savedAssetLocation(tab.store.doc, occurrence)
+        const model = models.find((entry) => entry.graph === graph && entry.node === node && entry.input === input && entry.asset?.digest === asset.digest)
         return diag('warning', 'validation', 'asset.availability.missing',
           `${asset.name} is missing on ${backend.label}: ${graph}/${node}/${input} [${index + 1}].`, {
             refs: [{ graphId: graph, nodeId: node, valueKey: input, direction: 'input' }],
@@ -4144,6 +4733,7 @@ export class AppState {
             } }),
             data: { name: asset.name, backend: backend.label, graph, node, input,
               digest: asset.digest, virtualPath: asset.virtualPath, index,
+              ...(model === undefined ? {} : { kind: model.kind }),
               ...(hint ? { lastKnownMachine: hint.machine, lastKnownPaths: [...hint.paths] } : {}) },
           })
       }))
@@ -4171,27 +4761,50 @@ export class AppState {
       watcher.unsubscribe()
       this.workflowAssetChecks.get(watcher.tab.store)?.controller.abort()
       this.workflowAssetChecks.delete(watcher.tab.store)
+      this.workflowModelChecks.get(watcher.tab.store)?.controller.abort()
+      this.workflowModelChecks.delete(watcher.tab.store)
       this.persistWatchers.delete(id)
     }
     for (const [id, tab] of live) {
       if (this.persistWatchers.has(id)) continue
-      const watcher = {
-        tab,
-        unsubscribe: tab.store.document.subscribe(() => {
-          // Signal notification snapshots its listeners, so an unsubscribe
-          // cannot cancel a callback already in flight: re-check ownership
-          // rather than trusting teardown ordering.
-          if (this.tabs.get().find((candidate) => candidate.id === id) !== tab) return
-          const latest = this.lastEndedExecutionForTab(tab)
-          if (latest !== undefined) this.clearedTabResults.update((results) => new Map(results).set(id, latest.key))
-          this.documentPersistenceDirty.add(id)
-          reconcileGraphNavigation(tab)
-          this.markTabDirty(id)
-          this.schedulePersistTabs()
-          this.refreshWorkflowAssets(tab)
-        }),
-      }
-      this.persistWatchers.set(id, watcher)
+      const stopNoticeEdits = tab.store.onOp((op) => {
+        if (this.tabs.get().find((candidate) => candidate.id === id) !== tab) return
+        if (op.actorId !== tab.store.actorId) {
+          // Returning a confirmed correction to its old value is an intentional
+          // edit, even when this peer learns the limit only afterwards.
+          const kept = this.keptNumberFixes.get(tab.store) ?? new Map()
+          for (const cause of this.adjustmentNotices.get().get(id)?.adjustments.flatMap((item) => item.numberCauses ?? []) ?? []) {
+            const { graphId, nodeId, valueKey } = cause.owner
+            if (op.patch.some((patch) => pathsOverlap(patch.path, ['graphs', graphId, 'nodes', nodeId, 'values', valueKey])) &&
+              tab.store.doc.graphs[graphId]?.nodes[nodeId]?.values[valueKey] === cause.before)
+              kept.set(JSON.stringify([graphId, nodeId, valueKey, cause.stamp]), cause)
+          }
+          this.keptNumberFixes.set(tab.store, kept)
+          this.reportSharedNumberCorrections(tab, op)
+        }
+        if (op.actorId === tab.store.actorId && !op.origin.startsWith('session.') && op.origin !== 'history.replay' &&
+          this.tabs.get().find((candidate) => candidate.id === id) === tab)
+          this.removeEditedNumberAdjustments(id, op.patch.map((patch) => patch.path))
+      })
+      const stopDocument = tab.store.document.subscribe(() => {
+        // Signal notification snapshots its listeners, so an unsubscribe
+        // cannot cancel a callback already in flight: re-check ownership
+        // rather than trusting teardown ordering.
+        if (this.tabs.get().find((candidate) => candidate.id === id) !== tab) return
+        const latest = this.lastEndedExecutionForTab(tab)
+        if (latest !== undefined) this.clearedTabResults.update((results) => new Map(results).set(id, latest.key))
+        for (const [key, cause] of this.keptNumberFixes.get(tab.store) ?? []) {
+          const { graphId, nodeId, valueKey } = cause.owner
+          if (tab.store.doc.graphs[graphId]?.nodes[nodeId]?.values[valueKey] !== cause.before)
+            this.keptNumberFixes.get(tab.store)!.delete(key)
+        }
+        this.documentPersistenceDirty.add(id)
+        reconcileGraphNavigation(tab)
+        this.markTabDirty(id)
+        this.schedulePersistTabs()
+        this.refreshWorkflowAssets(tab)
+      })
+      this.persistWatchers.set(id, { tab, unsubscribe: () => { stopDocument(); stopNoticeEdits() } })
       this.refreshWorkflowAssets(tab)
     }
   }
@@ -4233,7 +4846,8 @@ export class AppState {
     }
     const state: PersistedTabs = {
       v: 1,
-      active: this.workspaceAuthorityEnabled ? this.workspaceActiveBaseline : this.activeTabId.get(),
+      active: this.workspaceAuthorityEnabled ? this.workspaceActiveBaseline
+        : this.tabs.get().some((tab) => tab.id === this.activeTabId.get()) ? this.activeTabId.get() : this.tabs.get()[0]?.id ?? '',
       workspaceRevision: this.workspacePersistedRevision,
       workspaceOperationWatermarks: this.workspaceOperationWatermarks,
       tabs: this.tabs.get()
@@ -4405,20 +5019,44 @@ export class AppState {
     const registry = createSignal<SchemaRegistry | undefined>(undefined)
     const workerCatalog = createSignal<WorkerCatalogState>({ status: 'unsupported' })
     const scopedClient = createScopedClient({ baseUrl })
+    const lookups = createLookupClient({ baseUrl })
+    const lookupGeneration = createSignal(0)
+    // Answers often settle together: one rebuild for each turn of the event loop.
+    let lookupBump = false
+    let previousAnswers = lookupAnswersOf({ entry: lookups.snapshot() })
+    lookups.subscribe(() => {
+      if (lookupBump) return
+      lookupBump = true
+      queueMicrotask(() => {
+        lookupBump = false
+        lookupGeneration.update((value) => value + 1)
+        const currentAnswers = lookupAnswersOf({ entry: lookups.snapshot() })
+        for (const tab of this.tabs.get()) {
+          if (this.backendForTab(tab).id !== id) continue
+          this.refreshWorkflowAssets(tab)
+          if (tab.execution) continue
+          const before = this.scanTabProblemFixes(tab, tab.store.doc, { lookupAnswers: previousAnswers })
+          const fixes = this.scanTabProblemFixes(tab, tab.store.doc, { lookupAnswers: currentAnswers }).filter((fix) => fix.kind === 'number' &&
+            !before.some((old) => problemFixKey(old) === problemFixKey(fix) && old.stamp === fix.stamp))
+          // Only a new external cause follows Apply; existing personal Ask me problems stay offered.
+          void this.applyProblemFixes(tab, fixes, true)
+        }
+        previousAnswers = currentAnswers
+      })
+    })
     const schemaProblemsOwner = Symbol(`schema-problems:${id}`)
     const packProblemsOwner = Symbol(`pack-problems:${id}`)
     let refreshDiagnostics = (): void => {}
     let compositionRequest = 0
     let remoteChoiceSchemaGeneration = 0
+    let principalGeneration = 0
     const invalidateRemoteChoices = (): void => {
       remoteChoiceSchemaGeneration += 1
-      // Authentication is not yet configurable in the frontend. Generation
-      // zero is still an explicit partition so the auth owner can advance it
-      // without changing the cache model when authenticated backends land.
       scopedClient.setRemoteChoicePartition({
-        principalGeneration: 0,
+        principalGeneration,
         schemaEpoch: remoteChoiceSchemaGeneration,
       })
+      lookups.setPartition({ backend: baseUrl, epoch: registry.get()?.epoch, principal: principalGeneration })
       this.backendsTick.update((value) => value + 1)
     }
     // Scoped client per backend: remote combos (model lists) differ per server.
@@ -4427,6 +5065,7 @@ export class AppState {
       label,
       baseUrl,
       registry,
+      keptRegistry: createSignal<SchemaRegistry | undefined>(undefined),
       comfyTranslations: createSignal<readonly ComfyTranslation[]>([]),
       comfyTranslationsUnavailable: createSignal(true),
       workerCatalog,
@@ -4441,6 +5080,8 @@ export class AppState {
       packInferenceUnavailable: createSignal<readonly PackInferenceUnavailable[]>([]),
       refreshDiagnostics: () => refreshDiagnostics(),
       scopedClient,
+      lookups,
+      lookupGeneration,
       invalidateRemoteChoices,
       supervisor: createSignal<SupervisorStatus | undefined>(undefined),
       composition: createSignal<SupervisorProgress | undefined>(undefined),
@@ -4460,10 +5101,11 @@ export class AppState {
         if (connection.status.get() !== 'connected') return
         reconcile().catch((e: unknown) => {
           this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
-            diag('error', 'runtime', 'reconcile.failed', `[${label}] failed to reconcile executions after reconnect: ${e instanceof Error ? e.message : String(e)}`),
+            diag('error', 'runtime', 'reconcile.failed', failureMessage(e, `Executions for ${label} could not be reloaded after reconnecting.`)),
           ])
         })
       }
+      let previousRegistry = registry.get()
       const unsubs = [
         connection.onStreamResumed(() => {
           refreshAfterGap()
@@ -4522,9 +5164,22 @@ export class AppState {
           reconcileConnected()
         }),
         registry.subscribe(() => {
+          const beforeRegistry = previousRegistry
+          previousRegistry = registry.get()
           this.replaceProblems(schemaProblemsOwner, (registry.get()?.diagnostics ?? []).map((problem) => ({
             ...problem, message: `[${label}] ${problem.message}`,
           })))
+          for (const tab of this.tabs.get()) {
+            if (tab.execution || this.backendForTab(tab).id !== id || this.schemaDiagnosticsPending.has(tab.id)) continue
+            this.reportEnvironmentDrift(tab)
+            this.reportUnresolvedTypes(tab)
+            if (beforeRegistry !== undefined) {
+              const before = this.scanTabProblemFixes(tab, tab.store.doc, { resolve: beforeRegistry.resolve })
+              const fixes = this.scanTabProblemFixes(tab).filter((fix) => fix.kind === 'number' &&
+                !before.some((old) => problemFixKey(old) === problemFixKey(fix) && old.stamp === fix.stamp))
+              void this.applyProblemFixes(tab, fixes, true)
+            }
+          }
           this.backendsTick.update((v) => v + 1)
           this.flushWorkspaceRegistrations(id)
           // Schema refresh can invalidate an in-flight reconnect read. The
@@ -4535,6 +5190,7 @@ export class AppState {
         base.templatesEnabled.subscribe(() => this.backendsTick.update((v) => v + 1)),
         base.guidesAvailable.subscribe(() => this.backendsTick.update((v) => v + 1)),
         base.schemaState.subscribe(() => this.backendsTick.update((v) => v + 1)),
+        base.keptRegistry.subscribe(() => this.backendsTick.update((v) => v + 1)),
         base.replacementProblems.subscribe(() => this.backendsTick.update((v) => v + 1)),
         base.compatSkips.subscribe(() => this.backendsTick.update((v) => v + 1)),
         base.supervisor.subscribe(() => this.backendsTick.update((v) => v + 1)),
@@ -4544,8 +5200,10 @@ export class AppState {
     }
     {
       let nativeBackend: Backend & { readonly protocol: 'dinkster' }
-      const connection = new DinksterConnection({ id, baseUrl, clientId, wsUrl, project: activeProjectId(),
+      const project = activeProjectId()
+      const connection = new DinksterConnection({ id, baseUrl, clientId, wsUrl, project,
         registryStaticUrl: () => this.settings.get<string>('search.registryUrl'),
+        keepSchemas: (payload) => void keepSchemas(baseUrl, project, payload),
       })
       // Epoch-gated registry refresh (schema_changed / composition_complete
       // pings are invalidations, never deltas). Coalesced: one fetch in
@@ -4693,9 +5351,9 @@ export class AppState {
               this.log('info', label, `engine not ready (${e.state}); deferring /api/nodes refresh`)
               return
             }
-            base.schemaState.set({ status: 'error', message: e instanceof Error ? e.message : String(e) })
+            base.schemaState.set({ status: 'error', message: failureMessage(e, 'Node definitions could not be loaded.') })
             this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
-              diag('error', 'schema', 'schema.refreshFailed', `[${label}] failed to refresh /api/nodes after ${why}: ${e instanceof Error ? e.message : String(e)}`),
+              diag('error', 'schema', 'schema.refreshFailed', failureMessage(e, `Node definitions for ${label} could not be refreshed.`)),
             ])
           },
         )
@@ -4735,9 +5393,12 @@ export class AppState {
         }
         this.invalidateWorkerCatalog(nativeBackend)
         base.invalidateRemoteChoices()
+        // A new server life may answer differently: ask again what is shown.
+        lookups.invalidate()
         startRefresh('reconnect')
       }
       const handleStatusChange = (status: ConnectionStatus): void => {
+        this.problemFixes.invalidateMounts(nativeBackend)
         this.assetConnectionGenerations.set(connection, (this.assetConnectionGenerations.get(connection) ?? 0) + 1)
         if (status === 'connected') {
           refreshOnConnect()
@@ -4756,12 +5417,46 @@ export class AppState {
         refreshForEpoch,
         handleStatusChange,
       )
+      const disposePrincipal = connection.principalGeneration.subscribe((generation) => {
+        principalGeneration = generation
+        handleStatusChange('disconnected')
+        for (const held of [registry, base.keptRegistry]) {
+          const previous = held.get()
+          if (previous === undefined) continue
+          const stripped = { ...previous }
+          delete stripped.graphFeatures
+          delete stripped.extensionSnapshotPair
+          held.set(stripped)
+        }
+        base.invalidateRemoteChoices()
+        for (const tab of this.tabs.get()) {
+          if (this.backendForTab(tab) !== nativeBackend) continue
+          this.workflowAssetChecks.get(tab.store)?.controller.abort()
+          this.workflowAssetChecks.delete(tab.store)
+          this.workflowModelChecks.get(tab.store)?.controller.abort()
+          this.workflowModelChecks.delete(tab.store)
+        }
+      })
       const disposeMountHealth = connection.mountError.subscribe(() => this.backendsTick.update((v) => v + 1))
+      const disposeLookupChanges = connection.onLookupsChanged((functions) => lookups.invalidate(functions))
+      // A mount's scan commits as a mount ping; a local file a lookup waited on may be checked now.
+      const disposeLookupFiles = connection.onMountsChanged(() => {
+        this.problemFixes.invalidateMounts(nativeBackend)
+        lookups.filesChanged()
+        for (const tab of this.tabs.get()) {
+          if (tab.execution || this.backendForTab(tab) !== nativeBackend) continue
+          this.workflowModelChecks.get(tab.store)?.controller.abort()
+          this.workflowModelChecks.delete(tab.store)
+        }
+        this.backendsTick.update((value) => value + 1)
+      })
       const disposeLibraryChanges = connection.onLibraryChanged(() => {
         for (const tab of this.tabs.get()) {
           if (tab.execution || this.backendForTab(tab) !== nativeBackend) continue
           this.workflowAssetChecks.get(tab.store)?.controller.abort()
           this.workflowAssetChecks.delete(tab.store)
+          this.workflowModelChecks.get(tab.store)?.controller.abort()
+          this.workflowModelChecks.delete(tab.store)
         }
         this.backendsTick.update((v) => v + 1)
       })
@@ -4776,14 +5471,14 @@ export class AppState {
         if (registry.get() !== undefined) startRefresh('registry static prefix changed')
         else void this.loadBackendSchemas(nativeBackend)
       })
-      const disposeCompletionHydration = connection.onLiveCompletion((ref) => {
-        hydrateDinksterCompletedExecution(connection, this.store, ref, prepareHydration).catch((error: unknown) => {
+      const disposeTerminalHydration = connection.onLiveTerminal((ref) => {
+        hydrateDinksterTerminalExecution(connection, this.store, ref, prepareHydration).catch((error: unknown) => {
           this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
             diag(
               'error',
               'runtime',
               'execution.artifactHydrationFailed',
-              `[${label}] failed to hydrate completed execution artifacts: ${error instanceof Error ? error.message : String(error)}`,
+              failureMessage(error, `Outputs for ${label} could not be loaded.`),
             ),
           ])
         })
@@ -4798,11 +5493,15 @@ export class AppState {
           this.clearProblems(schemaProblemsOwner)
           this.clearProblems(packProblemsOwner)
           disposeCatalogSetting()
-          disposeCompletionHydration()
+          disposeTerminalHydration()
           disposeLibraryChanges()
+          disposePrincipal()
           disposeMountHealth()
+          disposeLookupChanges()
+          disposeLookupFiles()
           disposeConnection()
           scopedClient.dispose()
+          lookups.dispose()
         },
       }
       return nativeBackend
@@ -4864,7 +5563,7 @@ export class AppState {
       // The live probe never throws, but an injected discovery can; keep
       // the named-problem contract instead of an unhandled rejection.
       this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
-        diag('error', 'schema', 'backend.discovery-failed', `'${trimmed}': discovery failed: ${e instanceof Error ? e.message : String(e)}`),
+        diag('error', 'schema', 'backend.discovery-failed', failureMessage(e, 'The backend could not be found.')),
       ])
       return undefined
     }
@@ -4933,6 +5632,7 @@ export class AppState {
     const list = this.backends.get()
     const entry = list.find((b) => b.id === id)
     if (!entry || entry === list[0]) return // default is not removable
+    this.releaseModelDownloads(entry)
     this.supervisorPolls.get(id)?.()
     entry.connection.disconnect()
     entry.dispose()
@@ -4952,6 +5652,7 @@ export class AppState {
 
   /** Stop transport and supervisor polling without forgetting the server or its targets. */
   disconnectBackend(backend: Backend): void {
+    this.releaseModelDownloads(backend)
     this.supervisorPolls.get(backend.id)?.()
     backend.connection.disconnect()
   }
@@ -4969,6 +5670,7 @@ export class AppState {
    * `schemas`/`resolve` while keeping the raw backend hash).
    */
   private readonly retainedRegistries = new WeakMap<CompileArtifact, SchemaRegistry>()
+  private readonly recordedRunValues = new WeakMap<CompileArtifact, DinksterValuesClient>()
   private readonly pendingWorkspaceRegistrations = new Map<string, WorkspaceRegistration>()
 
   /**
@@ -5017,6 +5719,9 @@ export class AppState {
 
   /** Read historical native values through their original owner, without reconnecting it. */
   valuesForExecution(ref: ExecutionRef): DinksterValuesClient | undefined {
+    const artifact = this.store.get(ref)?.artifact
+    const recorded = artifact && this.recordedRunValues.get(artifact)
+    if (recorded) return recorded
     const backend = this.backendFor(ref.connection) ?? this.retiredBackends.get(ref.connection)
     return backend?.protocol === 'dinkster' ? backend.connection.values() : undefined
   }
@@ -5079,6 +5784,22 @@ export class AppState {
     return this.backendForTab(tab).registry.get()
   }
 
+  /** The kept node table the canvas draws from while `registryForTab` has none. */
+  keptRegistryForTab(tab: Tab): SchemaRegistry | undefined {
+    return tab.execution ? undefined : this.backendForTab(tab).keptRegistry.get()
+  }
+
+  /** Why what the engine answers is off for this tab: no engine is open, or its real node table has not arrived. */
+  engineOffReason(tab: Tab, message: (key: string) => string): string | undefined {
+    const backend = this.backendForTab(tab)
+    const supervisor = backend.supervisor.get()
+    if (supervisor?.state === 'failed') return message('shell.engine.failed')
+    if (noEngineOpen(supervisor) || supervisor?.state === 'stopped') return message('shell.engine.notRunning')
+    if (supervisor?.state === 'starting') return message('shell.engine.stillStarting')
+    if (tab.execution || this.registryForTab(tab) !== undefined) return undefined
+    return message(backend.schemaState.get().status === 'error' ? 'shell.engine.notAnswering' : 'shell.engine.stillStarting')
+  }
+
   /** Pane-local widget definitions, independent of the focused shell's world. */
   widgetRegistryForTab(tab: Tab | undefined): typeof this.widgetRegistry {
     const registry = tab === undefined ? undefined : this.registryForTab(tab)
@@ -5128,43 +5849,484 @@ export class AppState {
     return invocation !== undefined && (await this.dispatchTo(tab, invocation)).ok
   }
 
-  canUndoMigrationNotice(tabId: string): boolean {
-    const notice = this.migrationNotices.get().get(tabId)
-    const tab = this.tabs.get().find((candidate) => candidate.id === tabId)
-    if (notice === undefined || tab === undefined || !tab.store.canUndo) return false
-    return canonicalJson(tab.store.historySnapshot().undo.at(-1)) === canonicalJson(notice.undoRecord)
+  readonly problemFixes = new ProblemFixes(this)
+  private readonly keptNumberFixes = new WeakMap<DocumentSession, Map<string, Pick<StoredNumberFix, 'before' | 'stamp' | 'owner'>>>()
+
+  scanTabNumberFixes(tab: Tab, document = tab.store.doc): readonly StoredNumberFix[] {
+    return this.scanTabProblemFixes(tab, document).filter((fix): fix is StoredNumberFix => fix.kind === 'number')
   }
 
-  undoMigrationNotice(tabId: string): boolean {
-    if (!this.canUndoMigrationNotice(tabId)) return false
-    const tab = this.tabs.get().find((candidate) => candidate.id === tabId)!
-    if (!tab.store.undo()) return false
-    reconcileGraphNavigation(tab)
-    this.dismissMigrationNotice(tabId)
+  private *tabNodePlaces(tab: Tab, document: WorkflowDocument): Generator<ButtonPlace> {
+    function *visit(graphId: string, instancePath: readonly string[], ancestors: ReadonlySet<string>): Generator<ButtonPlace> {
+      if (ancestors.has(graphId)) return
+      for (const node of Object.values(document.graphs[graphId]?.nodes ?? {})) {
+        yield { tab, graphId, nodeId: node.id, button: '', instancePath }
+        const child = subgraphDefIdOf(node.type)
+        if (child !== undefined) yield *visit(child, [...instancePath, node.id], new Set([...ancestors, graphId]))
+      }
+    }
+    yield *visit(document.root, [], new Set())
+    for (const graphId of Object.keys(document.graphs)) if (graphId !== document.root) yield *visit(graphId, [], new Set())
+  }
+
+  /** Every occurrence is checked: siblings can store different promoted values. */
+  scanTabProblemFixes(tab: Tab, document = tab.store.doc, options: {
+    readonly lookupAnswers?: ElaborateOptions['lookupAnswers']
+    readonly resolve?: SchemaResolver
+    readonly keptOnly?: boolean
+  } = {}): readonly StoredProblemFix[] {
+    if (tab.execution || this.registryForTab(tab) === undefined || options.keptOnly && !this.keptNumberFixes.get(tab.store)?.size) return []
+    const { lookupAnswers, resolve } = options
+    const fixes = new Map<string, StoredProblemFix>()
+    for (const place of this.tabNodePlaces(tab, document)) {
+      const host = { ...createActionHost(this, undefined, place, resolve), ...(lookupAnswers === undefined ? {} : { lookupAnswers }) }
+      for (const fix of [...storedNumberFixes(document, place, host), ...storedRuleFixes(document, place, host)]) {
+        const key = problemFixKey(fix)
+        if (!fixes.has(key)) fixes.set(key, fix)
+      }
+    }
+    const kept = this.keptNumberFixes.get(tab.store)
+    return [...fixes.values()].filter((fix) => {
+      if (fix.kind === 'rule') return !options.keptOnly
+      const key = JSON.stringify([fix.owner.graphId, fix.owner.nodeId, fix.owner.valueKey, fix.stamp])
+      const cause = kept?.get(key)
+      const isKept = fix.before === cause?.before && fix.stamp === cause.stamp
+      if (!isKept && document === tab.store.doc) kept?.delete(key)
+      return options.keptOnly ? isKept : !isKept
+    })
+  }
+
+  scanTabSaveTargetFixes(tab: Tab, readyMounts: ReadonlySet<string>, document = tab.store.doc): readonly StoredSaveTargetFix[] {
+    if (tab.execution || this.registryForTab(tab) === undefined) return []
+    const fixes = new Map<string, StoredSaveTargetFix>()
+    for (const place of this.tabNodePlaces(tab, document)) {
+      for (const fix of storedSaveTargetFixes(document, place, createActionHost(this, undefined, place), readyMounts)) {
+        const key = JSON.stringify([place.graphId, place.instancePath, place.nodeId, fix.valueKey])
+        if (!fixes.has(key)) fixes.set(key, fix)
+      }
+    }
+    return [...fixes.values()]
+  }
+
+  /** Offered corrections are rechecked and stored as one operation. */
+  applyProblemFixes(tab: Tab, fixes: readonly StoredProblemFix[], automatic = false,
+    options: Parameters<typeof applyStoredProblemFixes>[3] = {}): Promise<PressOutcome> {
+    const store = tab.store
+    const first = fixes[0] ?? options.saveTargets?.fixes[0]
+    if (tab.execution || first === undefined || !this.tabs.get().includes(tab))
+      return Promise.resolve({ kind: 'cancelled', skipped: [], notes: [] })
+    const place = { tab, ...first.part, button: '' }
+    const numericCorrections = new Map<string, NumericCorrection>()
+    if (automatic && !options.lead?.length) for (const fix of fixes) {
+      if (fix.kind !== 'number') continue
+      const key = JSON.stringify([fix.owner.graphId, fix.owner.nodeId, fix.owner.valueKey])
+      const previous = numericCorrections.get(key)
+      numericCorrections.set(key, { owner: fix.owner, causes: [...previous?.causes ?? [], {
+        graphId: fix.part.graphId, nodeId: fix.part.nodeId, instancePath: fix.part.instancePath ?? [],
+        valueKey: fix.valueKey, stamp: fix.stamp,
+      }] })
+    }
+    return applyStoredProblemFixes(store, fixes, createActionHost(this, undefined, place), {
+      noWait: automatic,
+      ...options,
+      ...(numericCorrections.size === 0 ? {} : { numericCorrections: [...numericCorrections.values()] }),
+      stillCurrent: () => this.tabs.get().includes(tab) && tab.store === store && options.stillCurrent?.() !== false,
+      staleMessage: t('problemFix.workflowChanged'),
+      onStored: (record, document) => {
+        options.onStored?.(record, document)
+        if (!automatic || tab.store !== store) return
+        const byOwner = new Map<string, StoredNumberFix[]>()
+        for (const fix of fixes) {
+          if (fix.kind !== 'number') continue
+          const key = JSON.stringify([fix.owner.graphId, fix.owner.nodeId, fix.owner.valueKey])
+          byOwner.set(key, [...byOwner.get(key) ?? [], fix])
+        }
+        // Notice Undo takes back corrections, not the user's leading edit.
+        if (options.lead?.length) {
+          const forward: PatchOp[] = [...byOwner.values()].map(([fix]) => ({
+            op: 'replace', path: ['graphs', fix!.owner.graphId, 'nodes', fix!.owner.nodeId, 'values', fix!.owner.valueKey],
+            oldValue: fix!.before, value: document.graphs[fix!.owner.graphId]!.nodes[fix!.owner.nodeId]!.values[fix!.owner.valueKey]!,
+          }))
+          record = { forward, inverse: invertOps(forward) }
+        }
+        const paths = firstOccurrencePaths(document)
+        this.reportAdjustments(tab, record, [...byOwner.values()].map((causes): Adjustment => {
+          const fix = causes[0]!
+          const node = document.graphs[fix.part.graphId]!.nodes[fix.part.nodeId]!
+          const instancePath = fix.part.instancePath?.length ? fix.part.instancePath.map(asNodeId) : paths.get(fix.part.graphId) ?? []
+          return {
+            kind: 'numberOutsideLimits', graphId: fix.part.graphId, nodeId: fix.part.nodeId,
+            rowValueKey: fix.valueKey, numberCauses: causes.map(({ before, stamp, owner }) => ({ before, stamp, owner })),
+            node: node.title ?? this.registryForTab(tab)?.resolve(node.type)?.displayName ?? node.type,
+            details: [t('fixesNotice.change.numberOutsideLimits', { row: fix.label, before: String(fix.before), after: String(fix.after) })],
+            count: 1,
+            anchor: { occurrence: { instancePath, node: asNodeId(fix.part.nodeId) } },
+          }
+        }), document)
+      },
+    })
+  }
+
+  private reportSharedNumberCorrections(tab: Tab, op: SessionOp): void {
+    const forward: PatchOp[] = []
+    const adjustments: Adjustment[] = []
+    for (const correction of op.numericCorrections ?? []) {
+      const cause = correction.causes[0]!
+      const { graphId, nodeId, valueKey } = correction.owner
+      const graph = tab.store.doc.graphs[cause.graphId]
+      const node = graph?.nodes[cause.nodeId]
+      if (node === undefined) continue
+      const schema = this.registryForTab(tab)?.resolve(node.type)
+      const row = schema === undefined ? undefined : elabInputsOf(elaborateInterface(schema, node, buildGraphConnectivity(graph!)(node.id)))
+        .find((row) => row.address.port === cause.valueKey)
+      forward.push({ op: 'replace', path: ['graphs', graphId, 'nodes', nodeId, 'values', valueKey],
+        oldValue: correction.before, value: correction.after })
+      adjustments.push({
+        kind: 'numberOutsideLimits', graphId: cause.graphId, nodeId: cause.nodeId, rowValueKey: cause.valueKey,
+        numberCauses: correction.causes.map(({ stamp }) => ({ before: correction.before, stamp, owner: correction.owner })),
+        node: node.title ?? schema?.displayName ?? node.type,
+        details: [t('fixesNotice.change.numberOutsideLimits', { row: row?.spec.displayName ?? cause.valueKey,
+          before: String(correction.before), after: String(correction.after) })], count: 1,
+        anchor: { occurrence: { instancePath: cause.instancePath.map(asNodeId), node: asNodeId(cause.nodeId) } },
+      })
+    }
+    this.reportAdjustments(tab, { forward, inverse: invertOps(forward) }, adjustments)
+  }
+
+  /**
+   * Adds the changes the editor made by itself in one stored batch to the
+   * tab's notice; an open Review keeps its place and selection. `record` is
+   * the batch's own patches, which the notice's Undo and Redo replay.
+   */
+  reportAdjustments(tab: Tab, record: HistorySnapshotRecord, adjustments: readonly Adjustment[], document = tab.store.doc): void {
+    if (adjustments.length === 0 || !this.tabs.get().includes(tab)) return
+    const before = replayHistoryOps(document, record.inverse).doc
+    this.adjustmentNotices.update((current) => {
+      const previous = current.get(tab.id)
+      const notice = previous?.undone === undefined ? previous : undefined
+      return new Map(current).set(tab.id, {
+        owner: tab.id,
+        adjustments: [...notice?.adjustments ?? [], ...adjustments],
+        records: [...notice?.records ?? [], { ...record, before }],
+        recordKinds: [...notice?.recordKinds ?? [], adjustments[0]!.kind],
+        dismissed: notice?.dismissed ?? false,
+      })
+    })
+  }
+
+  private removeEditedNumberAdjustments(tabId: string, paths: readonly (readonly (string | number)[])[]): void {
+    const notice = this.adjustmentNotices.get().get(tabId)
+    if (notice === undefined) return
+    const document = this.tabs.get().find((tab) => tab.id === tabId)?.store.doc
+    const affected = notice.adjustments.filter((adjustment) => adjustment.numberCauses?.some(({ owner }) => {
+      if (!paths.some((path) => pathsOverlap(path, ['graphs', owner.graphId, 'nodes', owner.nodeId, 'values', owner.valueKey]))) return false
+      const key = `${owner.graphId}/${owner.nodeId}#values.${owner.valueKey}`
+      const recorded = notice.records.flatMap((record) => record.forward)
+        .filter((patch) => adjustmentKeys(patch, 'numberOutsideLimits').includes(key)).at(-1)
+      // A shared acknowledgement confirms the optimistic correction, not a later edit.
+      return notice.undone !== undefined || recorded === undefined || recorded.op === 'remove' ||
+        !jsonSameValue(document?.graphs[owner.graphId]?.nodes[owner.nodeId]?.values[owner.valueKey], recorded.value)
+    }))
+    if (affected.length === 0) return
+    // The runner publishes its automatic batch's record after the operation.
+    // Wait for it so a successive correction is not mistaken for a personal edit.
+    queueMicrotask(() => this.adjustmentNotices.update((current) => {
+      const latest = current.get(tabId)
+      if (latest === undefined) return current
+      const removed = affected.filter((adjustment) => latest.adjustments.includes(adjustment) &&
+        !adjustment.numberCauses!.some(({ owner }) => {
+          const key = `${owner.graphId}/${owner.nodeId}#values.${owner.valueKey}`
+          const previous = notice.records.flatMap((record) => record.forward)
+            .filter((patch) => adjustmentKeys(patch, 'numberOutsideLimits').includes(key)).at(-1)
+          return previous !== undefined && previous.op !== 'remove' && latest.records.some((record, index) =>
+            index >= notice.records.length && latest.recordKinds[index] === 'numberOutsideLimits' && record.forward.some((patch) =>
+              patch.op !== 'add' && adjustmentKeys(patch, 'numberOutsideLimits').includes(key) && jsonSameValue(patch.oldValue, previous.value)))
+        }))
+      if (removed.length === 0) return current
+      const keys = new Set(removed.flatMap((adjustment) => adjustment.numberCauses!.map(({ owner }) =>
+        `${owner.graphId}/${owner.nodeId}#values.${owner.valueKey}`)))
+      const keep = (patch: PatchOp): boolean => !adjustmentKeys(patch, 'numberOutsideLimits').some((key) => keys.has(key))
+      const adjustments = latest.adjustments.filter((adjustment) => !removed.includes(adjustment))
+      const next = new Map(current)
+      if (adjustments.length === 0) next.delete(tabId)
+      else next.set(tabId, { ...latest, adjustments,
+        records: latest.records.map((record, index) => index < notice.records.length && latest.recordKinds[index] === 'numberOutsideLimits'
+          ? { ...record, forward: record.forward.filter(keep), inverse: record.inverse.filter(keep) } : record),
+        ...(latest.undone === undefined ? {} : { undone: { ...latest.undone, redo: latest.undone.redo.filter(keep) } }),
+      })
+      return next
+    }))
+  }
+
+  /** Whether the document still holds the notice's changes, holds what they replaced, or neither. */
+  adjustmentNoticeState(tabId: string): AdjustmentNoticeState | undefined {
+    const notice = this.adjustmentNotices.get().get(tabId)
+    const tab = this.tabs.get().find((candidate) => candidate.id === tabId)
+    if (notice === undefined || tab === undefined) return undefined
+    if (notice.refusedAt === tab.store.revision) return 'refused'
+    if (holdsRecorded(tab.store.doc, this.adjustmentRedoOps(notice))) return 'undone'
+    return this.adjustmentUndoPlan(tab, notice) === undefined ? 'refused' : 'ready'
+  }
+
+  private adjustmentRedoOps(notice: AdjustmentNotice): readonly PatchOp[] {
+    return notice.undone?.redo ?? notice.records.flatMap((record) => record.forward)
+  }
+
+  /**
+   * What the notice's Undo puts back. An adjustment the user changed since,
+   * in an edit still on their undo history, is left as it is and counted as
+   * kept: a replaced node with its values and wires, or one removed choice.
+   * Any other changed value, such as one another person changed in a shared
+   * session, refuses the whole Undo (undefined).
+   */
+  private adjustmentUndoPlan(tab: Tab, notice: AdjustmentNotice): { readonly ops: readonly PatchOp[]; readonly kept: number } | undefined {
+    // Each op with the adjustments it belongs to: a replaced node with its values and wires, or one removed choice.
+    const split = (ops: readonly PatchOp[], index: number) => notice.recordKinds[index] === 'removedChoice' ? splitDynamicOps(ops) : ops
+    const inverse = notice.records.map((record, index) => split(record.inverse, index).map((op) => ({ op,
+      keys: adjustmentKeys(op, notice.recordKinds[index]!).map((key) => notice.recordKinds[index] === 'numberOutsideLimits' ? `${index}:${key}` : key),
+    }))).reverse().flat()
+    // Compare whole forward records: a user's edit can equal a later correction's inverse.
+    const numericOwn = tab.store.historySnapshot().undo.filter((record) => !notice.records.some((candidate) =>
+      jsonSameValue(record.forward as unknown as Json, candidate.forward as unknown as Json)))
+      .flatMap((record) => record.forward)
+    const recorded = notice.records.flatMap((record, index) =>
+      [...record.forward, ...record.inverse, ...split(record.forward, index), ...split(record.inverse, index)])
+    const own = numericOwn.filter((op) => !recorded.some((candidate) => jsonSameValue(op as unknown as Json, candidate as unknown as Json)))
+    const kept = new Set<string>()
+    for (;;) {
+      const ops = inverse.filter((entry) => !entry.keys.some((key) => kept.has(key))).map((entry) => entry.op)
+      let stale: PatchOp | undefined
+      try {
+        const replay = replayHistoryOps(tab.store.doc, ops, { requireRecordedValues: true })
+        stale = replay.stale
+        if (stale === undefined && !this.adjustmentWiresSurvive(tab, notice, replay.doc)) return undefined
+      } catch {
+        return undefined
+      }
+      if (stale === undefined) return ops.length === 0 && kept.size === 0 ? undefined : { ops, kept: [...kept].filter((key) => notice.adjustments.some((adjustment) =>
+        adjustment.kind === 'numberOutsideLimits'
+          ? key.endsWith(`:${adjustment.numberCauses![0]!.owner.graphId}/${adjustment.numberCauses![0]!.owner.nodeId}#values.${adjustment.numberCauses![0]!.owner.valueKey}`)
+          : key === `${adjustment.graphId}/${adjustment.nodeId}` ? adjustment.kind === 'replaced' : key.startsWith(`${adjustment.graphId}/${adjustment.nodeId}#`))).length }
+      const keys = inverse.find((entry) => entry.op === stale)?.keys ?? []
+      const edits = keys.some((key) => key.includes('#values.')) ? numericOwn : own
+      if (keys.length === 0 || keys.every((key) => kept.has(key)) || !edits.some((op) => pathsOverlap(op.path, stale.path))) return undefined
+      for (const key of keys) kept.add(key)
+    }
+  }
+
+  /** A new connection must still have its address after restoring the old node. */
+  private adjustmentWiresSurvive(tab: Tab, notice: AdjustmentNotice, restored: WorkflowDocument): boolean {
+    const registry = this.registryForTab(tab)
+    const resolve = registry === undefined ? undefined : documentNodeResolver(restored, this.resolverWithVirtualNodes(registry.resolve))
+    for (const graph of Object.values(restored.graphs)) {
+      const current = tab.store.doc.graphs[graph.id]
+      if (current === undefined || current === graph) continue
+      const currentEnds = graphAttachments(current)
+      const connected = buildGraphConnectivity(graph)
+      for (const [key, [id, port, kind]] of graphAttachments(graph)) {
+        const node = graph.nodes[id]
+        if (node === current.nodes[id] || !currentEnds.has(key)) continue
+        if (node === undefined) return false
+        const schema = resolve?.(graph.id, node)
+        if (schema === undefined) {
+          // An unavailable old schema can only vouch for addresses already
+          // connected before the first adjustment to this node.
+          const before = notice.records.find((record) => record.forward.some((op) =>
+            op.path[0] === 'graphs' && op.path[1] === graph.id && op.path[2] === 'nodes' && op.path[3] === id))?.before.graphs[graph.id]
+          if (before === undefined || !graphAttachments(before).has(key)) return false
+          continue
+        }
+        const elaborated = elaborateInterface(schema, node, connected(id))
+        const supported = kind === 'construct' ? elaborated.constructs.includes(port)
+          : kind === 'output' ? elabOutputsOf(elaborated).some((row) => row.address.port === port)
+          : elabInputsOf(elaborated).some((row) => row.address.port === port && (kind !== 'tap' || row.spec.widget !== undefined))
+        if (!supported) return false
+      }
+    }
+    for (const [key, topology] of Object.entries(restored.occurrenceTopologies ?? {})) {
+      const current = tab.store.doc.occurrenceTopologies?.[key]
+      if (current === undefined) continue
+      const rawResolve = this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined))
+      const effective = effectiveOccurrenceTopology(restored, rawResolve, topology.owner)
+      for (const [id, link] of Object.entries(topology.links)) for (const side of ['from', 'to'] as const) {
+        const previous = current.links[id]?.[side]
+        if (previous === undefined || !jsonSameValue(previous as unknown as Json, link[side] as unknown as Json)) continue
+        const oldEnd = resolveOccurrenceLinkEndpoint(tab.store.doc, current.owner, previous, side).endpoint
+        if (oldEnd === undefined) continue
+        const end = resolveOccurrenceLinkEndpoint(restored, topology.owner, link[side], side).endpoint
+        // A surviving authored route must still reach the same address.
+        if (end === undefined || end.graphId !== oldEnd.graphId ||
+          JSON.stringify(end.instancePath) !== JSON.stringify(oldEnd.instancePath) ||
+          !jsonSameValue(end.endpoint as unknown as Json, oldEnd.endpoint as unknown as Json)) return false
+        if (!('node' in end.endpoint)) continue
+        const graph = restored.graphs[end.graphId]
+        const node = graph?.nodes[end.endpoint.node]
+        if (node === undefined && tab.store.doc.graphs[end.graphId]?.nodes[end.endpoint.node] === undefined) continue
+        if (graph === undefined || node === undefined) return false
+        const view = occurrenceDynamicView(restored, rawResolve, end.instancePath)
+        const oldView = occurrenceDynamicView(tab.store.doc, rawResolve, oldEnd.instancePath)
+        if (node === tab.store.doc.graphs[graph.id]?.nodes[node.id] &&
+          jsonSameValue((view.dynamic.get(node.id) ?? node.dynamic ?? {}) as Json,
+            (oldView.dynamic.get(node.id) ?? node.dynamic ?? {}) as Json) &&
+          jsonSameValue((view.values.get(node.id) ?? node.values) as Json,
+            (oldView.values.get(node.id) ?? node.values) as Json)) continue
+        const schema = resolve?.(graph.id, node)
+        if (schema === undefined) {
+          const before = notice.records.find((record) => record.forward.some((op) =>
+            op.path[0] === 'graphs' && op.path[1] === graph.id && op.path[2] === 'nodes' && op.path[3] === node.id))?.before
+          const original = before && Object.values(before.occurrenceTopologies?.[key]?.links ?? {}).some((candidate) => {
+            const originalEnd = resolveOccurrenceLinkEndpoint(before, topology.owner, candidate[side], side).endpoint
+            return originalEnd !== undefined && originalEnd.graphId === end.graphId &&
+              JSON.stringify(originalEnd.instancePath) === JSON.stringify(end.instancePath) &&
+              jsonSameValue(originalEnd.endpoint as unknown as Json, end.endpoint as unknown as Json)
+          })
+          if (!original) return false
+          continue
+        }
+        const inputs = new Set(view.inputPorts.get(node.id) ?? [])
+        const outputs = new Set<string>()
+        for (const candidate of [...effective.links, ...effective.projectedParentLinks]) {
+          if (candidate.to.graphId === graph.id && isPortEndpoint(candidate.to.endpoint) && candidate.to.endpoint.node === node.id)
+            inputs.add(candidate.to.endpoint.port)
+          if (candidate.from.graphId === graph.id && 'node' in candidate.from.endpoint && candidate.from.endpoint.node === node.id)
+            outputs.add('tap' in candidate.from.endpoint ? candidate.from.endpoint.tap : candidate.from.endpoint.port)
+        }
+        const elaborated = elaborateInterface(schema, { ...node,
+          ...(view.dynamic.has(node.id) ? { dynamic: view.dynamic.get(node.id)! } : {}),
+          values: view.values.get(node.id) ?? node.values,
+        }, { isInputConnected: (port) => inputs.has(port), isOutputConnected: (port) => outputs.has(port),
+          inputPorts: () => [...inputs], outputPorts: () => [...outputs] }, { promoteGhosts: false, nodeId: node.id })
+        const endpoint = end.endpoint
+        const supported = 'tap' in endpoint
+          ? elabInputsOf(elaborated).some((row) => row.address.port === endpoint.tap && row.spec.widget !== undefined)
+          : side === 'from' ? elabOutputsOf(elaborated).some((row) => row.address.port === endpoint.port)
+          : elabInputsOf(elaborated).some((row) => row.address.port === endpoint.port && row.spec.socketless !== true)
+        if (!supported) return false
+      }
+    }
     return true
   }
 
-  dismissMigrationNotice(tabId: string): void {
-    if (!this.migrationNotices.get().has(tabId)) return
-    this.migrationNotices.update((current) => {
+  /**
+   * Takes back every change the notice lists in one undo step, leaving every
+   * other edit alone, and the adjustments the user changed since.
+   */
+  undoAdjustments(tabId: string): boolean {
+    const notice = this.adjustmentNotices.get().get(tabId)
+    const tab = this.tabs.get().find((candidate) => candidate.id === tabId)
+    if (notice === undefined || tab === undefined || this.adjustmentNoticeState(tabId) !== 'ready') return false
+    const plan = this.adjustmentUndoPlan(tab, notice)!
+    // When the user changed every adjustment since, nothing is put back and all are reported kept.
+    if (plan.ops.length > 0 && !this.replayAdjustments(tab, notice, plan.ops)) return false
+    const keptNumbers = this.keptNumberFixes.get(tab.store) ?? new Map()
+    for (const cause of notice.adjustments.flatMap((adjustment) => adjustment.numberCauses ?? [])) {
+      const { graphId, nodeId, valueKey } = cause.owner
+      const key = JSON.stringify([graphId, nodeId, valueKey, cause.stamp])
+      if (tab.store.doc.graphs[graphId]?.nodes[nodeId]?.values[valueKey] === cause.before) keptNumbers.set(key, cause)
+    }
+    this.keptNumberFixes.set(tab.store, keptNumbers)
+    const undone = { redo: invertOps(plan.ops), kept: plan.kept }
+    this.adjustmentNotices.update((current) => new Map(current).set(tabId, { ...notice, undone }))
+    return true
+  }
+
+  /** Puts back what the notice's Undo took back, in one undo step. */
+  redoAdjustments(tabId: string): boolean {
+    const notice = this.adjustmentNotices.get().get(tabId)
+    const tab = this.tabs.get().find((candidate) => candidate.id === tabId)
+    if (notice === undefined || tab === undefined || this.adjustmentNoticeState(tabId) !== 'undone') return false
+    const redo = this.adjustmentRedoOps(notice)
+    if (redo.length > 0 && !this.replayAdjustments(tab, notice, redo)) return false
+    const { undone: _, ...rest } = notice
+    this.adjustmentNotices.update((current) => new Map(current).set(tabId, rest))
+    return true
+  }
+
+  private replayAdjustments(tab: Tab, notice: AdjustmentNotice, ops: readonly PatchOp[]): boolean {
+    if (tab.store.replayRecorded(ops)) {
+      reconcileGraphNavigation(tab)
+      return true
+    }
+    const refusedAt = tab.store.revision
+    this.adjustmentNotices.update((current) => new Map(current).set(tab.id, { ...notice, refusedAt }))
+    return false
+  }
+
+  /** The cross: the notice leaves the canvas and its count stays in the status bar. */
+  dismissAdjustmentNotice(tabId: string): void {
+    // Once everything was taken back nothing stays adjusted, so no count remains.
+    if (this.adjustmentNoticeState(tabId) === 'undone') this.clearAdjustmentNotice(tabId)
+    else this.setAdjustmentNoticeDismissed(tabId, true)
+  }
+
+  /** The status bar count brings the notice back. */
+  reopenAdjustmentNotice(tabId: string): void {
+    this.setAdjustmentNoticeDismissed(tabId, false)
+  }
+
+  private setAdjustmentNoticeDismissed(tabId: string, dismissed: boolean): void {
+    const notice = this.adjustmentNotices.get().get(tabId)
+    if (notice === undefined || notice.dismissed === dismissed) return
+    this.adjustmentNotices.update((current) => new Map(current).set(tabId, { ...notice, dismissed, reopened: !dismissed }))
+  }
+
+  /** Saving, closing or replacing the tab clears its notice and count; the changed values stay. */
+  clearAdjustmentNotice(tabId: string): void {
+    if (!this.adjustmentNotices.get().has(tabId)) return
+    this.adjustmentNotices.update((current) => {
       const next = new Map(current)
       next.delete(tabId)
       return next
     })
   }
 
+  /**
+   * On open, wires from a member that is no longer part of its node are
+   * removed and stay problems, in one batch. Then a choice or variant whose
+   * pack removed it is replaced, in its own batch reported in the tab's
+   * notice, so the notice's Undo puts back only what it lists. A state the
+   * editor cannot replace stays a problem.
+   */
   private adjustRemovedPartsOnOpen(tab: Tab): Promise<void> | undefined {
     const registry = this.registryForTab(tab)
     if (registry === undefined) return
     const document = tab.store.doc
     const resolve = documentNodeResolver(document, this.resolverWithVirtualNodes(registry.resolve))
-    const paths = new Map<string, readonly NodeId[]>([[document.root, []]])
-    for (const [graphId, path] of paths) for (const node of Object.values(document.graphs[graphId]?.nodes ?? {})) {
-      const child = subgraphDefIdOf(node.type)
-      if (child !== undefined && !paths.has(child)) paths.set(child, [...path, node.id])
+    const paths = firstOccurrencePaths(document)
+    const anchorOf = (graphId: string, nodeId: NodeId) => {
+      const instancePath = paths.get(graphId)
+      return instancePath === undefined ? undefined : { occurrence: { instancePath, node: nodeId } }
+    }
+    const wireInvocations: CommandInvocation[] = []
+    const wireProblems: Diagnostic[] = []
+    // The members a node has are the ones its elaboration gives on open: a
+    // wire, named net or subgraph output forward from any other member goes.
+    const what = { link: 'the wire', net: 'the named net', forward: 'the subgraph output' } as const
+    for (const graph of Object.values(document.graphs)) for (const node of Object.values(graph.nodes)) {
+      const wires = wiresFromNode(graph, node.id)
+      const schema = wires.length === 0 ? undefined : resolve(graph.id, node)
+      if (schema === undefined) continue
+      const elaborated = elaborateInterface(schema, node, buildGraphConnectivity(graph)(node.id))
+      const gone = wires.filter((wire) => inGoneMember(elaborated, wire.address))
+      if (gone.length === 0) continue
+      for (const wire of gone) {
+        if (wire.kind === 'link') wireInvocations.push({ command: 'link.disconnect', params: { graphId: graph.id, linkId: wire.id } })
+        else if (wire.kind === 'net') wireInvocations.push({ command: 'net.remove', params: { graphId: graph.id, netId: wire.id } })
+        else {
+          const binds = boundaryItems(graph.boundary, 'outputs').find((item) => item.id === wire.id)?.binds
+          wireInvocations.push({ command: 'boundary.unbind', params: { graphId: graph.id, side: 'outputs', itemId: wire.id, node: node.id,
+            ...(binds?.kind === 'widgetTap' ? { tap: wire.address } : { port: wire.address }) } })
+        }
+      }
+      const anchor = anchorOf(graph.id, node.id)
+      wireProblems.push(diag('warning', 'import', 'upgrade.removedDynamicParts',
+        `${node.title ?? schema.displayName}: ${gone.map((wire) =>
+          `${what[wire.kind]} from '${wire.address}' is removed, because its member is no longer part of the node.`).join(' ')}`,
+        { refs: [{ graphId: graph.id, nodeId: node.id }], ...(anchor === undefined ? {} : { anchor }) }))
     }
     const invocations: CommandInvocation[] = []
-    const entries: Diagnostic[] = []
+    const adjustments: Adjustment[] = []
+    const problems: Diagnostic[] = []
     for (const graph of Object.values(document.graphs)) for (const node of Object.values(graph.nodes)) {
       const schema = resolve(graph.id, node)
       if (schema === undefined || node.dynamic === undefined) continue
@@ -5176,62 +6338,111 @@ export class AppState {
       const changes = [...new Map(diagnostics.filter((entry) => ['elab.combo.removedOption', 'elab.combo.unknownOption',
         'elab.slot.removedVariant', 'elab.dynamic.unknownState'].includes(entry.code))
         .map((entry) => [JSON.stringify([entry.code, entry.data]), entry])).values()]
-      if (changes.length === 0) continue
+      const fixed: Diagnostic[] = []
+      const name = node.title ?? schema.displayName
+      const anchor = anchorOf(graph.id, node.id)
       for (const entry of changes) {
-        if (entry.code === 'elab.dynamic.unknownState' || entry.data === undefined) continue
-        const { construct, selected, ancestors } = entry.data
-        if (typeof selected !== 'string' && selected !== null) continue
+        const selected = entry.data?.['selected']
+        if (entry.code === 'elab.dynamic.unknownState' || entry.data === undefined || (typeof selected !== 'string' && selected !== null)) {
+          problems.push(diag('warning', 'import', 'upgrade.removedDynamicParts', `${name}: ${entry.message}`, {
+            refs: [{ graphId: graph.id, nodeId: node.id }],
+            ...(anchor === undefined ? {} : { anchor }),
+          }))
+          continue
+        }
+        fixed.push(entry)
         invocations.push({ command: selected === null ? 'dynamic.specializeSlot' : 'dynamic.selectOption', params: {
-          graphId: graph.id, nodeId: node.id, construct, ancestors,
+          graphId: graph.id, nodeId: node.id, construct: entry.data['construct'],
           ...(selected === null ? { variant: null } : { option: selected }),
         } as Json })
       }
-      const instancePath = paths.get(graph.id)
-      entries.push(diag('warning', 'import', 'upgrade.removedDynamicParts',
-        `${node.title ?? schema.displayName}: ${[...new Set(changes.map((entry) => entry.message))].join(' ')}`, {
-          refs: [{ graphId: graph.id, nodeId: node.id }],
-          ...(instancePath === undefined ? {} : { anchor: { occurrence: { instancePath, node: node.id } } }),
-        }))
-    }
-    if (invocations.length > 0) return Promise.resolve(this.dispatchTo(tab,
-      { command: 'batch', params: { invocations } as unknown as Json })).then((outcome) => {
-        if (outcome.ok && this.tabs.get().includes(tab)) this.reportProblems(tab.id, entries)
+      if (fixed.length > 0) adjustments.push({
+        kind: 'removedChoice', graphId: graph.id, nodeId: node.id, node: name, count: fixed.length,
+        ...(fixed.length === 1 && typeof fixed[0]!.data?.['construct'] === 'string'
+          ? { rowValueKey: fixed[0]!.data['construct'] } : {}),
+        details: [...new Set(fixed.map((entry) => {
+          const { row, removed, selected } = entry.data as { row: string; removed: string; selected: string | null }
+          return selected === null
+            ? t('fixesNotice.change.removedChoiceNone', { row, removed })
+            : t('fixesNotice.change.removedChoice', { row, removed, selected })
+        }))],
+        ...(anchor === undefined ? {} : { anchor }),
       })
-    if (entries.length > 0 && this.tabs.get().includes(tab)) this.reportProblems(tab.id, entries)
+    }
+    if (problems.length > 0) this.reportProblems(tab.id, problems)
+    if (wireInvocations.length === 0 && invocations.length === 0) return
+    const store = tab.store
+    const batch = (list: readonly CommandInvocation[]) =>
+      Promise.resolve(this.dispatchTo(tab, { command: 'batch', params: { invocations: list } as unknown as Json }))
+    const wiresRemoved = wireInvocations.length === 0 ? Promise.resolve(true) : batch(wireInvocations).then((outcome) => {
+      if (outcome.ok && this.tabs.get().includes(tab)) this.reportProblems(tab.id, wireProblems)
+      return outcome.ok
+    })
+    return wiresRemoved.then((ok) => {
+      if (!ok || invocations.length === 0 || tab.store !== store) return
+      return batch(invocations).then((outcome) => {
+        if (outcome.ok && tab.store === store) this.reportAdjustments(tab, outcome, adjustments)
+      })
+    })
   }
 
+  /** Node replacements found on open are applied in one batch and reported in the tab's notice. */
   private upgradeOnOpen(tab: Tab): Promise<void> | undefined {
     if (this.settings.get<boolean>('execution.reviewUpgrades')) return
+    const registry = this.registryForTab(tab)
     const items = this.scanTabReplacements(tab).filter((item) => item.hops.length > 0)
-    if (items.length === 0) return
+    const invocation = registry === undefined || items.length === 0 ? undefined : replacementInvocation(items, tab.store.doc, registry.resolve)
+    if (registry === undefined || invocation === undefined) return
     const store = tab.store
-    const revision = store.revision
-    return this.applyReplacements(tab, items).then((accepted) => {
-      // A notice must identify this batch, never a later edit's undo record.
-      if (!accepted || !this.tabs.get().includes(tab) || tab.store !== store || store.revision !== revision + 1) return
-      // A shared definition has one notice line; navigate through its first
-      // reachable occurrence, not an arbitrary sibling's instance path.
-      const paths = new Map<string, readonly NodeId[]>([[tab.store.doc.root, []]])
-      for (const [graphId, path] of paths) {
-        for (const node of Object.values(tab.store.doc.graphs[graphId]?.nodes ?? {})) {
-          const child = subgraphDefIdOf(node.type)
-          if (child !== undefined && !paths.has(child)) paths.set(child, [...path, node.id])
-        }
-      }
-      const entries = items.map((item): OwnedDiagnostic => {
+    const document = store.doc
+    return Promise.resolve(this.dispatchTo(tab, invocation)).then((outcome) => {
+      if (!outcome.ok || tab.store !== store) return
+      // A shared definition has one line; it goes to its first reachable
+      // occurrence, not an arbitrary sibling's instance path.
+      const paths = firstOccurrencePaths(tab.store.doc)
+      this.reportAdjustments(tab, outcome, items.map((item): Adjustment => {
         const instancePath = paths.get(item.graphId)
-        return {
-          ...diag(item.diagnostics.some((entry) => entry.severity === 'warning') ? 'warning' : 'info',
-            'command', 'replace.applied', `${item.nodeId}: ${item.sourceType} -> ${item.terminalType}`, {
-              refs: [{ graphId: item.graphId, nodeId: item.nodeId }],
-              ...(instancePath === undefined ? {} : { anchor: { occurrence: { instancePath, node: asNodeId(item.nodeId) } } }),
-              data: { warnings: item.diagnostics.map((entry) => entry.message) },
-            }),
-          owner: tab.id,
+        const node = tab.store.doc.graphs[item.graphId]?.nodes[item.nodeId]
+        const graph = document.graphs[item.graphId]!
+        const source = graph.nodes[item.nodeId]!
+        const schema = registry.resolve(source.type)
+        const elaborated = schema === undefined ? undefined : elaborateInterface(schema, source, buildGraphConnectivity(graph)(source.id))
+        const details = new Set<string>()
+        const sinkPorts = new Map<string, string>()
+        const wire = (side: 'input' | 'output', port: string, tap = false) => {
+          const row = elaborated === undefined ? undefined : (side === 'input' || tap ? elabInputsOf(elaborated) : elabOutputsOf(elaborated))
+            .find((row) => row.address.port === port)
+          details.add(t(side === 'input' ? 'fixesNotice.change.wireIntoRemoved' : 'fixesNotice.change.wireFromRemoved', {
+            row: row?.spec.displayName ?? port,
+          }))
         }
-      })
-      const undoRecord = tab.store.historySnapshot().undo.at(-1)!
-      this.migrationNotices.update((current) => new Map(current).set(tab.id, { owner: tab.id, entries, undoRecord }))
+        for (const { plan } of item.hops) {
+          for (const id of plan.dropLinks) {
+            const link = graph.links[id]
+            if (link === undefined) continue
+            if ('node' in link.from && link.from.node === item.nodeId)
+              wire('output', 'port' in link.from ? link.from.port : link.from.tap, 'tap' in link.from)
+            if ('node' in link.to && link.to.node === item.nodeId && 'port' in link.to)
+              wire('input', link.to.port)
+          }
+          for (const id of plan.dropNets) {
+            const net = graph.nets[id]
+            if (net?.source.node === item.nodeId) wire('output', net.source.port)
+          }
+          for (const edit of plan.netSinkEdits ?? []) {
+            if (edit.from.node !== item.nodeId) continue
+            const port = sinkPorts.get(JSON.stringify([edit.net, edit.from.port])) ?? edit.from.port
+            if (edit.to === undefined) wire('input', port)
+            else sinkPorts.set(JSON.stringify([edit.net, edit.to.port]), port)
+          }
+        }
+        return {
+          kind: 'replaced', graphId: item.graphId, nodeId: item.nodeId, count: 1,
+          node: node?.title ?? registry.resolve(item.terminalType)?.displayName ?? item.nodeId,
+          details: [...details],
+          ...(instancePath === undefined ? {} : { anchor: { occurrence: { instancePath, node: asNodeId(item.nodeId) } } }),
+        }
+      }))
     })
   }
 
@@ -5239,7 +6450,8 @@ export class AppState {
   private readonly schemaDiagnosticsPending = new Set<string>()
 
   /**
-   * Tabs awaiting a legacy-boolean normalization pass. Unlike schema diagnostics
+   * Tabs awaiting a legacy-boolean normalization pass, followed by storing the
+   * start key of each required choice with nothing stored. Unlike schema diagnostics
    * this RE-ARMS on retarget: which schemas interpret the document is the
    * tab's target backend, and a document opened while targeting one backend
    * (where its types may not even resolve) can be pointed at another whose
@@ -5262,7 +6474,14 @@ export class AppState {
       }
       if (!this.registryForTab(tab)) continue // still waiting for schemas
       this.legacyBooleanPending.delete(tab.id)
-      void this.normalizeLegacyBooleans(tab)
+      const store = tab.store
+      void this.normalizeLegacyBooleans(tab).then(() => {
+        // A required choice saved with nothing stored gets its start key.
+        if (this.tabs.get().includes(tab) && tab.store === store) {
+          return this.dispatchTo(tab, { command: 'dynamic.storeStartState', params: {} })
+        }
+        return undefined
+      }).catch(() => undefined) // A tab whose schemas vanish keeps its document as saved.
     }
   }
 
@@ -5285,10 +6504,14 @@ export class AppState {
         : adjustment.then(() => {
           if (this.tabs.get().includes(tab) && tab.store === store) return this.upgradeOnOpen(tab)
         })
-      if (upgrade === undefined) this.reportUnresolvedTypes(tab)
-      else void upgrade.then(() => {
-        if (this.tabs.get().includes(tab) && tab.store === store) this.reportUnresolvedTypes(tab)
-      })
+      const finish = (): void => {
+        if (!this.tabs.get().includes(tab) || tab.store !== store) return
+        this.reportUnresolvedTypes(tab)
+        if (this.settings.get<string>('automaticFixes.numberOutsideLimits') === 'apply')
+          void this.applyProblemFixes(tab, this.scanTabNumberFixes(tab), true)
+      }
+      if (upgrade === undefined) finish()
+      else void upgrade.then(finish)
     }
   }
 
@@ -5296,7 +6519,7 @@ export class AppState {
    * A node type the target backend cannot resolve renders as a red error
    * shell - correct on canvas, but silently: nothing else says WHY a
    * workflow is dead or that queueing will refuse. Report every unresolved
-   * type once when schemas arrive, so "all my nodes
+   * type when schemas arrive or change, so "all my nodes
    * are red" always has a matching Problems entry naming the types and the
    * backend that lacks them. Subgraph-derived '#' types resolve locally and
    * are never reported.
@@ -5317,18 +6540,21 @@ export class AppState {
         continue
       missing.set(node.type, (missing.get(node.type) ?? 0) + 1)
     }
-    if (missing.size === 0) return
     const backend = this.backendForTab(tab)
-    this.reportProblems(tab.id,
-      [...missing].map(([type, count]) =>
-        diag(
-          'warning',
-          'schema',
-          'schema.unresolvedType',
-          `${type}${count > 1 ? ` (${count})` : ''}: not available on backend ${backend.label}`,
+    batch(() => {
+      this.problems.update((problems) => problems.filter((entry) =>
+        entry.owner !== tab.id || entry.origin !== 'schema' || entry.code !== 'schema.unresolvedType'))
+      this.reportProblems(tab.id,
+        [...missing].map(([type, count]) =>
+          diag(
+            'warning',
+            'schema',
+            'schema.unresolvedType',
+            `${type}${count > 1 ? ` (${count})` : ''}: not available on backend ${backend.label}`,
+          ),
         ),
-      ),
-    )
+      )
+    })
   }
 
   /**
@@ -5348,8 +6574,8 @@ export class AppState {
     for (const [graphId, graph] of Object.entries(tab.store.doc.graphs)) for (const node of Object.values(graph.nodes)) {
       const schema = registry.resolve(node.type)
       if (!schema) continue
-      for (const item of schema.items) {
-        if (item.kind !== 'input' || item.widget?.widgetType !== 'BOOLEAN') continue
+      for (const item of inputsOf(schema)) {
+        if (item.widget?.widgetType !== 'BOOLEAN') continue
         const value = node.values[item.id]
         if (typeof value !== 'string') continue
         const mapped = LEGACY_BOOLEAN_TOKENS.get(value.toLowerCase())
@@ -5416,11 +6642,11 @@ export class AppState {
   /** Active canvas lens of a tab ('standard' when never switched). */
   lensFor(tabId: string): CanvasLens {
     const lens = this.lenses.get().get(tabId) ?? 'standard'
-    return lens === 'exposure' && !this.appViewEnabled ? 'standard' : lens
+    return lens === 'exposure' && !this.exposureEnabled ? 'standard' : lens
   }
 
   setLens(tabId: string, lens: CanvasLens): void {
-    if (!this.lensRegistry.get(lens) || (lens === 'exposure' && !this.appViewEnabled)) return
+    if (!this.lensRegistry.get(lens) || (lens === 'exposure' && !this.exposureEnabled)) return
     this.lenses.update((m) => {
       const next = new Map(m)
       if (lens === 'standard') next.delete(tabId)
@@ -5431,7 +6657,7 @@ export class AppState {
 
   /** Toggle a tab between the default view and the given lens. */
   toggleLens(tabId: string, lens: Exclude<CanvasLens, 'standard'>): void {
-    if (lens === 'exposure' && !this.appViewEnabled) return
+    if (lens === 'exposure' && !this.exposureEnabled) return
     this.lenses.update((m) => {
       const next = new Map(m)
       if (next.get(tabId) === lens) next.delete(tabId)
@@ -5465,13 +6691,21 @@ export class AppState {
     editorKind = this.availableEditorKind(editorKind)
     const tab = this.tabs.get().find((t) => t.id === tabId)
     if (!tab || tab.execution !== undefined || tab.editorKind === editorKind) return
-    if (editorKind !== CURVE_EDITOR_KIND && this.curveEditorTarget.get()?.tabId === tabId) this.curveEditorTarget.set(undefined)
     if (editorKind !== GLSL_EDITOR_KIND && this.glslEditorTarget.get()?.tabId === tabId) this.glslEditorTarget.set(undefined)
     this.tabs.update((list) => list.map((t) => (t.id === tabId ? { ...t, editorKind } : t)))
     this.schedulePersistTabs()
   }
 
   renameTab(tabId: string, title: string): void {
+    const board = this.boards.entries.get().find((entry) => `page:board:${entry.id}` === tabId)
+    if (board) {
+      title = title.trim()
+      if (!title || title === board.name) return
+      void this.boards.rename(board.id, title).catch((error: unknown) => {
+        this.reportProblems(board.id, [diag('error', 'collab', 'board.rename.refused', failureMessage(error, 'The board could not be renamed.'))])
+      })
+      return
+    }
     const tab = this.tabs.get().find((candidate) => candidate.id === tabId)
     title = title.trim()
     if (!tab || tab.execution || !title || title === tab.title ||
@@ -5485,9 +6719,8 @@ export class AppState {
   async duplicateTab(tabId: string, replaceFrozen = false): Promise<Tab | undefined> {
     const source = this.tabs.get().find((candidate) => candidate.id === tabId)
     if (!source || ![GRAPH_EDITOR_KIND, APP_EDITOR_KIND].includes(source.editorKind)) return undefined
-    const title = source.execution
-      ? source.title.slice(0, -` @ ${source.execution.prompt.slice(0, 8)}`.length)
-      : source.title
+    const suffix = source.execution === undefined ? '' : this.frozenTitleSuffix(source.execution)
+    const title = suffix !== '' && source.title.endsWith(suffix) ? source.title.slice(0, -suffix.length) : source.title
     const titles = new Set(this.tabs.get().map((tab) => tab.title))
     let copyTitle = `${title} copy`
     for (let ordinal = 2; titles.has(copyTitle); ordinal++) copyTitle = `${title} copy ${ordinal}`
@@ -5495,7 +6728,7 @@ export class AppState {
     do lineage = asLineageId(`${source.store.doc.lineage}-copy-${Date.now()}-${++newWorkflowOrdinal}`)
     while (this.tabs.get().some((tab) => tab.id === lineage))
     const backend = this.backendForTab(source)
-    const stillWanted = this.beginWorkflowOpen()
+    const stillWanted = this.beginDocumentOpen()
     const prepared = this.prepareDocumentOpen({ ...source.store.doc, lineage }, copyTitle, backend)
     if (!prepared.ok) return undefined
     const copy = await this.publishOpenedDocument(prepared, backend, stillWanted, backend, true,
@@ -5524,63 +6757,6 @@ export class AppState {
     this.tabs.update((list) => list.map((t) => (t.id === tabId ? { ...t, appArrange } : t)))
   }
 
-  curveTargetForInput(
-    tab: Tab,
-    graphId: string,
-    nodeId: string,
-    inputId: string,
-    instancePath: readonly string[] = [],
-  ): CurveEditorTarget | undefined {
-    if (tab.execution !== undefined) return undefined
-    const graph = tab.store.doc.graphs[graphId]
-    const node = graph?.nodes[nodeId]
-    const resolve = this.registryForTab(tab)?.resolve
-    const input = node ? resolve?.(node.type)?.items.find((item) => item.kind === 'input' && item.id === inputId) : undefined
-    const driven = graph && (Object.values(graph.links).some((link) => 'node' in link.to && 'port' in link.to && link.to.node === nodeId && link.to.port === inputId) ||
-      Object.values(graph.nets).some((net) => net.sinks.some((sink) => 'port' in sink && sink.node === nodeId && sink.port === inputId)))
-    const stored = node?.values[inputId]
-    const fallback = input?.kind === 'input' && input.widget ? effectiveWidgetDefault(input.widget) : undefined
-    const value = isCurveValue(stored) ? stored : isCurveValue(fallback) ? fallback : undefined
-    if (input?.kind !== 'input' || input.widget?.widgetType !== 'CURVE' || !value) return undefined
-    return !driven
-      ? {
-          tabId: tab.id,
-          graphId,
-          nodeId,
-          inputId,
-          instancePath: [...instancePath],
-          openedStoredValue: stored,
-          openedSchemaDefault: input.widget.default,
-          openedValue: value,
-        }
-      : undefined
-  }
-
-  openCurveEditor(target: CurveEditorTarget): boolean {
-    const tab = this.tabs.get().find((candidate) => candidate.id === target.tabId)
-    const current = tab && this.curveTargetForInput(
-      tab, target.graphId, target.nodeId, target.inputId, target.instancePath,
-    )
-    if (!tab || !current) return false
-    const previous = this.curveEditorTarget.get()
-    if (previous && previous.tabId !== current.tabId) {
-      this.tabs.update((list) => list.map((candidate) =>
-        candidate.id === previous.tabId && candidate.editorKind === CURVE_EDITOR_KIND
-          ? { ...candidate, editorKind: GRAPH_EDITOR_KIND }
-          : candidate))
-    }
-    this.curveEditorTarget.set(current)
-    this.setTabEditorKind(tab.id, CURVE_EDITOR_KIND)
-    this.activeTabId.set(tab.id)
-    return true
-  }
-
-  closeCurveEditor(target: CurveEditorTarget): void {
-    if (this.curveEditorTarget.get() !== target) return
-    this.curveEditorTarget.set(undefined)
-    this.setTabEditorKind(target.tabId, GRAPH_EDITOR_KIND)
-  }
-
   glslTargetForInput(
     tab: Tab,
     graphId: string,
@@ -5593,8 +6769,8 @@ export class AppState {
     const node = graph?.nodes[nodeId]
     const resolver = this.registryForTab(tab)?.resolve
     if (!node || resolver?.(node.type)?.editorRole !== 'glsl') return undefined
-    const input = resolver?.(node.type)?.items.find((item) =>
-      item.kind === 'input' && item.id === inputId)
+    const inputSchema = resolver?.(node.type)
+    const input = inputSchema === undefined ? undefined : inputsOf(inputSchema).find((item) => item.id === inputId)
     const definitionDriven = graph && (Object.values(graph.links).some((link) =>
       'node' in link.to && 'port' in link.to && link.to.node === nodeId && link.to.port === inputId) ||
       Object.values(graph.nets).some((net) => net.sinks.some((sink) =>
@@ -5682,17 +6858,22 @@ export class AppState {
     return this.settings.get<boolean>('features.appView.enabled')
   }
 
+  get exposureEnabled(): boolean {
+    return this.appViewEnabled || this.settings.get<boolean>('features.board.enabled')
+  }
+
   private availableEditorKind(editorKind: string): string {
     return editorKind === APP_EDITOR_KIND && !this.appViewEnabled ? GRAPH_EDITOR_KIND : editorKind
   }
 
-  private boundaryPositionResolver(resolve: SchemaResolver): BoundaryPositionResolver {
-    return (document, graphId) => {
+  private geometryResolvers(resolve: SchemaResolver): { boundaryPositionsFor: BoundaryPositionResolver; nodeHeightFor: NodeHeightResolver; groupGeometryFor: GroupGeometryResolver } {
+    const input = (document: WorkflowDocument, graphId: string): Parameters<typeof buildScene>[0] => {
       const tab = this.tabs.get().find((candidate) => !candidate.execution && candidate.store.doc.lineage === document.lineage)
-      const measurements = canvasMeasures(() => this.widgetRegistryForTab(tab))
+      const measurements = canvasMeasures(() => this.widgetRegistryForTab(tab), () =>
+        tab !== undefined && this.backendForTab(tab).protocol !== 'dinkster')
       const path = tab?.graphStack.get().at(-1) === graphId ? tab.instancePath.get() : []
       const resolver = documentResolver(document, (type) => this.virtualNodeSchema(type) ?? resolve(type))
-      return boundaryPositions({
+      return {
         document, graphId, resolve: resolver,
         tokens: defaultTokens, ...measurements,
         seedControllerEnabled: this.settings.get<boolean>('features.seedController.enabled'),
@@ -5702,7 +6883,22 @@ export class AppState {
           owner: { instancePath: path.slice(0, -1).map(asNodeId), node: asNodeId(path[path.length - 1]!) },
           plannerAvailable: false,
         } } : {}),
-      })
+      }
+    }
+    return {
+      boundaryPositionsFor: (document, graphId) => boundaryPositions(input(document, graphId)),
+      groupGeometryFor: (document, graphId) => groupItemGeometry(buildScene(input(document, graphId))),
+      nodeHeightFor: (document, graphId, nodeId) => {
+        const graph = document.view.graphs[graphId]
+        const view = graph?.nodes[nodeId]
+        // Measure the expanded body even when the whole node is minimized.
+        const expanded = view?.collapsed ? {
+          ...document, view: { ...document.view, graphs: { ...document.view.graphs,
+            [graphId]: { ...graph!, nodes: { ...graph!.nodes, [nodeId]: { ...view, collapsed: false } } },
+          } },
+        } : document
+        return buildScene(input(expanded, graphId)).nodes.find((node) => node.id === nodeId)?.layout.minHeight
+      },
     }
   }
 
@@ -5733,7 +6929,7 @@ export class AppState {
       // A caller-provided store (shared session) replaces the local default.
       store: store ?? createLocalSession(document, coreCommandRegistry([], resolve), {
         schemaResolverFor: (currentDoc) => documentResolver(currentDoc, resolve),
-        boundaryPositionsFor: this.boundaryPositionResolver(resolve),
+        ...this.geometryResolvers(resolve),
       }),
       graphStack: createSignal<readonly string[]>([document.root]),
       instancePath: createSignal<readonly string[]>([]),
@@ -5822,84 +7018,6 @@ export class AppState {
     this.problems.update((p) => p.filter((d) => d.owner !== owner))
   }
 
-  private countAwareValueInvocations(tab: Tab, invocation: CommandInvocation): readonly CommandInvocation[] {
-    if (
-      (invocation.command !== 'node.setValue' && invocation.command !== 'node.setValues') ||
-      typeof invocation.params !== 'object' ||
-      invocation.params === null ||
-      Array.isArray(invocation.params)
-    ) return [invocation]
-    const params = invocation.params as JsonObject
-    const graphId = typeof params.graphId === 'string' ? params.graphId : undefined
-    const nodeId = typeof params.nodeId === 'string' ? params.nodeId : undefined
-    if (graphId === undefined || nodeId === undefined) return [invocation]
-    const node = tab.store.doc.graphs[graphId]?.nodes[nodeId]
-    const registry = this.registryForTab(tab)
-    if (node === undefined || registry === undefined) return [invocation]
-    const schema = documentResolver(tab.store.doc, registry.resolve)(node.type)
-    if (schema === undefined) return [invocation]
-    const countInputs = new Set(outputCountInputsOf(schema))
-    if (invocation.command === 'node.setValue') {
-      const inputId = typeof params.inputId === 'string' ? params.inputId : undefined
-      if (inputId === undefined || !countInputs.has(inputId)) return [invocation]
-      return [{
-        ...invocation,
-        command: 'node.setOutputCount',
-        params: { ...params, removedLinks: 'preserve' },
-      }]
-    }
-    if (
-      typeof params.values !== 'object' ||
-      params.values === null ||
-      Array.isArray(params.values)
-    ) return [invocation]
-    const countValues: [string, Json][] = []
-    const ordinaryValues: Record<string, Json> = {}
-    for (const [inputId, value] of Object.entries(params.values)) {
-      if (countInputs.has(inputId)) countValues.push([inputId, value])
-      else ordinaryValues[inputId] = value
-    }
-    if (countValues.length === 0) return [invocation]
-    const normalized: CommandInvocation[] = []
-    if (Object.keys(ordinaryValues).length > 0) {
-      normalized.push({ ...invocation, params: { ...params, values: ordinaryValues } })
-    }
-    for (const [inputId, value] of countValues) {
-      normalized.push({
-        command: 'node.setOutputCount',
-        params: { graphId, nodeId, inputId, value, removedLinks: 'preserve' },
-      })
-    }
-    return normalized
-  }
-
-  private countAwareValueInvocation(tab: Tab, invocation: CommandInvocation): CommandInvocation {
-    if (
-      invocation.command === 'batch' &&
-      typeof invocation.params === 'object' &&
-      invocation.params !== null &&
-      !Array.isArray(invocation.params)
-    ) {
-      const params = invocation.params as JsonObject
-      if (!Array.isArray(params.invocations)) return invocation
-      const normalized: CommandInvocation[] = []
-      for (const candidate of params.invocations) {
-        if (
-          typeof candidate !== 'object' ||
-          candidate === null ||
-          Array.isArray(candidate) ||
-          typeof candidate.command !== 'string'
-        ) return invocation
-        normalized.push(...this.countAwareValueInvocations(tab, candidate as unknown as CommandInvocation))
-      }
-      return { ...invocation, params: { ...params, invocations: normalized } as unknown as Json }
-    }
-    const normalized = this.countAwareValueInvocations(tab, invocation)
-    return normalized.length === 1
-      ? normalized[0]!
-      : { command: 'batch', params: { invocations: normalized } as unknown as Json }
-  }
-
   refuseFrozenEdit(tab: Tab): CommandOutcome {
     this.frozenEditRefusal.set({ tabId: tab.id })
     return { ok: false, diagnostics: [] }
@@ -5916,8 +7034,8 @@ export class AppState {
         typeof (item as JsonObject).command === 'string' && this.frozenPresentationCommand(item as unknown as CommandInvocation))
     }
     return [
-      'node.move', 'selection.move', 'reroute.move', 'valueSource.move', 'selector.move',
-      'view.setNodeCollapsed', 'view.setNodeSize', 'view.setSectionCollapsed',
+      'node.move', 'selection.move', 'reroute.move',
+      'view.setNodeCollapsed', 'view.setNodeSize', 'view.setSectionCollapsed', 'view.setLineFolded', 'view.setEditorUnfolded',
       'view.moveBoundaryNode', 'view.moveGroup', 'view.setGroupBounds',
       'view.setNetCollapsed', 'view.setNetDisplay', 'view.setAllNetsDisplay',
       'view.setNodeVideo', 'view.setNodeColor', 'view.setGroupColor', 'view.setWidgetRepresentation',
@@ -5928,10 +7046,44 @@ export class AppState {
   /** Dispatch to the tab's session; ordinary command failures append to Problems. */
   dispatchTo(tab: Tab, invocation: CommandInvocation): CommandOutcome | Promise<CommandOutcome> {
     if (tab.execution && !this.frozenPresentationCommand(invocation)) return this.refuseFrozenEdit(tab)
-    const effective = this.countAwareValueInvocation(tab, invocation)
-    const outcome = tab.store.dispatch(effective)
+    const outcome = tab.store.dispatch(invocation)
     if (!outcome.ok) this.reportProblems(tab.id, outcome.diagnostics)
     return outcome
+  }
+
+  /** A person's edit and its newly caused numeric corrections share one undo step. */
+  dispatchEditTo(tab: Tab, invocation: CommandInvocation): CommandOutcome | Promise<CommandOutcome> {
+    if (tab.execution || this.settings.get<string>('automaticFixes.numberOutsideLimits') !== 'apply') return this.dispatchTo(tab, invocation)
+    const store = tab.store
+    const prepared = store.prepareDispatch?.(invocation)
+    if (prepared === undefined) return this.dispatchTo(tab, invocation)
+    if (!prepared.ok) {
+      this.reportProblems(tab.id, prepared.diagnostics)
+      return prepared
+    }
+    if (prepared.forward.length === 0) return prepared.commit()
+    const existing = this.scanTabNumberFixes(tab)
+    const fixes = this.scanTabNumberFixes(tab, prepared.document).filter((fix) => !existing.some((before) =>
+      before.stamp === fix.stamp && before.before === fix.before && before.after === fix.after &&
+      before.part.graphId === fix.part.graphId && before.part.nodeId === fix.part.nodeId &&
+      JSON.stringify(before.part.instancePath) === JSON.stringify(fix.part.instancePath) && before.valueKey === fix.valueKey))
+    if (fixes.length === 0) {
+      const outcome = prepared.commit()
+      if (!outcome.ok) this.reportProblems(tab.id, outcome.diagnostics)
+      return outcome
+    }
+    let stored: Extract<CommandOutcome, { ok: true }> | undefined
+    return this.applyProblemFixes(tab, fixes, true, {
+      lead: invocation.command === 'batch'
+        ? (invocation.params as JsonObject).invocations as unknown as readonly CommandInvocation[] : [invocation],
+      unchanged: (document) => tab.store === store && document === prepared.currentDocument,
+      onStored: (record, document) => { stored = { ok: true, doc: document, ...record, diagnostics: [] } },
+    }).then((outcome): CommandOutcome => {
+      if (stored !== undefined) return stored
+      const diagnostics = [diag('error', 'command', 'problemFix.editRefused', outcome.message ?? t('problemFix.workflowChanged'))]
+      this.reportProblems(tab.id, diagnostics)
+      return { ok: false, diagnostics }
+    })
   }
 
   /** Plan, commit, then drill into one fresh empty definition. */
@@ -5997,7 +7149,7 @@ export class AppState {
    */
   async openExecutionView(ref: ExecutionRef): Promise<boolean> {
     if (this.disposed) return false
-    const stillWanted = this.beginWorkflowOpen()
+    const stillWanted = this.beginDocumentOpen()
     const state = this.store.get(ref)
     const artifact = state?.artifact
     if (!artifact) return false
@@ -6011,7 +7163,7 @@ export class AppState {
     if (!backend) return false
     if (!stillWanted()) return false
     this.store.retain(ref)
-    const title = `${this.tabTitleFor(ref)} @ ${ref.prompt.slice(0, 8)}`
+    const title = `${this.tabTitleFor(ref)}${this.frozenTitleSuffix(ref)}`
     const tab = this.makeTab(artifact.snapshot, title, ref)
     this.tabs.update((tabs) => [...tabs, tab])
     this.activeTabId.set(id)
@@ -6045,8 +7197,7 @@ export class AppState {
   }
 
   private cleanupClosedTab(id: string): void {
-    this.dismissMigrationNotice(id)
-    if (this.curveEditorTarget.get()?.tabId === id) this.curveEditorTarget.set(undefined)
+    this.clearAdjustmentNotice(id)
     if (this.glslEditorTarget.get()?.tabId === id) this.glslEditorTarget.set(undefined)
     this.dropCollabFor(id) // leave the shared session; the server session survives
     this.dropProblems(id) // its diagnostics may not outlive the tab
@@ -6102,12 +7253,14 @@ export class AppState {
   // -- Collaboration (shared sessions; docs/collaboration.md) ---------------
 
   /**
-   * The backend whose collab surface shared sessions use: the active tab's
-   * backend when it speaks dinkster, else the first dinkster backend. The surface
+   * Shared Boards use their owning backend, never a fallback server. Other
+   * tabs prefer their dinkster backend, else the first dinkster backend. The surface
    * is native-only (v1 servers have no session routes), so undefined means
    * "collaboration unavailable", which the panel says in words.
    */
   collabBackend(): Backend | undefined {
+    const board = this.boards.entries.get().find((entry) => `page:board:${entry.id}` === this.activeTabId.get())
+    if (board) return this.backends.get().find((backend) => backend.baseUrl === board.baseUrl && backend.protocol === 'dinkster')
     const active = this.activeTab()
     const preferred = active !== undefined ? this.backendForTab(active) : undefined
     if (preferred?.protocol === 'dinkster') return preferred
@@ -6118,12 +7271,15 @@ export class AppState {
     return this.collabTabs.get().get(tabId)
   }
 
-  /** The collab backend's joinable sessions in the app discovery scope. */
+  /** Joinable workflows and, when enabled, this project's Boards. */
   async listCollabSessions(): Promise<readonly CollabSessionDescriptor[]> {
     const backend = this.collabBackend()
     if (backend === undefined) return []
-    return (await this.collabTransport.list(backend.baseUrl, COLLAB_SCOPE))
-      .filter((descriptor) => (descriptor.documentKind ?? 'workflow') === 'workflow')
+    const [workflows, boards] = await Promise.all([
+      this.collabTransport.list(backend.baseUrl, COLLAB_SCOPE),
+      this.settings.get<boolean>('features.board.enabled') ? this.boards.discover() : [],
+    ])
+    return [...workflows.filter((descriptor) => (descriptor.documentKind ?? 'workflow') === 'workflow'), ...boards]
   }
 
   /**
@@ -6161,11 +7317,11 @@ export class AppState {
         // The server session was created but nobody adopted it: it must not
         // linger in the discovery list. Best-effort - a failed DELETE leaves
         // an empty session the backend's retention rules own.
-        void this.collabTransport.end(backend.baseUrl, descriptor.sessionId).catch(() => undefined)
+        await this.collabTransport.end(backend.baseUrl, descriptor.sessionId).catch(() => undefined)
         throw e
       }
     } catch (e) {
-      return e instanceof Error ? e.message : String(e)
+      return failureMessage(e, 'The workflow could not be shared.')
     } finally {
       this.collabPending.delete(key)
     }
@@ -6175,7 +7331,18 @@ export class AppState {
    * Join a discovered session. A tab already joined to it is focused instead
    * of joined twice (one membership per session per app).
    */
-  async joinCollabSession(sessionId: string): Promise<string | undefined> {
+  async joinCollabSession(sessionId: string, documentKind: 'workflow' | 'board' = 'workflow'): Promise<string | undefined> {
+    if (documentKind === 'board') {
+      if (!this.settings.get<boolean>('features.board.enabled')) return 'Boards are disabled'
+      const currentOpen = this.beginDocumentOpen()
+      const stillWanted = () => currentOpen() && this.settings.get<boolean>('features.board.enabled')
+      try {
+        const entry = await this.boards.join(sessionId, stillWanted)
+        if (!stillWanted()) return 'Board join was superseded'
+        this.pages.open(`board:${entry.id}`)
+        return undefined
+      } catch (error) { return failureMessage(error, 'The board session could not be joined.') }
+    }
     const existing = [...this.collabTabs.get().entries()].find(([, s]) => s.descriptor.sessionId === sessionId)
     if (existing !== undefined) {
       this.activeTabId.set(existing[0])
@@ -6192,7 +7359,7 @@ export class AppState {
       await this.adoptCollabSession(descriptor, backend.baseUrl, descriptor.documentId)
       return undefined
     } catch (e) {
-      return e instanceof Error ? e.message : String(e)
+      return failureMessage(e, 'The shared session could not be joined.')
     } finally {
       this.collabPending.delete(key)
     }
@@ -6228,7 +7395,7 @@ export class AppState {
     try {
       await this.collabTransport.end(entry.baseUrl, entry.descriptor.sessionId)
     } catch (e) {
-      return e instanceof Error ? e.message : String(e)
+      return failureMessage(e, 'The shared session could not be ended.')
     }
     // Only downgrade the membership DELETE targeted: if the tab left and
     // joined another session while the DELETE was in flight, this stale
@@ -6252,8 +7419,9 @@ export class AppState {
     opts?: {
       /**
        * Share-path guard: adoption commits only if the tab being shared still
-       * exists with this exact store at this exact revision. Edits made or a
-       * close/replace performed while create+connect were in flight would
+       * exists with this store or its authority continuation, unchanged at
+       * this exact revision. Edits or a close/replace performed while
+       * create+connect were in flight would
        * otherwise be silently overwritten by the snapshot captured at share
        * time. Joins pass no expectation: a joiner takes the session's document
        * as truth by definition.
@@ -6301,11 +7469,13 @@ export class AppState {
       session = await connectSharedSession(connection, coreCommandRegistry([], sessionResolver), {
         actorId,
         schemaResolverFor: (currentDoc) => documentResolver(currentDoc, sessionResolver),
-        boundaryPositionsFor: this.boundaryPositionResolver(sessionResolver),
+        ...this.geometryResolvers(sessionResolver),
         onConflict: (conflict: SessionConflict) =>
-          report(diag('warning', 'collab', `collab.conflict.${conflict.during}`,
-            `${conflict.invocation.command}: a concurrent edit makes this change inapplicable`,
-            { data: { diagnostics: conflict.diagnostics } })),
+          report(conflict.during === 'refused'
+            ? conflict.diagnostics[0]!
+            : diag('warning', 'collab', `collab.conflict.${conflict.during}`,
+              `${conflict.invocation.command}: a concurrent edit makes this change inapplicable`,
+              { data: { diagnostics: conflict.diagnostics } })),
         onError: (message: string) => report(diag('error', 'collab', 'collab.session', message)),
       })
       owner = session.doc.lineage
@@ -6325,7 +7495,9 @@ export class AppState {
       throw new Error('The shared session could not be opened; the existing tabs were kept')
     }
     let prior = this.tabs.get().find((t) => t.id === owner && t.execution === undefined)
-    if (expect !== undefined && (prior === undefined || prior.store !== expect.store || expect.store.revision !== expect.revision)) {
+    if (expect !== undefined && (prior === undefined || this.liveTabContinuing(expect.store) !== prior ||
+      expect.store.revision !== expect.revision || prior.store.revision !== expect.revision ||
+      JSON.stringify(prior.store.doc) !== JSON.stringify(expect.store.doc))) {
       session.close()
       throw new Error(
         prior === undefined
@@ -6337,9 +7509,11 @@ export class AppState {
       session.close()
       throw new CollabRejoinTabGoneError()
     }
-    const preservesHistory = expect !== undefined && JSON.stringify(session.doc) === JSON.stringify(expect.store.doc)
+    const preservesHistory = expect !== undefined && prior !== undefined && JSON.stringify(session.doc) === JSON.stringify(prior.store.doc)
     if (preservesHistory) {
-      session.adoptHistory(expect.store.historySnapshot())
+      session.adoptHistory(prior.store.historySnapshot())
+      const kept = this.keptNumberFixes.get(prior.store)
+      if (kept !== undefined) this.keptNumberFixes.set(session, new Map(kept))
     }
     const backend = this.backends.get().find((entry) => entry.baseUrl === baseUrl && entry.protocol === 'dinkster')
     if (backend === undefined || this.disposed) {
@@ -6566,7 +7740,7 @@ export class AppState {
    * problems panel for review.
    */
   async openDocument(json: unknown, title: string, importVia?: Backend, forkOnCollision = false, originalPrompt?: JsonObject): Promise<readonly Diagnostic[]> {
-    const stillWanted = this.beginWorkflowOpen()
+    const stillWanted = this.beginDocumentOpen()
     const prepared = this.prepareDocumentOpen(json, title, importVia, forkOnCollision, originalPrompt)
     if (!prepared.ok) return prepared.diagnostics
     const backend = importVia ?? this.backends.get()[0]!
@@ -6584,7 +7758,7 @@ export class AppState {
     const generation = this.workspaceAuthorityGeneration
     const project = activeProjectId()
     const backend = this.backendForTab(source)
-    const stillWanted = this.beginWorkflowOpen()
+    const stillWanted = this.beginDocumentOpen()
     const prepared = this.prepareDocumentOpen(source.store.doc, title, backend, true)
     if (!prepared.ok) return false
     const recovered = await this.publishOpenedDocument(prepared, backend, stillWanted, backend)
@@ -6599,7 +7773,7 @@ export class AppState {
     return true
   }
 
-  private beginWorkflowOpen(): () => boolean {
+  beginDocumentOpen(): () => boolean {
     const intent = ++this.workflowOpenIntent
     const tabs = this.tabs.get()
     const sessions = tabs.map((tab) => ({ tab, revision: tab.store.revision, document: tab.store.doc, target: this.backendForTab(tab) }))
@@ -6695,7 +7869,7 @@ export class AppState {
         tab.instancePath.set(replaceFrozen.instancePath.get())
       }
       if (replacesExisting) this.workspaceReplacements.add(tab)
-      this.dismissMigrationNotice(tab.id)
+      this.clearAdjustmentNotice(tab.id)
       // Load/translation warnings belong to the tab they describe: a
       // same-lineage replacement swaps them out; other tabs keep theirs.
       this.replaceProblems(tab.id, loaded.diagnostics)
@@ -6706,7 +7880,6 @@ export class AppState {
       this.dropCollabFor(tab.id) // a replaced shared tab leaves its session
       this.releaseFrozenPin(tab.id) // a displaced frozen view drops its pin
       // Session-keyed caches (sourceDocCache etc.) die with the replaced Tab.
-      this.templateGalleryOpen.set(false)
       if (target !== undefined) this.tabTargets.update((targets) => new Map(targets).set(tab.id, target.id))
       batch(() => {
         if (replaceFrozen) {
@@ -6765,6 +7938,7 @@ export class AppState {
       const project = await backend.connection.getProject(projectId)
       const needs = await backend.connection.projectNeeds(projectId)
       if (!current() || !stillWanted()) return
+      if (needs.installed === undefined) throw new Error('The engine did not supply installed pack facts')
       const required = new Map<string, { pack: string; version: string | null }>()
       const add = (pack: string, version: string | null): void => { required.set(JSON.stringify([pack, version]), { pack, version }) }
       for (const pack of needs.packs) add(pack.pack, pack.version)
@@ -6792,12 +7966,12 @@ export class AppState {
       const enable = [...new Set([...required.values()].map(({ pack }) => pack))]
         .filter((pack) => !enabled.has(pack) && !changing.has(pack)).sort()
       if (enable.length === 0 && changes.length === 0 && errors.size === 0) return
-      this.projectNeedsReview.set({ backend, project, needs, enable, changes, errors: [...errors].sort(), current, owned,
+      this.projectNeedsReview.set({ backend, project, needs: { ...needs, installed: needs.installed }, enable, changes, errors: [...errors].sort(), current, owned,
         ...(requested === undefined ? {} : { requested }) })
     } catch (error) {
       if (!current()) return
       this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag('warning', 'validation', 'project.needsUnavailable',
-        `Project needs unavailable: ${error instanceof Error ? error.message : String(error)}`)])
+        failureMessage(error, 'Project needs unavailable.'))])
     }
   }
 
@@ -6949,6 +8123,7 @@ export class AppState {
       const needs = await backend.connection.projectNeeds(review.project.id)
       const latest = await backend.connection.getProject(review.project.id)
       const running = await backend.connection.activeEnvironment()
+      if (needs.installed === undefined) throw new Error(t('projectNeeds.activationChanged'))
       const expected = new Map(review.needs.installed.map(({ pack, version }) => [pack, version]))
       for (const { pack, version } of review.changes) expected.set(pack, version!)
       const selected = [...new Set([...review.enable, ...review.changes.map(({ pack }) => pack)])]
@@ -7002,12 +8177,12 @@ export class AppState {
       if (!stillOwned()) return
       this.reportProblems(tab.id, [diag(
         'warning', 'validation', 'workflow.requirementsUnavailable',
-        `Workflow requirement plan unavailable: ${error instanceof Error ? error.message : String(error)}`,
+        failureMessage(error, 'Workflow requirement plan unavailable.'),
       )])
     }
   }
 
-  private legacyAssetReferences(tab: Tab, backend: Backend): readonly ImportAssetReference[] {
+  private legacyAssetReferences(tab: Tab, backend: Backend, includeModels: boolean): readonly ImportAssetReference[] {
     const registry = backend.registry.get()
     if (!registry) return []
     const resolve = documentResolver(tab.store.doc, registry.resolve)
@@ -7015,8 +8190,9 @@ export class AppState {
     for (const [graphId, graph] of Object.entries(tab.store.doc.graphs)) for (const node of Object.values(graph.nodes)) {
       const schema = resolve(node.type)
       if (!schema) continue
-      for (const item of schema.items) {
-        if (item.kind !== 'input' || item.widget?.widgetType !== 'ASSET' || item.widget.selection === true) continue
+      for (const item of inputsOf(schema)) {
+        if (item.widget?.widgetType !== 'ASSET' || item.widget.selection === true) continue
+        if (!includeModels && item.widget.kind?.startsWith('model/')) continue
         const value = node.values[item.id]
         if (typeof value === 'string') refs.push({ graphId, nodeId: node.id, inputId: item.id, name: value })
       }
@@ -7028,10 +8204,11 @@ export class AppState {
     tab: Tab,
     backend: Backend & { protocol: 'dinkster' },
     digestHints: readonly ImportAssetDigestHint[],
+    includeModels = true,
   ): Promise<void> {
     const registry = backend.registry.get()
     const resolution = this.importAssetResolution.get()
-    const refs = this.legacyAssetReferences(tab, backend)
+    const refs = this.legacyAssetReferences(tab, backend, includeModels)
     const names = [...new Set(refs.map((ref) => ref.name))]
     if (names.length === 0) return
     const liveTab = (): Tab | undefined => this.tabs.get().find((candidate) =>
@@ -7102,7 +8279,7 @@ export class AppState {
     } catch (error) {
       const owner = liveTab()
       if (owner === undefined) return
-      this.reportProblems(owner.id, [diag('warning', 'import', 'import.assets.guessFailed', error instanceof Error ? error.message : String(error))])
+      this.reportProblems(owner.id, [diag('warning', 'import', 'import.assets.guessFailed', failureMessage(error))])
     }
   }
 
@@ -7140,7 +8317,7 @@ export class AppState {
           this.showTransientStatus(`Save closed: ${filename}`)
           return false
         }
-        this.dismissMigrationNotice(tab.id)
+        this.clearAdjustmentNotice(tab.id)
         this.dismissImportProblems(tabId)
         this.showTransientStatus(`Saved: ${result.name}`)
         return true
@@ -7155,7 +8332,7 @@ export class AppState {
       anchor.hidden = true
       document.body.append(anchor)
       anchor.click()
-      this.dismissMigrationNotice(tab.id)
+      this.clearAdjustmentNotice(tab.id)
       this.dismissImportProblems(tabId)
       this.showTransientStatus(`Download started: ${filename}`)
       return true
@@ -7183,7 +8360,7 @@ export class AppState {
    * through the schema-aware legacy translator.
    */
   async importWorkflowFile(file: Pick<File, 'name' | 'text'>, stillOwned: () => boolean = () => true, originalPrompt?: JsonObject): Promise<boolean> {
-    const current = this.beginWorkflowOpen()
+    const current = this.beginDocumentOpen()
     const destination = this.activeTab()
     const backend = destination === undefined ? this.backends.get()[0]! : this.backendForTab(destination)
     const stillWanted = () => current() && stillOwned() &&
@@ -7305,7 +8482,9 @@ export class AppState {
    */
   libraryBackend(): Extract<Backend, { protocol: 'dinkster' }> | undefined {
     const tab = this.activeTab()
-    const backend = tab ? this.backendForTab(tab) : this.backends.get()[0]
+    const board = this.boards.entries.get().find((entry) => `page:board:${entry.id}` === this.activeTabId.get())
+    const backend = board ? this.backends.get().find((candidate) => candidate.baseUrl === board.baseUrl)
+      : tab ? this.backendForTab(tab) : this.backends.get()[0]
     return backend !== undefined && backend.protocol === 'dinkster' ? backend : undefined
   }
 
@@ -7457,7 +8636,7 @@ export class AppState {
       const unchanged = tab.store.revision === revision && current.title === tab.title
       if (unchanged) {
         this.markTabClean(tab.id)
-        this.dismissMigrationNotice(tab.id)
+        this.clearAdjustmentNotice(tab.id)
       }
       const background = this.activeTab()?.id === tab.id ? '' : ` ${tab.title}`
       this.showTransientStatus(unchanged
@@ -7471,9 +8650,9 @@ export class AppState {
       // closed owner's entries.
       if (!this.tabs.get().includes(tab)) return false
       this.reportProblems(tab.id, [
-        diag('error', 'validation', 'library.saveFailed', `failed to save workflow: ${e instanceof Error ? e.message : String(e)}`),
+        diag('error', 'validation', 'library.saveFailed', failureMessage(e, 'The workflow could not be saved.')),
       ])
-      this.showTransientStatus(`Save failed on ${backend.label}: ${e instanceof Error ? e.message : String(e)}`)
+      this.showTransientStatus(failureMessage(e, `The workflow could not be saved on ${backend.label}.`))
       return false
     }
   }
@@ -7486,7 +8665,7 @@ export class AppState {
    * entry for transport/parse failures) when anything is missing.
    */
   async openFromLibrary(recordId: string, owner: string): Promise<boolean> {
-    const stillWanted = this.beginWorkflowOpen()
+    const stillWanted = this.beginDocumentOpen()
     const backend = this.ownedLibraryBackend(owner)
     if (!backend) return false
     try {
@@ -7507,7 +8686,7 @@ export class AppState {
       // an ownership loss, not a transport diagnosis worth surfacing.
       if (this.ownerStillLive(backend) && stillWanted()) {
         this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
-          diag('error', 'validation', 'library.openFailed', `failed to open workflow from library: ${e instanceof Error ? e.message : String(e)}`),
+          diag('error', 'validation', 'library.openFailed', failureMessage(e, 'The library workflow could not be opened.')),
         ])
       }
       return false
@@ -7519,8 +8698,9 @@ export class AppState {
    * The template is fetched from the backend that served its descriptor
    * (owner) - pack/template ids are that backend's namespace.
    */
-  async openTemplate(packId: string, templateId: string, title: string, owner: string): Promise<boolean> {
-    const stillWanted = this.beginWorkflowOpen()
+  async openTemplate(packId: string, templateId: string, title: string, owner: string, replacePage?: PageTab): Promise<boolean> {
+    const currentIntent = this.beginDocumentOpen()
+    const stillWanted = () => currentIntent() && (replacePage === undefined || this.pages.tabs().includes(replacePage))
     const backend = this.ownedLibraryBackend(owner)
     if (!backend?.templatesEnabled.get()) return false
     try {
@@ -7536,19 +8716,21 @@ export class AppState {
         return false
       }
       if (!this.tabs.get().includes(tab)) return false
-      void this.offerImportAssetResolution(tab, backend, [])
+      if (replacePage && !this.pages.replaceWithWorkflow(replacePage, tab)) return false
+      void this.offerImportAssetResolution(tab, backend, [], false)
       return true
     } catch (e) {
       if (this.ownerStillLive(backend)) {
-        this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag('error', 'validation', 'template.openFailed', `failed to open template: ${e instanceof Error ? e.message : String(e)}`)])
+        this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag('error', 'validation', 'template.openFailed', failureMessage(e, 'The template could not be opened.'))])
       }
       return false
     }
   }
 
-  async openRemoteTemplate(template: RemoteTemplateDescriptor, title: string): Promise<boolean> {
-    const stillWanted = this.beginWorkflowOpen()
-    const backend = this.libraryBackend()
+  async openRemoteTemplate(template: RemoteTemplateDescriptor, title: string, owner: string, replacePage?: PageTab): Promise<boolean> {
+    const currentIntent = this.beginDocumentOpen()
+    const stillWanted = () => currentIntent() && (replacePage === undefined || this.pages.tabs().includes(replacePage))
+    const backend = this.ownedLibraryBackend(owner)
     if (backend?.protocol !== 'dinkster' || !backend.templatesEnabled.get()) return false
     const catalog = new RemoteTemplateCatalog(this.settings.get<string>('templates.registryUrl'))
     try {
@@ -7556,7 +8738,8 @@ export class AppState {
       if (!this.ownerStillLive(backend) || document === undefined) return false
       const tab = await this.openDocumentOnBackend(readableRegionTemplateLayout(document), title, backend, stillWanted)
       if (!tab || !this.tabs.get().includes(tab)) return false
-      void this.offerImportAssetResolution(tab, backend, [])
+      if (replacePage && !this.pages.replaceWithWorkflow(replacePage, tab)) return false
+      void this.offerImportAssetResolution(tab, backend, [], false)
       return true
     } catch (error) {
       if (this.ownerStillLive(backend)) {
@@ -7564,7 +8747,7 @@ export class AppState {
           'error',
           'validation',
           'template.openFailed',
-          `failed to open remote template: ${error instanceof Error ? error.message : String(error)}`,
+          failureMessage(error, 'The remote template could not be opened.'),
         )])
       }
       return false
@@ -7580,7 +8763,7 @@ export class AppState {
    * came from but is NOT library-linked - saving creates a fresh record.
    */
   async openRunWorkflow(runId: string, owner: string): Promise<boolean> {
-    const stillWanted = this.beginWorkflowOpen()
+    const stillWanted = this.beginDocumentOpen()
     const backend = this.ownedLibraryBackend(owner)
     if (!backend) return false
     try {
@@ -7604,7 +8787,7 @@ export class AppState {
     } catch (e) {
       if (this.ownerStillLive(backend) && stillWanted()) {
         this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
-          diag('error', 'validation', 'history.openFailed', `failed to open run workflow: ${e instanceof Error ? e.message : String(e)}`),
+          diag('error', 'validation', 'history.openFailed', failureMessage(e, 'The run workflow could not be opened.')),
         ])
       }
       return false
@@ -7659,9 +8842,9 @@ export class AppState {
       return deleted
     } catch (e) {
       this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
-        diag('error', 'validation', 'history.deleteFailed', `failed to delete run record: ${e instanceof Error ? e.message : String(e)}`),
+        diag('error', 'validation', 'history.deleteFailed', failureMessage(e, 'The run record could not be deleted.')),
       ])
-      return false
+      throw e
     } finally {
       await this.confirmRemovedHistoryExecutions(backend, runId)
       this.backendsTick.update((v) => v + 1)
@@ -7669,22 +8852,21 @@ export class AppState {
   }
 
   /**
-   * Clear the ENTIRE durable history scope. Destructive by design -
-   * callers gate this behind an explicit confirmation affordance; asset
-   * bytes and library records survive by contract.
+   * Clear finished records across the durable history scope immediately;
+   * pending runs, asset bytes and library records survive by contract.
    */
   async clearRunHistory(owner: string): Promise<number> {
     const backend = this.ownedLibraryBackend(owner)
-    if (!backend) return 0
+    if (!backend) throw new Error('The backend is no longer available.')
     try {
       const deleted = await backend.connection.clearHistory({ scope: LIBRARY_SCOPE })
       clearExecutionResults(backend.id)
       return deleted
     } catch (e) {
       this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
-        diag('error', 'validation', 'history.clearFailed', `failed to clear run history: ${e instanceof Error ? e.message : String(e)}`),
+        diag('error', 'validation', 'history.clearFailed', failureMessage(e, 'Run history could not be cleared.')),
       ])
-      return 0
+      throw e
     } finally {
       await this.confirmRemovedHistoryExecutions(backend)
       this.backendsTick.update((v) => v + 1)
@@ -7728,7 +8910,7 @@ export class AppState {
   }
 
   /**
-   * Advisory load-time drift check: compare the document's environment
+   * Advisory drift check: compare the document's environment
    * stamp (if any) against the tab's live registry and surface findings
    * in Problems. Never blocks anything - stamps are records, not identity.
    */
@@ -7741,7 +8923,12 @@ export class AppState {
       resolve: reg.resolve,
       ...(reg.packs !== undefined ? { packs: reg.packs } : {}),
     })
-    this.reportProblems(tab.id, drift)
+    batch(() => {
+      this.problems.update((problems) => problems.filter((entry) =>
+        entry.owner !== tab.id || entry.origin !== 'environment' ||
+        !['env.node-missing', 'env.node-drift', 'env.pack-updated'].includes(entry.code)))
+      this.reportProblems(tab.id, drift)
+    })
   }
 
   private importLegacy(json: unknown, registry: SchemaRegistry | undefined, translations: readonly ComfyTranslation[] = [], unavailable = false): {
@@ -7757,7 +8944,7 @@ export class AppState {
     }
     const installed = [...registry.schemas.values()].flatMap((schema): ComfyTranslation[] => {
       const version = schema.pack === undefined ? undefined : registry.packs?.get(schema.pack)?.version
-      return (schema.replacements ?? []).filter((rule) => rule.migration === undefined).map((rule) => ({
+      return (schema.replacements ?? []).filter((rule) => !isSameTypeMigration(rule)).map((rule) => ({
         schema, rule,
         ...(schema.pack !== undefined ? { pack: schema.pack } : {}),
         ...(version !== undefined ? { version } : {}),
@@ -7766,15 +8953,15 @@ export class AppState {
     const installedSources = new Set(installed.map((record) => record.rule.from))
     const result = importLitegraph(json as JsonObject, registry.resolve, undefined, [
       ...translations.filter((record) => !installedSources.has(record.source ?? record.rule.from)),
-      // Input renames need the historical source values and undoable migration,
-      // not the target interface used as a decoder for the saved source.
-      ...installed.filter(({ rule }) => rule.cases.every((branch) =>
+      // A rule that renames inputs must name the source's inputs, so the saved
+      // node is not read through the target's interface.
+      ...installed.filter(({ rule }) => rule.migration !== undefined || rule.cases.every((branch) =>
         Object.entries(branch.inputs ?? {}).every(([target, mapping]) =>
           mapping.kind === 'constant' || mapping.input === target))),
-    ])
+    ], registry.schemas.values())
     const imported = result.document === undefined ? result : {
       ...result,
-      document: initializeBoundaryViews(result.document, this.boundaryPositionResolver(registry.resolve)).doc,
+      document: initializeBoundaryViews(result.document, this.geometryResolvers(registry.resolve).boundaryPositionsFor).doc,
     }
     if (!unavailable) return imported
     return { ...imported, diagnostics: result.diagnostics.map((entry) => entry.code === 'import.schema.missing'
@@ -7866,6 +9053,22 @@ export class AppState {
     this.packLocaleSources.set(localized, source)
     backend.registry.set(localized)
     backend.invalidateRemoteChoices()
+  }
+
+  /**
+   * Draw each backend's nodes from a kept node table until the backend
+   * answers: this browser's copy or the table the always-on process recorded
+   * from the engine, whichever was recorded last.
+   */
+  async loadKeptSchemas(): Promise<void> {
+    await Promise.all(this.backends.get().map(async (backend) => {
+      const kept = newerKeptTable(...await Promise.all([
+        readKeptSchemas(backend.baseUrl, activeProjectId()),
+        backend.connection.fetchProvisionalSchemas(),
+      ]))
+      if (kept === undefined || backend.registry.get() !== undefined) return
+      backend.keptRegistry.set(keptRegistry(backend.id, kept))
+    }))
   }
 
   async start(): Promise<void> {
@@ -7999,8 +9202,10 @@ export class AppState {
       outputs,
       artifacts: job.artifacts ?? [],
       ...(result.submittedBy === undefined ? {} : { submittedBy: result.submittedBy }),
+      automaticValues: automaticValuesOfJob(job),
       jobRef: result.jobRef,
       sourceDocument: result.sourceDocument,
+      ...(history.workflowName === undefined ? {} : { workflowName: history.workflowName }),
       queuedAt: result.queuedAt,
       endedAt: result.endedAt,
     }
@@ -8069,6 +9274,9 @@ export class AppState {
             this.retainedRegistries.set(restored.artifact, registry)
             this.store.restoreCompleted(restored)
             held = this.store.get(restored.ref)
+            // Hydrated results do not enter reconnect reconciliation; recover
+            // their coded warnings from the optional durable journal here.
+            void backend.connection.backfillRunLog(restored.jobRef, LIBRARY_SCOPE).catch(() => {})
           }
         } catch {
           // A transport failure proves nothing; retry the persisted result on a later reload.
@@ -8142,7 +9350,7 @@ export class AppState {
         if (!current()) return
         backend.workerCatalog.set({
           status: 'error',
-          message: error instanceof Error ? error.message : String(error),
+          message: failureMessage(error, 'Workers could not be loaded.'),
         })
       },
     )
@@ -8188,14 +9396,14 @@ export class AppState {
         this.log('info', backend.label, `engine not ready (${e.state}); waiting for the supervisor`)
         return
       }
-      const message = e instanceof Error ? e.message : String(e)
+      const message = failureMessage(e, 'Node definitions could not be loaded.')
       backend.schemaState.set({ status: 'error', message })
       this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
         {
           severity: 'error',
           origin: 'schema',
           code: 'schema.fetchFailed',
-          message: `[${backend.label}] failed to fetch ${backend.protocol === 'dinkster' ? '/api/nodes' : '/object_info'}: ${message}`,
+          message: `[${backend.label}] ${message}`,
         },
       ])
     } finally {
@@ -8273,6 +9481,9 @@ export class AppState {
       // Capability-negotiated graph wire forms (e.g. $typed) are gated on
       // the TARGET backend's advertised features, exactly like the registry.
       ...(registry.graphFeatures ? { graphFeatures: registry.graphFeatures } : {}),
+      // An automatic lookup field copied into another node passes on the
+      // answer its row shows; a frozen view of a run calls no lookups.
+      ...(tab.execution === undefined ? { lookupAnswers: lookupAnswersOf(backend.lookups) } : {}),
     }
   }
 
@@ -8548,7 +9759,7 @@ export class AppState {
         const child = tab.store.doc.graphs[childId]
         if (!child) return
         const childPath = [...path, asNodeId(id)]
-        const childTargets = new Set(outputsOnly ? [] : child.boundary?.outputs.flatMap((item) => item.binds.kind === 'unbound' || item.binds.kind === 'valueSource' ? [] : [item.binds.node]) ?? [])
+        const childTargets = new Set(outputsOnly ? [] : boundaryItems(child.boundary, 'outputs').flatMap((item) => item.binds.kind === 'unbound' ? [] : [item.binds.node]) ?? [])
         for (const inner of Object.values(child.nodes)) if (resolve(inner.type)?.isOutputNode) childTargets.add(inner.id)
         for (const childTarget of [...childTargets].sort()) visit(childId, childPath, childTarget)
       }
@@ -8663,15 +9874,52 @@ export class AppState {
     if (scopes?.fromOnwards) await this.queue(tab, scopes.fromOnwards, scopes.analysis.last)
   }
 
-  /**
-   * Controller advancement plans captured at queue time, keyed by
-   * executionKey. Each plan owns the exact DocumentSession it was
-   * planned against - completion applies to that session only if a live tab
-   * still holds it (a replacement session sharing the lineage never
-   * qualifies), and each step is compare-and-set on the raw stored value so
-   * inputs the user edited after queueing are preserved.
-   */
-  private readonly advancementPlans = new Map<string, AdvancementPlan>()
+  /** Completion targets the exact live document owner and preserves later input edits. */
+  private readonly advancementPlans = new Map<string, AdvancementPlan | BoardAdvancementPlan>()
+
+  private dropAdvancement(key: string): void {
+    const plan = this.advancementPlans.get(key)
+    this.advancementPlans.delete(key)
+    if (plan && 'dispose' in plan) plan.dispose()
+  }
+
+  private boardAdvancementPlan(entry: BoardEntry, cardId: string, artifact: CompileArtifact): BoardAdvancementPlan {
+    const card = entry.session.doc.items[cardId]!
+    if (card.kind !== 'workflow' && card.kind !== 'blueprint') throw new Error('Card is no longer available')
+    const registry = this.retainedRegistries.get(artifact)!
+    const rows = buildParamRows(artifact.snapshot, documentResolver(artifact.snapshot, registry.resolve))
+    const steps = controllerAdvancementPlan(artifact.snapshot, artifact).map((step) => {
+      const row = rows.find((row) => row.kind === 'live' && row.entry.graphId === step.graphId &&
+        row.entry.nodeId === step.nodeId && row.valueKey === step.inputId)
+      return row ? { ...step, inputId: row.entry.inputId } : step
+    })
+    const invalid = new Set<AdvancementStep>()
+    let replaced = false
+    const dispose = entry.session.document.subscribe((document) => {
+      const latest = document.items[cardId]
+      if (!latest || latest.kind !== card.kind || !jsonSameValue(latest.source, card.source)) {
+        replaced = true
+        return
+      }
+      for (const step of steps) {
+        const key = exposedKey(step)
+        if (!jsonSameValue(latest.values[key], card.values[key]) ||
+          latest.controllers?.[key] !== card.controllers?.[key]) invalid.add(step)
+      }
+    })
+    return { dispose, apply: () => {
+      dispose()
+      if (replaced || !this.boards.entries.get().includes(entry)) return
+      const latest = entry.session.doc.items[cardId]
+      if (!latest || latest.kind !== card.kind) return
+      const values = { ...latest.values }
+      for (const step of steps) {
+        if (invalid.has(step)) continue
+        values[exposedKey(step)] = step.value
+      }
+      if (!jsonSameValue(values, latest.values)) entry.session.dispatch({ command: 'board.card.inputs', params: { id: cardId, values } })
+    } }
+  }
 
   /**
    * Latest mutation generation by document path. Value equality alone has
@@ -8822,9 +10070,9 @@ export class AppState {
   private installRun(
     ref: ExecutionRef,
     artifact: CompileArtifact,
-    plan: AdvancementPlan | undefined,
+    plan: AdvancementPlan | BoardAdvancementPlan | undefined,
     timestamp?: number,
-    identity?: { readonly jobRef?: string; readonly sourceDocument?: string },
+    identity?: { readonly jobRef?: string; readonly sourceDocument?: string; readonly workflowName?: string },
   ): void {
     if (plan) this.advancementPlans.set(executionKey(ref), plan)
     // Belt-and-braces retention for artifacts that did not come through
@@ -8845,6 +10093,7 @@ export class AppState {
       ...(timestamp === undefined ? {} : { timestamp }),
       ...(identity?.jobRef === undefined ? {} : { jobRef: identity.jobRef }),
       ...(identity?.sourceDocument === undefined ? {} : { sourceDocument: identity.sourceDocument }),
+      ...(identity?.workflowName === undefined ? {} : { workflowName: identity.workflowName }),
     } satisfies WorkspaceExecutionMessage)
   }
 
@@ -8899,11 +10148,15 @@ export class AppState {
       if (!result.ok) continue
       const artifact = projectWorkspaceCompileArtifact(result.artifact)
       if (canonicalJson(artifact) !== canonicalJson(registration.artifact)) continue
-      this.retainedRegistries.set(artifact, registry)
+      // The lookup calls depend on this window's answers, so they are compared
+      // nowhere; kept on the run, this window still asks again where it differs.
+      const registered = result.artifact.automaticCalls === undefined ? artifact : { ...artifact, automaticCalls: result.artifact.automaticCalls }
+      this.retainedRegistries.set(registered, registry)
       this.hydrated.delete(key)
-      this.store.register(registration.ref, artifact, registration.timestamp, {
+      this.store.register(registration.ref, registered, registration.timestamp, {
         ...(registration.jobRef === undefined ? {} : { jobRef: registration.jobRef }),
         ...(registration.sourceDocument === undefined ? {} : { sourceDocument: registration.sourceDocument }),
+        ...(registration.workflowName === undefined ? {} : { workflowName: registration.workflowName }),
       })
       this.pendingWorkspaceRegistrations.delete(key)
     }
@@ -8947,6 +10200,11 @@ export class AppState {
     const plan = this.advancementPlans.get(key)
     if (!plan) return
     this.advancementPlans.delete(key)
+    if ('apply' in plan) {
+      if (this.settings.get<boolean>('features.seedController.enabled')) plan.apply()
+      else plan.dispose()
+      return
+    }
     // Disabling the controller mid-run suppresses in-flight plans too.
     if (!this.settings.get<boolean>('features.seedController.enabled')) return
     const tab = this.liveTabContinuing(plan.session)
@@ -8963,12 +10221,7 @@ export class AppState {
         const selected = choices.get(JSON.stringify([graph, selector]))
         return selected !== undefined && candidates.includes(selected) ? selected : undefined
       },
-      pickCandidate: ({ graph, selector }) => {
-        const selected = choices.get(JSON.stringify([graph, selector]))
-        const candidates = tab.store.doc.graphs[graph]?.selectors?.[selector]?.candidates
-        const index = selected === undefined ? -1 : candidates?.findIndex((candidate) => candidate.id === selected) ?? -1
-        return index < 0 ? 0 : index
-      },
+      pickCandidate: () => 0,
     })
     if (!current.ok) return
     const liveControllerInputs = new Map((current.artifact.provenance.controllerInputs ?? []).map((controller) => [
@@ -8978,7 +10231,7 @@ export class AppState {
     const doc = tab.store.doc
     const applicable = plan.steps.filter((step) => {
       const graph = doc.graphs[step.graphId]
-      if ('valueSourceId' in step ? !graph?.valueSources?.[step.valueSourceId] : !graph?.nodes[step.nodeId]) return false
+      if (!graph?.nodes[step.nodeId]) return false
       if (controllerStoredValue(doc, step) !== step.expected) return false
       const liveController = step.controllers.flatMap((queued) => {
         const live = liveControllerInputs.get(controllerInputKey(queued.runtimeId, queued.terminal))
@@ -9016,17 +10269,22 @@ export class AppState {
     this.queueRefusal.set(tab)
   }
 
-  private captureQueueWebcams(tab: Tab, artifact: CompileArtifact, signal: AbortSignal): Promise<WorkflowDocument> | undefined {
-    const backend = this.backendForTab(tab)
-    const registry = backend.registry.get()!
-    const document = tab.store.doc
-    const captures: { owner: { graphId: string; nodeId: string; valueKey: string }; width: number; height: number }[] = []
-    const capturedOwners = new Map<string, { width: number; height: number }>()
-    for (const [runtimeId, node] of Object.entries(artifact.prompt)) {
-      if (node.inputs['capture_on_queue'] !== true) continue
-      const schema = registry.resolve(node.class_type)
-      const input = schema && inputsOf(schema).find((item) => item.widget?.widgetType === webcamKind.type)
-      if (input === undefined || Array.isArray(node.inputs[input.id])) continue
+  /**
+   * The nodes of a compiled run whose `widgetType` input holds its own value:
+   * not driven by a wire or by the subgraph around it. Each comes with the
+   * place its value is kept, which for a promoted input is outside the node.
+   */
+  private queueCaptureTargets(document: WorkflowDocument, resolve: SchemaResolver, artifact: CompileArtifact, widgetType: string): {
+    readonly node: CompileArtifact['prompt'][string]
+    readonly input: ReturnType<typeof inputsOf>[number]
+    readonly location: { readonly graphId: string }
+    readonly nodeId: string
+    readonly owner: { readonly graphId: string; readonly nodeId: string; readonly valueKey: string }
+  }[] {
+    return Object.entries(artifact.prompt).flatMap(([runtimeId, node]) => {
+      const schema = resolve(node.class_type)
+      const input = schema && inputsOf(schema).find((item) => item.widget?.widgetType === widgetType)
+      if (input === undefined || Array.isArray(node.inputs[input.id])) return []
       const occurrence = parseOccurrenceKey(artifact.provenance.toSource[runtimeId]!)
       const location = resolveNodeOccurrence(document, occurrence)!
       const graph = document.graphs[location.graphId]!
@@ -9034,23 +10292,51 @@ export class AppState {
       const definitionDriven = Object.values(graph.links).some((link) =>
         isPortEndpoint(link.to) && link.to.node === target.node && link.to.port === target.port) ||
         Object.values(graph.nets).some((net) => net.sinks.some((sink) => sink.node === target.node && sink.port === target.port))
-      if (occurrence.instancePath.length === 0 && definitionDriven) continue
+      if (occurrence.instancePath.length === 0 && definitionDriven) return []
       if (occurrence.instancePath.length > 0) {
-        const topology = effectiveOccurrenceTopology(document, registry.resolve, {
+        const topology = effectiveOccurrenceTopology(document, resolve, {
           instancePath: occurrence.instancePath.slice(0, -1),
           node: occurrence.instancePath.at(-1)!,
         })
-        if (effectiveTopologyDrivesPort(topology, graph.id, occurrence.instancePath, target)) continue
+        if (effectiveTopologyDrivesPort(topology, graph.id, occurrence.instancePath, target)) return []
       }
-      const view = occurrenceDynamicView(document, registry.resolve, occurrence.instancePath)
+      const view = occurrenceDynamicView(document, resolve, occurrence.instancePath)
       const owner = view.valueOwners.get(occurrence.node)?.get(input.id) ?? {
         graphId: location.graphId, nodeId: occurrence.node, valueKey: input.id,
       }
+      return [{ node, input, location, nodeId: occurrence.node, owner }]
+    })
+  }
+
+  /**
+   * Takes what a run needs from the user's devices and views as it is queued:
+   * a webcam frame where capture on queue is on, and the image, mask and
+   * normal of each 3D view that changed since its pictures were taken. They
+   * are stored on their nodes in one step before the run is sent.
+   */
+  private captureQueueViews(owner: {
+    readonly document: WorkflowDocument
+    readonly backend: Backend
+    readonly resolve: SchemaResolver
+    readonly current: () => boolean
+    readonly commit: (invocations: readonly CommandInvocation[]) => Promise<WorkflowDocument>
+    readonly tab?: Tab
+  }, artifact: CompileArtifact, signal: AbortSignal): Promise<WorkflowDocument> | undefined {
+    const { backend, document, resolve } = owner
+    const captures: { owner: { graphId: string; nodeId: string; valueKey: string }; width: number; height: number }[] = []
+    const capturedOwners = new Map<string, { width: number; height: number }>()
+    for (const { node, input, owner } of this.queueCaptureTargets(document, resolve, artifact, webcamKind.type)) {
+      // Capture on queue is the row the webcam widget reads under that part; without one, it never captures.
+      const captureRow = input.widget?.reads?.['capture_on_queue']
+      if (captureRow === undefined || node.inputs[captureRow] !== true) continue
       const key = JSON.stringify(owner)
-      const dimensions = {
-        width: typeof node.inputs['width'] === 'number' ? node.inputs['width'] : 0,
-        height: typeof node.inputs['height'] === 'number' ? node.inputs['height'] : 0,
+      // The capture size comes from the rows the webcam widget reads; a part it does not name is absent.
+      const dimension = (part: 'width' | 'height'): number => {
+        const row = input.widget?.reads?.[part]
+        const value = row === undefined ? undefined : node.inputs[row]
+        return typeof value === 'number' ? value : 0
       }
+      const dimensions = { width: dimension('width'), height: dimension('height') }
       const previous = capturedOwners.get(key)
       if (previous !== undefined) {
         if (previous.width !== dimensions.width || (dimensions.width !== 0 && previous.height !== dimensions.height)) {
@@ -9061,26 +10347,112 @@ export class AppState {
       capturedOwners.set(key, dimensions)
       captures.push({ owner, ...dimensions })
     }
-    if (captures.length === 0) return undefined
+    // A 3D view on its own input gives pictures; one that writes a separate state row stores its view only.
+    const models = backend.protocol !== 'dinkster' ? [] : this.queueCaptureTargets(document, resolve, artifact, 'LOAD_3D')
+      .filter(({ input }) => input.widget?.writes === undefined || Object.keys(input.widget.writes).length === 0)
+      .filter((target, index, all) => all.findIndex((other) => JSON.stringify(other.owner) === JSON.stringify(target.owner)) === index)
+    if (captures.length === 0 && models.length === 0) return undefined
     return (async () => {
       const invocations: CommandInvocation[] = []
+      const current = (): void => {
+        signal.throwIfAborted()
+        if (!owner.current()) {
+          throw new Error('Workflow or backend changed while capturing; queue again.')
+        }
+      }
       for (const { owner, width, height } of captures) {
         const file = await captureWebcamFrame({ width, height }, signal)
         const ref = await backend.connection.uploadMediaAsset(file, {
           scope: 'local', kind: 'media/image', name: file.name, signal,
         })
-        signal.throwIfAborted()
-        if (tab.store.doc !== document || backend.registry.get() !== registry || this.backendForTab(tab) !== backend) {
-          throw new Error('Workflow or backend changed while capturing webcam; queue again.')
-        }
+        current()
         invocations.push({ command: 'node.setValue', params: {
           graphId: owner.graphId, nodeId: owner.nodeId, inputId: owner.valueKey, value: { ...ref },
         } })
       }
-      signal.throwIfAborted()
-      const outcome = await this.dispatchTo(tab, { command: 'batch', params: { invocations } as unknown as Json })
-      if (!outcome.ok) throw new Error('Could not save captured webcam frame.')
-      return outcome.doc
+      if (models.length > 0) {
+        const [{ openLoad3dSource, Load3dSourceError }, { mountModel3dViewer }] = await Promise.all([
+          import('./load3d-source.js'), import('./model3d-viewer.js'),
+        ])
+        for (const { node, input, location, nodeId, owner: valueOwner } of models) {
+          const stored = node.inputs[input.id]
+          const value: Record<string, Json> = typeof stored === 'object' && stored !== null && !Array.isArray(stored)
+            ? { ...(stored as Record<string, Json>) } : {}
+          const pictureKeys = ['image', 'mask', 'normal', 'pictures_view']
+          // A model a wire brings is known only once this run brings it, so no pictures are stored
+          // or sent for it, not even ones of an earlier model.
+          const dropPictures = (): void => {
+            if (!pictureKeys.some((name) => name in value)) return
+            const rest = Object.fromEntries(Object.entries(value).filter(([name]) => !pictureKeys.includes(name)))
+            invocations.push({ command: 'node.setValue', params: { graphId: valueOwner.graphId, nodeId: valueOwner.nodeId, inputId: valueOwner.valueKey, value: rest } })
+          }
+          let source
+          try {
+            source = await openLoad3dSource(this, owner.tab ?? { ...owner, inputs: node.inputs },
+              { graphId: location.graphId, nodeId, parts: { writes: {}, reads: input.widget?.reads ?? {} } }, signal)
+          } catch (error) {
+            // No model, or one a wire brings in this same run: no pictures can be taken now.
+            if (error instanceof Load3dSourceError && error.problem !== 'unavailable') {
+              if (error.modelWired) dropPictures()
+              continue
+            }
+            throw error
+          }
+          if (source.modelWired) {
+            source.release()
+            dropPictures()
+            continue
+          }
+          const size = (part: 'width' | 'height'): number => {
+            const read = source.inputValue(part)
+            return typeof read === 'number' ? read : 1024
+          }
+          // The view the pictures show, stored with them so a run (and a reopened workflow) can tell whether they still match.
+          const view = (state: Record<string, Json>): Json => ({ model_file: source.inputValue('model_file') ?? null,
+            camera_info: state['camera_info'] ?? null, model_3d_info: state['model_3d_info'] ?? null, width: size('width'), height: size('height') })
+          const captured = ['image', 'mask', 'normal'].every((name) => value[name] !== undefined && value[name] !== null && value[name] !== '')
+          if (captured && value['pictures_view'] !== undefined && canonicalJson(value['pictures_view']) === canonicalJson(view(value))) {
+            source.release()
+            continue
+          }
+          // The view is drawn off the screen at the node's width and height, as its stored camera shows it.
+          const container = offscreenContainer(size('width'), size('height'))
+          try {
+            const models3d = value['model_3d_info']
+            const viewer = await mountModel3dViewer(container, source.src, source.mime, {
+              ...source.options,
+              ...(value['camera_info'] ? { camera: value['camera_info'] as unknown as Model3dCameraState } : {}),
+              ...(Array.isArray(models3d) && models3d[0] ? { transform: models3d[0] as unknown as Model3dTransform } : {}),
+            })
+            try {
+              const pictures = await viewer.capture(size('width'), size('height'))
+              const next: Record<string, Json> = {
+                ...value,
+                camera_info: { ...(value['camera_info'] as Record<string, Json> | undefined ?? {}), ...JSON.parse(JSON.stringify(viewer.cameraState())) },
+                model_3d_info: [{ ...(Array.isArray(models3d) ? models3d[0] as Record<string, Json> ?? {} : {}), ...JSON.parse(JSON.stringify(viewer.modelTransform())) },
+                  ...(Array.isArray(models3d) ? models3d.slice(1) : [])],
+                recording: value['recording'] ?? '',
+              }
+              for (const name of ['image', 'mask', 'normal'] as const) {
+                const file = new File([pictures[name]], `viewport-${name}.png`, { type: 'image/png' })
+                const ref = await backend.connection.uploadMediaAsset(file, { scope: 'local', kind: 'media/image', name: file.name, signal })
+                next[name] = JSON.parse(JSON.stringify(ref)) as Json
+              }
+              next['pictures_view'] = view(next)
+              current()
+              invocations.push({ command: 'node.setValue', params: { graphId: valueOwner.graphId, nodeId: valueOwner.nodeId, inputId: valueOwner.valueKey, value: next } })
+            } finally {
+              viewer.dispose()
+            }
+          } finally {
+            container.remove()
+            source.release()
+          }
+        }
+      }
+      current()
+      if (invocations.length === 0) return document
+      return owner.commit(invocations)
     })()
   }
 
@@ -9123,6 +10495,336 @@ export class AppState {
     }
   }
 
+  boardCardKey(entry: BoardEntry, cardId: string): string {
+    return JSON.stringify([entry.baseUrl, entry.id, cardId])
+  }
+
+  /** Restore only a recorded compile, never a new interpretation of an older source. */
+  async restoreBoardCardRun(entry: BoardEntry, cardId: string, run: HistoryRunRecord,
+    stillCurrent: () => boolean,
+  ): Promise<ExecutionRef | undefined> {
+    const backend = this.backends.get().find((backend) => backend.baseUrl === entry.baseUrl)
+    const registry = backend?.registry.get()
+    const jobRef = run.jobRef ?? run.runId
+    if (!backend || !registry || !run.sourceDocument || run.scope !== LIBRARY_SCOPE ||
+      entry.session.doc.runs?.[jobRef]?.card !== cardId) return undefined
+    const project = activeProjectId()
+    const principal = backend.connection.principalGeneration.get()
+    const current = () => !this.disposed && stillCurrent() && this.backends.get().includes(backend) &&
+      activeProjectId() === project && backend.connection.principalGeneration.get() === principal &&
+      backend.registry.get() === registry && this.boards.entries.get().includes(entry) &&
+      entry.session.doc.runs?.[jobRef]?.card === cardId
+    const job = await backend.connection.fetchHistoryJob(run)
+    if (!job || !current()) return undefined
+    const text = await backend.connection.fetchAssetText(run.sourceDocument)
+    if (text === undefined || !current()) return undefined
+    const document: unknown = JSON.parse(text)
+    if (!workspaceRecord(document) || !workspaceRecord(document['ext'])) return undefined
+    const { ['dinkster.executionProof']: proof, ...ext } = document['ext']
+    if (!workspaceRecord(proof)) return undefined
+    const snapshot = { ...document, ext }
+    const ref = { connection: backend.id, prompt: asPromptId(run.jobId) }
+    const registration = decodeWorkspaceRegistration({ ref, artifact: { ...proof, snapshot,
+      connection: backend.id, diagnostics: [] } }, (type) => this.virtualNodeSchema(type)?.virtual === true)
+    const origin = registration?.snapshot.ext?.['dinkster.boardCard']
+    if (!registration || registration.schemaHash !== registry.hash || !workspaceRecord(origin) ||
+      origin['board'] !== entry.id || origin['card'] !== cardId) return undefined
+    const choices = new Map(registration.choices.map((choice) => [JSON.stringify([choice.graph, choice.selector]), choice.candidate]))
+    const compiled = compile({ document: registration.snapshot, revision: registration.revision,
+      resolve: this.resolverWithVirtualNodes(registry.resolve), scope: registration.scope, connection: backend.id, schemaHash: registry.hash,
+      candidateOverride: ({ graph, selector, candidates }) => {
+        const selected = choices.get(JSON.stringify([graph, selector]))
+        return selected !== undefined && candidates.includes(selected) ? selected : undefined
+      }, pickCandidate: () => 0,
+      ...(registry.graphFeatures === undefined ? {} : { graphFeatures: registry.graphFeatures }),
+    })
+    if (!compiled.ok || canonicalJson(persistedCompileProof(compiled.artifact)) !==
+      canonicalJson({ ...proof, connection: backend.id }) || !current()) return undefined
+    // Local job ids belong to a client; never replace another client's retained execution.
+    const existing = this.store.get(ref)
+    if (existing && existing.jobRef !== jobRef) return undefined
+    if (existing?.artifact) return ref
+    const artifact = compiled.artifact
+    this.retainedRegistries.set(artifact, registry)
+    this.recordedRunValues.set(artifact, backend.connection.historyValues(run))
+    batch(() => {
+      this.store.register(ref, artifact, run.submittedAt * 1000, { jobRef, sourceDocument: run.sourceDocument!,
+        ...(run.workflowName === undefined ? {} : { workflowName: run.workflowName }) })
+      this.store.hydrateArtifacts(ref, job.artifacts ?? [])
+      if (workspaceRecord(job.outputs) && Object.values(job.outputs).every(workspaceRecord))
+        this.store.hydrateOutputs(ref, job.outputs as ExecutionState['outputs'])
+      if (job.submittedBy) this.store.hydrateSubmittedBy(ref, job.submittedBy)
+      this.store.hydrateAutomaticValues(ref, automaticValuesOfJob(job))
+      this.store.apply({ kind: 'nodeStates', execution: ref, timestamp: run.finishedAt * 1000,
+        nodes: nodeStatesFromDinksterJob(job) })
+      this.store.apply(run.state === 'failed'
+        ? { kind: 'error', execution: ref, timestamp: run.finishedAt * 1000,
+          detail: { exceptionType: run.error?.kind ?? 'execution', exceptionMessage: run.error?.message ?? 'job failed', traceback: [] } }
+        : { kind: run.state, execution: ref, timestamp: run.finishedAt * 1000 })
+    })
+    return ref
+  }
+
+  executionsForBoardCard(entry: BoardEntry, cardId: string): readonly ExecutionState[] {
+    const backend = this.backends.get().find((backend) => backend.baseUrl === entry.baseUrl)
+    if (!backend) return []
+    return [...this.store.executions.get().values()].filter((execution) => {
+      const origin = execution.artifact?.snapshot.ext?.['dinkster.boardCard']
+      return execution.ref.connection === backend.id && workspaceRecord(origin) &&
+        origin['board'] === entry.id && origin['card'] === cardId
+    }).sort((a, b) => b.queuedAt - a.queuedAt)
+  }
+
+  async stopBoardCard(entry: BoardEntry, cardId: string): Promise<void> {
+    this.boardCardSubmissions.get().get(this.boardCardKey(entry, cardId))?.controller.abort('stop')
+    const active = this.executionsForBoardCard(entry, cardId)
+      .find((run) => run.status === 'queued' || run.status === 'running')
+    if (active) await this.cancelExecution(active.ref)
+  }
+
+  /** Recorded geometry belongs to the submitted snapshot, not the card's current position. */
+  boardResultPlaces(entry: BoardEntry, execution: ExecutionState): readonly BoardRect[] {
+    const origin = execution.artifact?.snapshot.ext?.['dinkster.boardCard']
+    const backend = this.backendFor(execution.ref.connection)
+    if (backend?.baseUrl !== entry.baseUrl || !workspaceRecord(origin) || origin['board'] !== entry.id ||
+      !Array.isArray(origin['places']) || origin['places'].length > 8) return []
+    const places: BoardRect[] = []
+    for (const place of origin['places']) {
+      if (!workspaceRecord(place)) return []
+      const { x, y, width, height } = place
+      if (!(typeof x === 'number' && typeof y === 'number' && typeof width === 'number' && typeof height === 'number' &&
+        [x, y, width, height].every((value) => Number.isFinite(value) && Math.abs(value) <= BOARD_MAX_EXTENT) &&
+        width >= BOARD_MIN_SIDE && height >= BOARD_MIN_SIDE)) return []
+      places.push({ x, y, width, height })
+    }
+    return places
+  }
+
+  private deliverBoardResults(): void {
+    if (this.disposed) return
+    const entries = this.boards.entries.get()
+    const executions = this.store.executions.get()
+    for (const [key, delivery] of this.boardResultDeliveries) {
+      if (entries.includes(delivery.entry) && executions.has(key)) continue
+      delivery.abort.abort()
+      this.boardResultDeliveries.delete(key)
+    }
+    if ([...this.boardResultErrors.get().keys()].some((entry) => !entries.includes(entry)))
+      this.boardResultErrors.set(new Map([...this.boardResultErrors.get()].filter(([entry]) => entries.includes(entry))))
+    for (const execution of executions.values()) {
+      if (!execution.jobRef || !execution.artifactsHydrated || this.store.isProvisionallyLost(execution.ref) ||
+        !['completed', 'error', 'interrupted', 'cancelled'].includes(execution.status)) continue
+      const origin = execution.artifact?.snapshot.ext?.['dinkster.boardCard']
+      const backend = this.backendFor(execution.ref.connection)
+      if (!workspaceRecord(origin) || typeof origin['card'] !== 'string' || backend?.protocol !== 'dinkster') continue
+      const entry = entries.find((entry) => entry.id === origin['board'] && entry.baseUrl === backend.baseUrl)
+      if (!entry || entry.session.doc.runs?.[execution.jobRef] || !entry.session.doc.items[origin['card']] ||
+        (entry.shared && !entry.shared.session.canEdit.get())) continue
+      const places = this.boardResultPlaces(entry, execution)
+      if (!places.length) continue
+      const key = executionKey(execution.ref)
+      const previous = this.boardResultDeliveries.get(key)
+      const generation = this.backendsTick.get()
+      if (previous?.pending || (previous?.execution === execution && previous.generation === generation)) continue
+      const delivery = { entry, execution, generation, abort: new AbortController(), pending: true }
+      this.boardResultDeliveries.set(key, delivery)
+      const current = () => !this.disposed && !delivery.abort.signal.aborted && this.boards.entries.get().includes(entry)
+      void this.placeBoardCardResults(entry, execution.ref, places[0]!, delivery.abort.signal).then(() => {
+        if (current() && this.boardResultErrors.get().has(entry)) {
+          const errors = new Map(this.boardResultErrors.get())
+          errors.delete(entry)
+          this.boardResultErrors.set(errors)
+        }
+      }).catch((reason: unknown) => {
+        if (current()) this.boardResultErrors.set(new Map([...this.boardResultErrors.get(),
+          [entry, reason instanceof Error ? reason.message : String(reason)]]))
+      }).finally(() => {
+        delivery.pending = false
+        this.deliverBoardResults()
+      })
+    }
+  }
+
+  /** Place only a terminal run's recorded files, on its original Board/backend. */
+  async placeBoardCardResults(entry: BoardEntry, ref: ExecutionRef,
+    point: { readonly x: number; readonly y: number },
+    signal: AbortSignal = new AbortController().signal,
+  ): Promise<readonly string[]> {
+    const execution = this.store.get(ref)
+    const backend = this.backendFor(ref.connection)
+    const origin = execution?.artifact?.snapshot.ext?.['dinkster.boardCard']
+    if (!this.boards.entries.get().includes(entry) || backend?.protocol !== 'dinkster' ||
+      backend.baseUrl !== entry.baseUrl || !workspaceRecord(origin) ||
+      origin['board'] !== entry.id || typeof origin['card'] !== 'string')
+      throw new Error('Run does not belong to this Board and backend')
+    const job = execution?.jobRef
+    if (!job || !execution.artifactsHydrated ||
+      !['completed', 'error', 'interrupted', 'cancelled'].includes(execution.status)) return []
+    if (entry.session.doc.runs?.[job]) return []
+    const assets = await Promise.all(execution.artifacts.filter((asset) => boardMediaKindOf(asset.mediaType)).map(async (asset) => ({
+      digest: asset.digest, mediaType: asset.mediaType, name: asset.name.slice(0, BOARD_MAX_NAME),
+      origin: { job, node: asset.nodeId },
+      ...await inspectBoardMediaMetadata(backend.connection.assetUrl(asset.digest), asset.mediaType, signal),
+    })))
+    signal.throwIfAborted()
+    if (!this.boards.entries.get().includes(entry) || this.backendFor(ref.connection) !== backend)
+      throw new Error('Run does not belong to this Board and backend')
+    return this.boards.placeMedia(entry.id, {
+      project: activeProjectId(), baseUrl: backend.baseUrl,
+      run: { job, card: origin['card'], places: this.boardResultPlaces(entry, execution) },
+      assets,
+    }, point)
+  }
+
+  /** Submit an independent full workflow; no editing session is opened or written. */
+  async queueBoardCard(entry: BoardEntry, cardId: string): Promise<ExecutionRef | undefined> {
+    const key = this.boardCardKey(entry, cardId)
+    if (this.boardCardSubmissions.get().has(key) || this.executionsForBoardCard(entry, cardId)
+      .some((run) => run.status === 'queued' || run.status === 'running')) return undefined
+    const backend = this.backends.get().find((backend) => backend.baseUrl === entry.baseUrl)
+    const registry = backend?.registry.get()
+    const card = entry.session.doc.items[cardId]
+    if (!backend || !registry || !card || (card.kind !== 'workflow' && card.kind !== 'blueprint'))
+      throw new Error('This card or its backend is unavailable')
+    const project = activeProjectId()
+    const controller = new AbortController()
+    const current = (): boolean => {
+      const latest = entry.session.doc.items[cardId]
+      return !this.disposed && !controller.signal.aborted && activeProjectId() === project &&
+        this.backends.get().includes(backend) && backend.registry.get() === registry &&
+        this.boards.entries.get().includes(entry) && latest?.kind === card.kind &&
+        jsonSameValue(latest.source, card.source)
+    }
+    const invalidate = (): void => { if (!current()) controller.abort() }
+    const subscriptions = [this.boards.changed.subscribe(invalidate), this.backendsTick.subscribe(invalidate)]
+    this.boardCardSubmissions.set(new Map([...this.boardCardSubmissions.get(), [key, { controller, entry }]]))
+    let releaseWorld: (() => void) | undefined
+    let advancement: BoardAdvancementPlan | undefined
+    let installed = false
+    try {
+      const source = await this.boards.loadCard(entry.id, cardId, registry.resolve, current)
+      if (!current()) return undefined
+      const resolve = this.resolverWithVirtualNodes(registry.resolve)
+      const previous = this.executionsForBoardCard(entry, cardId).find((run) =>
+        run.status !== 'queued' && run.status !== 'running' && run.jobRef && entry.session.doc.runs?.[run.jobRef])
+      const occupied = [
+        ...[...this.store.executions.get().values()].filter((run) => run.status === 'queued' || run.status === 'running')
+          .flatMap((run) => this.boardResultPlaces(entry, run)),
+        ...[...this.boardCardSubmissions.get().values()].filter((submission) => submission.entry === entry)
+          .flatMap((submission) => submission.places ?? []),
+      ]
+      const sourceExt = { ...source.ext }
+      delete sourceExt['dinkster.executionProof']
+      let document: WorkflowDocument = { ...source,
+        lineage: asLineageId(`board-card:${entry.id}:${cardId}`),
+        ext: { ...sourceExt, 'dinkster.boardCard': { board: entry.id, card: cardId, source: card.source } },
+      }
+      const stamp = stampEnvironment(document, { resolve,
+        ...(registry.packs === undefined ? {} : { packs: registry.packs }),
+        ...(registry.server === undefined ? {} : { server: registry.server }), frontendVersion: FRONTEND_VERSION,
+      })
+      if (stamp) document = { ...document, environment: stamp }
+      const input: CompileInput = { document, revision: entry.session.revision, resolve, scope: { kind: 'full' },
+        connection: backend.id, schemaHash: registry.hash,
+        ...(registry.graphFeatures === undefined ? {} : { graphFeatures: registry.graphFeatures }),
+        lookupAnswers: lookupAnswersOf(backend.lookups), pickCandidate: ({ count }) => Math.floor(Math.random() * count),
+      }
+      let result = compile(input)
+      if (!result.ok) throw new Error(result.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
+      const saves = (type: string) => {
+        const schema = resolve(type)
+        return schema !== undefined && inputsOf(schema).some((input) => canonicalTypeIdOf(input.type) === 'SAVE_TARGET') ? 1 : 0
+      }
+      const graphSaves = (graph: DinksterGraphWire): number => Object.values(graph.nodes)
+        .reduce((count, node) => count + (isDinksterRegionEntry(node) ? graphSaves(node.region.body) : saves(node.nodeType)), 0)
+      const savingNodes = result.artifact.dinksterGraph ? graphSaves(result.artifact.dinksterGraph)
+        : Object.values(result.artifact.prompt).reduce((count, node) => count + saves(node.class_type), 0)
+      const places = this.boards.reserveResultPlaces(entry.id, cardId, savingNodes, occupied, previous?.jobRef)
+      this.boardCardSubmissions.set(new Map([...this.boardCardSubmissions.get(), [key, { controller, entry, places }]]))
+      document = { ...document, ext: { ...document.ext, 'dinkster.boardCard': {
+        board: entry.id, card: cardId, source: card.source, places: places.map((place) => ({ ...place })),
+      } } }
+      const choices = new Map((result.artifact.choices ?? []).map((choice) => [JSON.stringify([choice.graph, choice.selector]), choice.candidate]))
+      const recompile = () => compile({ ...input, document, candidateOverride: ({ graph, selector, candidates }) => {
+        const selected = choices.get(JSON.stringify([graph, selector]))
+        return selected !== undefined && candidates.includes(selected) ? selected : undefined
+      } })
+      result = recompile()
+      if (!result.ok) throw new Error(result.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
+      this.retainedRegistries.set(result.artifact, registry)
+      if (this.settings.get<boolean>('features.seedController.enabled')) advancement = this.boardAdvancementPlan(entry, cardId, result.artifact)
+      const lease = this.retainSubmissionWorld(undefined, result.artifact)
+      releaseWorld = lease.release
+      const capture = this.captureQueueViews({ document, backend, resolve, current,
+        commit: async (invocations) => {
+          const store = new DocumentStore(document, coreCommandRegistry([], documentResolver(document, resolve)))
+          const outcome = store.dispatch({ command: 'batch', params: { invocations } as unknown as Json })
+          if (!outcome.ok) throw new Error('Could not save the pictures taken for the run.')
+          return outcome.doc
+        },
+      }, result.artifact, controller.signal)
+      if (capture !== undefined) {
+        const captured = await capture
+        if (!current()) return undefined
+        if (captured !== document) {
+          document = captured
+          result = recompile()
+          if (!result.ok) throw new Error(result.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
+        }
+      }
+      const artifact = result.artifact
+      this.retainedRegistries.set(artifact, registry)
+      const sourceDocument = await backend.connection.uploadAsset(JSON.stringify({ ...document,
+        ext: { ...document.ext, 'dinkster.executionProof': persistedCompileProof(artifact) },
+      }))
+      if (!current()) return undefined
+      const identity = { workflowName: card.name, ...(sourceDocument === undefined ? {} : { sourceDocument }) }
+      lease.markPosted()
+      const submitted = await backend.connection.submit(artifact, { ...identity, previews: resolvePreviewPolicy(
+        artifact.snapshot, artifact.provenance, this.settings.get<PreviewMode>('execution.previews'),
+        this.settings.get<PreviewAnimation>('execution.previewAnimation'),
+      ) })
+      const install = (ok: Extract<DinksterSubmitResult, { ok: true }>): ExecutionRef | undefined => {
+        if (this.disposed) return undefined
+        installed = true
+        this.installRun(ok.execution, artifact, advancement, undefined, { ...identity,
+          ...(ok.jobRef === undefined ? {} : { jobRef: ok.jobRef }),
+        })
+        // Closing a Board does not cancel an accepted run; an explicit Stop does.
+        if (controller.signal.aborted && controller.signal.reason === 'stop') void this.cancelExecution(ok.execution)
+        return ok.execution
+      }
+      if (submitted.ok) return install(submitted)
+      if (!current()) return undefined
+      if (!('assetsMissing' in submitted)) throw new Error(submitted.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
+      const modelReferences = workflowModelOccurrences(artifact.snapshot, registry.resolve, lookupAnswersOf(backend.lookups))
+        .flatMap((occurrence) => occurrence.asset === undefined ? [] : [{ name: occurrence.name, kind: occurrence.kind, asset: occurrence.asset }])
+      return await new Promise<ExecutionRef | undefined>((resolve, reject) => {
+        installAssetConsent({ result: submitted, workflowTitle: card.name, modelReferences, slot: this.assetConsent,
+          signal: controller.signal, beforeRetry: current, onSettled: () => resolve(undefined),
+          modelDownloads: { connection: backend.connection, controller: this.modelDownloadsFor(backend, project),
+            providerConnection: backend.connection, backendUrl: backend.baseUrl, project },
+          enableLocation: async (location) => { await backend.connection.setModelLocationEnabled(location, true) },
+          unhideModel: async (identity) => { await backend.connection.unhideModel(identity) },
+          onSubmitted: (ok) => resolve(install(ok)),
+          onRejected: (diagnostics) => reject(new Error(diagnostics.map((diagnostic) => diagnostic.message).join('; '))),
+          onTransportError: (message) => reject(new Error(message)),
+          onSuperseded: () => reject(new Error('Assets are still missing; run the card again to review them')),
+        })
+      })
+    } catch (error) {
+      if (!controller.signal.aborted) throw error
+      return undefined
+    } finally {
+      if (!installed) advancement?.dispose()
+      for (const unsubscribe of subscriptions) unsubscribe()
+      releaseWorld?.()
+      const pending = new Map(this.boardCardSubmissions.get())
+      pending.delete(key)
+      this.boardCardSubmissions.set(pending)
+    }
+  }
+
   async queue(
     tab: Tab,
     scope: ExecutionScope = { kind: 'full' },
@@ -9154,6 +10856,10 @@ export class AppState {
       return
     }
     const initialArtifact = result.artifact
+    let modelReferences = workflowModelOccurrences(initialArtifact.snapshot, registry.resolve,
+      lookupAnswersOf(this.backendForTab(tab).lookups)).flatMap((occurrence) => occurrence.asset === undefined ? [] : [{
+        name: occurrence.name, kind: occurrence.kind, asset: occurrence.asset,
+      }])
     const missingRequired = requiredRootNodes.filter((required) =>
       !Object.values(initialArtifact.provenance.toSource).some((key) => {
         const occurrence = parseOccurrenceKey(key)
@@ -9185,10 +10891,18 @@ export class AppState {
       const captureRegistry = captureBackend.registry.get()
       let capturedDocument: WorkflowDocument
       try {
-        const capture = this.captureQueueWebcams(tab, result.artifact, lease.signal)
+        const capture = this.captureQueueViews({ document: tab.store.doc, backend: captureBackend,
+          resolve: captureRegistry!.resolve, tab,
+          current: () => tab.store.doc === compiledDocument && this.backendForTab(tab) === captureBackend && captureBackend.registry.get() === captureRegistry,
+          commit: async (invocations) => {
+            const outcome = await this.dispatchTo(tab, { command: 'batch', params: { invocations } as unknown as Json })
+            if (!outcome.ok) throw new Error('Could not save the pictures taken for the run.')
+            return outcome.doc
+          },
+        }, result.artifact, lease.signal)
         capturedDocument = capture === undefined ? compiledDocument : await capture
         if (tab.store.doc !== capturedDocument || this.backendForTab(tab) !== captureBackend || captureBackend.registry.get() !== captureRegistry) {
-          throw new Error('Workflow or backend changed while capturing webcam; queue again.')
+          throw new Error('Workflow or backend changed while capturing; queue again.')
         }
       } catch (error) {
         if (!lease.signal.aborted && this.tabs.get().includes(tab)) {
@@ -9206,6 +10920,11 @@ export class AppState {
         }
         this.replaceProblems(tab.id, result.artifact.diagnostics)
         plan = this.preparedAdvancement(tab.store, result.artifact)
+        const compiledRegistry = this.retainedRegistries.get(result.artifact)!
+        modelReferences = workflowModelOccurrences(result.artifact.snapshot, compiledRegistry.resolve,
+          lookupAnswersOf(this.backendForTab(tab).lookups)).flatMap((occurrence) => occurrence.asset === undefined ? [] : [{
+            name: occurrence.name, kind: occurrence.kind, asset: occurrence.asset,
+          }])
       }
       if (lease.signal.aborted) return
       // The artifact records its target connection; submit() cross-checks it.
@@ -9222,6 +10941,8 @@ export class AppState {
         ...(hasWorkflow ? { extraPnginfo: { workflow: originalWorkflow } as JsonObject } : {}),
       } : undefined
       const sourceDocument = await this.sourceDocumentFor(tab, backend)
+      // The name the run is recorded under, as the tab read when it was sent.
+      const workflowName = tab.title
       if (lease.signal.aborted) return
       // Shared authority can adopt this editing session after queue entry.
       // Independent replacements do not have a recorded continuation.
@@ -9237,6 +10958,7 @@ export class AppState {
       lease.markPosted()
       const submitted = await backend.connection.submit(result.artifact, {
         ...(sourceDocument === undefined ? {} : { sourceDocument: sourceDocument.sourceDocument }),
+        workflowName,
         ...(exportSnapshot !== undefined ? { exportSnapshot } : {}),
         // Overrides come from the artifact snapshot (the exact document
         // that compiled), layered global < workflow < node.
@@ -9261,8 +10983,10 @@ export class AppState {
             plan,
             scope,
             compiledDocument,
+            modelReferences,
             backend,
             sourceDocument,
+            workflowName,
             lease,
           )
           consentOwnsLease = true
@@ -9279,6 +11003,7 @@ export class AppState {
       this.installRun(submitted.execution, result.artifact, plan, undefined, {
         ...(submitted.jobRef === undefined ? {} : { jobRef: submitted.jobRef }),
         ...(sourceDocument?.sourceDocument === undefined ? {} : { sourceDocument: sourceDocument.sourceDocument }),
+        workflowName,
       })
       this.log('info', backend.label, `job submitted: ${submitted.execution.prompt}`)
     } catch (e) {
@@ -9291,7 +11016,7 @@ export class AppState {
           severity: 'error',
           origin: 'validation',
           code: 'submit.transportFailed',
-          message: `failed to submit prompt: ${e instanceof Error ? e.message : String(e)}`,
+          message: failureMessage(e, 'The run could not be submitted.'),
         },
       ])
       this.queueRefusal.set(tab)
@@ -9333,8 +11058,10 @@ export class AppState {
     plan: AdvancementPlan | undefined,
     scope: ExecutionScope,
     compiledDocument: WorkflowDocument,
+    modelReferences: readonly ModelDownloadRequirement[],
     backend: Backend,
     sourceDocument: Awaited<ReturnType<AppState['sourceDocumentFor']>>,
+    workflowName: string,
     lease: { readonly signal: AbortSignal; readonly release: () => void },
   ): void {
     // Problems callbacks re-prove exact-object tab liveness at fire time: a
@@ -9349,9 +11076,13 @@ export class AppState {
     // Problems instead of reopening over the newer owner's dialog.
     installAssetConsent({
       result: submitted,
+      workflowTitle: tab.title,
+      modelReferences,
       slot: this.assetConsent,
-      modelDownloads: { connection: backend.connection, providerConnection: backend.connection, backendUrl: backend.baseUrl, project },
+      modelDownloads: { connection: backend.connection, controller: this.modelDownloadsFor(backend, project), providerConnection: backend.connection, backendUrl: backend.baseUrl, project },
       enableLocation: async (location) => { await backend.connection.setModelLocationEnabled(location, true) },
+      unhideModel: async (identity) => { await backend.connection.unhideModel(identity) },
+      locateModel: (requirement, status) => this.locateModelDownload(tab, backend, requirement, status),
       signal: lease.signal,
       onSettled: lease.release,
       // retryWithAssets re-POSTs the body captured by the first submit. Apply
@@ -9359,13 +11090,14 @@ export class AppState {
       beforeRetry: () =>
         activeProjectId() === project && tabLive() &&
         this.backendForTab(tab) === backend && this.backends.get().includes(backend) &&
-        (submitted.assetsMissing.models === undefined || tab.store.doc === compiledDocument) &&
+        ((submitted.assetsMissing.models === undefined && modelReferences.length === 0) || tab.store.doc === compiledDocument) &&
         !this.wire15ModeChangeBlocksSubmission(tab, scope, compiledDocument),
       onSubmitted: (ok) => {
         if (this.disposed) return
         this.installRun(ok.execution, artifact, plan, undefined, {
           ...(ok.jobRef === undefined ? {} : { jobRef: ok.jobRef }),
           ...(sourceDocument === undefined ? {} : { sourceDocument: sourceDocument.sourceDocument }),
+          workflowName,
         })
         this.log(
           'info',
@@ -9424,7 +11156,7 @@ export class AppState {
   private hydrateCachedOutputs(execs: ReadonlyMap<string, ExecutionState>): void {
     if (this.disposed) return
     for (const state of execs.values()) {
-      if (state.status !== 'completed' || state.artifactsHydrated) continue
+      if (!['completed', 'error', 'cancelled'].includes(state.status) || state.artifactsHydrated) continue
       if (this.hydrated.has(state.key)) continue
       // Route by the execution's OWN connection; a removed backend's runs
       // simply stay unhydrated (retried if it is ever re-added).
@@ -9432,7 +11164,7 @@ export class AppState {
       if (!backend) continue
       this.hydrated.add(state.key)
       this.pendingExecutionHydrations += 1
-      void hydrateDinksterCompletedExecution(backend.connection, this.store, state.ref, this.prepareExecutionHydration(backend))
+      void hydrateDinksterTerminalExecution(backend.connection, this.store, state.ref, this.prepareExecutionHydration(backend))
         .then(() => {
           if (!this.store.get(state.ref)?.artifactsHydrated) this.hydrated.delete(state.key)
         })
@@ -9607,34 +11339,18 @@ export class AppState {
     return this.semanticHashOfTab(live) === artifact.semanticHash ? 'in-sync' : 'diverged'
   }
 
-  /**
-   * For a LIVE tab: how its document relates to the execution its overlay
-   * shows (pinned run when pinned, else the lineage's latest). `inSync:
-   * false` means edits landed after that submission - progress overlays may
-   * not match what actually runs; the frozen view is the truth.
-   */
-  liveSyncStatus(tab: Tab): {
-    ref: ExecutionRef
-    status: ExecutionStatus
-    inSync: boolean
-    mode: 'latest' | 'pinned'
-  } | undefined {
-    if (tab.execution) return undefined
-    const pinned = this.pinnedExecutionFor(tab)
-    const shown = pinned ?? this.latestExecutionFor(tab.store.doc.lineage)
-    if (!shown?.artifact) return undefined
-    return {
-      ref: shown.ref,
-      status: shown.status,
-      inSync: this.semanticHashOfTab(tab) === shown.artifact.semanticHash,
-      mode: pinned ? 'pinned' : 'latest',
-    }
+  /** A frozen tab is named by its workflow and the time the run was queued, such as "Portrait, 14:02". */
+  private frozenTitleSuffix(ref: ExecutionRef): string {
+    const state = this.store.get(ref)
+    return state === undefined ? '' : `, ${runClock(state.queuedAt)}`
   }
 
   tabTitleFor(ref: ExecutionRef): string {
     const state = this.store.executions.get().get(executionKey(ref))
-    const lineage = state?.artifact?.snapshot.lineage
-    return (lineage && this.liveTabFor(lineage)?.title) ?? '(external)'
+    const snapshot = state?.artifact?.snapshot
+    if (snapshot?.ext?.['dinkster.boardCard'] !== undefined)
+      return state?.workflowName ?? snapshot.graphs[snapshot.root]?.name ?? 'Untitled'
+    return (snapshot && this.liveTabFor(snapshot.lineage)?.title) ?? '(external)'
   }
 }
 

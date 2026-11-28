@@ -24,6 +24,7 @@ const entries = (count: number): readonly ProofLogEntry[] => Array.from({ length
 }))
 
 async function installFixture(page: Page): Promise<void> {
+  await page.route('/api/nodes*', (route) => route.fulfill({ json: { schemaVersion: 1, epoch: 1, dinkster: { version: 'test', schemaWire: 2 }, packs: {}, nodes: {} } }))
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
   await page.route('/object_info', (route) => route.fulfill({ json: {} }))
 }
@@ -40,7 +41,7 @@ async function setEntries(page: Page, value: readonly ProofLogEntry[]): Promise<
     app.registerSchemas([
       {
         type: 'EmptyImage', displayName: 'Empty Image', category: 'e2e', source: 'e2e', isOutputNode: false,
-        items: [
+        body: [
           ...['width', 'height', 'batch_size', 'color'].map((id) => ({
             kind: 'input', id, type: { kind: 'concrete', name: 'INT' }, optional: false,
           })),
@@ -49,7 +50,7 @@ async function setEntries(page: Page, value: readonly ProofLogEntry[]): Promise<
       },
       {
         type: 'PreviewImage', displayName: 'Preview Image', category: 'e2e', source: 'e2e', isOutputNode: true,
-        items: [{ kind: 'input', id: 'images', type: { kind: 'concrete', name: 'IMAGE' }, optional: false }],
+        body: [{ kind: 'input', id: 'images', type: { kind: 'concrete', name: 'IMAGE' }, optional: false }],
       },
     ])
     app.connection.disconnect()
@@ -123,6 +124,44 @@ test('semantic rows and guarded Clear preserve exact activity facts', async ({ p
   await expect.poll(() => log.evaluate((element) =>
     Math.abs(element.scrollHeight - element.clientHeight - element.scrollTop),
   )).toBeLessThanOrEqual(1)
+})
+
+test('narrow log rows shorten timestamps without overlapping the level, source or message', async ({ page }) => {
+  await page.setViewportSize({ width: 1600, height: 950 })
+  await page.goto('/')
+  await setEntries(page, [
+    { timestamp: Date.UTC(2026, 10, 27, 6, 48, 47), severity: 'info', source: 'Local', message: 'Connected' },
+    { timestamp: Date.UTC(2026, 10, 27, 6, 48, 48), severity: 'warn', source: 'Local', message: 'Connection interrupted' },
+    { timestamp: Date.UTC(2026, 10, 27, 6, 48, 49), severity: 'error', source: 'Local', message: 'A long message with workflow/very-long-identifier/that-must-not-overlap and enough text to wrap.' },
+  ])
+  await page.getByTestId('bottom-panel-toggle').click()
+  const panel = page.getByTestId('log-panel')
+  await page.evaluate(() => document.fonts.ready)
+
+  for (const width of [200, 240, 280, 320, 700, 701, 900]) {
+    await panel.evaluate((element, width) => {
+      element.style.width = `${width}px`
+      element.style.flex = 'none'
+    }, width)
+    await expect.poll(() => panel.locator('.activity-log-row').evaluateAll((rows) => rows.every((row) => {
+      const time = row.querySelector('time')!
+      const level = row.querySelector('.activity-log-severity')!
+      const source = row.querySelector('.activity-log-source')!
+      const message = row.querySelector('.activity-log-message')!
+      const range = document.createRange()
+      range.selectNodeContents(time)
+      const textRight = Math.max(...Array.from(range.getClientRects(), (rect) => rect.right))
+      const fields = [time, level, source, message].map((field) => field.getBoundingClientRect())
+      return textRight + 7 <= level.getBoundingClientRect().left && fields.every((a, index) =>
+        fields.slice(index + 1).every((b) => a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top),
+      )
+    }))).toBe(true)
+    const time = panel.locator('.activity-log-row').first().locator('time')
+    await expect(time).toHaveAttribute('title', '2026-11-27 06:48:47.000 UTC')
+    await expect(time).toHaveAttribute('datetime', '2026-11-27T06:48:47.000Z')
+    if (width === 200) await expect(time).toHaveText('06:48:47', { useInnerText: true })
+    if (width >= 320) await expect(time).toHaveText('2026-11-27 06:48:47.000 UTC', { useInnerText: true })
+  }
 })
 
 test('overflow, reader position, long content, narrow layout, and zoom remain contained', async ({ page }) => {

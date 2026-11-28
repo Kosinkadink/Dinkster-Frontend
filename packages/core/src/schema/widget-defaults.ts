@@ -28,13 +28,19 @@
  * `packages/core/test/widget-defaults.test.ts` pins the agreement with the
  * widgets package for the kinds that must match.
  */
-import type { Json } from '../format/document.js'
+import type { AssetRef, Json } from '../format/document.js'
 import { EMPTY_COMPOSITOR_RECIPE, isCompositorRecipe } from '../compositor.js'
 import { isComboValue, normalizeComboOption } from './combo-options.js'
 import { isIntegerWidgetValue } from './numeric-step.js'
-import type { WidgetSpec } from './model.js'
+import type { InputSpec, TypeExpr, WidgetSpec } from './model.js'
 
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
+
+/** The same primitive editor for declared and document-resolved input types. */
+export function primitiveWidgetFor(type: TypeExpr, dflt?: unknown): WidgetSpec | undefined {
+  if (type.kind !== 'concrete' || !['INT', 'FLOAT', 'STRING', 'BOOLEAN'].includes(type.name)) return undefined
+  return { widgetType: type.name, options: {}, ...(dflt !== undefined ? { default: dflt } : {}) }
+}
 
 export function isPrimitiveListWidgetValue(value: unknown, widget: WidgetSpec): value is Json[] {
   if (!Array.isArray(value)) return false
@@ -53,7 +59,7 @@ function curveValue(v: unknown): boolean {
   const interpolation = curve['interpolation']
   const keys = Object.keys(curve).sort()
   if (keys.join(',') !== (interpolation === undefined ? 'points' : 'interpolation,points')) return false
-  if (interpolation !== undefined && interpolation !== 'linear' && interpolation !== 'monotone_cubic') return false
+  if (interpolation !== undefined && interpolation !== 'linear' && interpolation !== 'monotone_cubic' && interpolation !== 'step') return false
   const points = curve['points']
   if (!Array.isArray(points) || points.length < 1 || points.length > 4096) return false
   let previous = -Infinity
@@ -69,7 +75,7 @@ function curveValue(v: unknown): boolean {
 }
 
 /** Mirrors widgets kinds.ts isAssetRef: a complete, executable asset reference. */
-export function isAssetRefValue(v: unknown): boolean {
+export function isAssetRefValue(v: unknown): v is AssetRef {
   if (typeof v !== 'object' || v === null || Array.isArray(v)) return false
   const asset = v as Record<string, unknown>
   return typeof asset['digest'] === 'string' && /^blake3:[0-9a-f]{64}$/.test(asset['digest']) &&
@@ -101,7 +107,6 @@ function validDefault(widget: WidgetSpec): boolean {
     case 'COMBO':
       return isComboValue(d)
     case 'MULTI_COMBO':
-    case 'COLORS':
       return Array.isArray(d) && d.every((value) => typeof value === 'string')
     case 'LIST':
       return isPrimitiveListWidgetValue(d, widget)
@@ -157,7 +162,6 @@ export function effectiveWidgetDefault(widget: WidgetSpec): Json | undefined {
       return undefined
     }
     case 'MULTI_COMBO':
-    case 'COLORS':
     case 'LIST':
       return []
     case 'COLOR':
@@ -172,4 +176,38 @@ export function effectiveWidgetDefault(widget: WidgetSpec): Json | undefined {
     default:
       return undefined
   }
+}
+
+/**
+ * The value compile sends for an input with nothing stored and no wire: its
+ * widget's effective default, when a default is declared or the input is
+ * required. Undefined when the run gets none: an optional widget input with
+ * no default keeps the backend's own, and a hidden, unsent or automatic
+ * field, or a kind with no intrinsic value, is not filled in.
+ */
+export function sentWhenUnset(spec: InputSpec): Json | undefined {
+  const widget = spec.widget
+  if (widget === undefined || spec.hidden === true || spec.sent === false || spec.automatic !== undefined || widget.automatic === true) return undefined
+  if (widget.default === undefined && spec.optional) return undefined
+  return effectiveWidgetDefault(widget)
+}
+
+/**
+ * The spec a run is sent a value by: a row hidden only by where it sits
+ * (its `visible`, or a hidden choice or group around it) is sent what it
+ * would be sent if shown, so its `hidden` does not count.
+ */
+export function sentSpecOf(spec: InputSpec, hiddenByScope: boolean | undefined): InputSpec {
+  if (!hiddenByScope) return spec
+  const { hidden: _hidden, ...shown } = spec
+  return shown
+}
+
+/**
+ * What a formula reads for an input with nothing stored: what the run is
+ * sent for it, else its declared default, which the engine also gives an
+ * automatic field it cannot work out.
+ */
+export function readWhenUnset(spec: InputSpec): unknown {
+  return sentWhenUnset(spec) ?? spec.widget?.default ?? spec.ext?.['default']
 }

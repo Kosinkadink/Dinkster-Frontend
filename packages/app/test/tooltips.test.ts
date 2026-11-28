@@ -92,13 +92,21 @@ describe('TooltipController', () => {
 describe('canvas tooltip provider', () => {
   const node = { node: { type: 'Sampler', values: { steps: 20 } }, layout: { title: 'Sampler' } }
   const schema = {
+    type: 'Sampler', displayName: 'Sampler', category: 'test', source: 'v3', isOutputNode: false,
     description: 'Samples a latent image.', pack: 'sampling-pack',
-    items: [
-      { kind: 'input', id: 'model', tooltip: 'Model used for sampling.' },
-      { kind: 'input', id: 'steps', tooltip: 'Number of sampling steps.' },
+    body: [
+      { kind: 'input', id: 'model', type: { kind: 'concrete', name: 'MODEL' }, optional: false, tooltip: 'Model used for sampling.' },
+      { kind: 'input', id: 'steps', type: { kind: 'concrete', name: 'INT' }, optional: false, tooltip: 'Number of sampling steps.',
+        widget: { widgetType: 'INT', options: {} } },
     ],
   }
   const context = { resolveSchema: () => schema, resolvePack: () => ({ displayName: 'Sampling Pack' }) }
+
+  it('reads the original multiline note without adding an editable field label', () => {
+    const text = 'Result: 512 x 768, 128 images\nfrom the selected batch'
+    expect(resolveCanvasTooltip({ kind: 'note', row: { text } }, { detailed: false })).toEqual({ lines: [text] })
+    expect(resolveCanvasTooltip({ kind: 'note', row: { text: '' } }, { detailed: false })).toBeUndefined()
+  })
 
   it('shows toolbox labels and disabled reasons', () => {
     const enabled = { kind: 'toolbox', button: { button: { label: 'Execute up to' } } }
@@ -248,6 +256,24 @@ describe('canvas tooltip provider', () => {
     ])
   })
 
+  it('record wire hover lists declared field names and types without reading values', () => {
+    const record = { kind: 'record', name: 'Settings', fields: [
+      { id: 'stable-seed', name: 'noise', type: { kind: 'concrete', name: 'INT' }, optional: false },
+      { id: 'stable-images', name: 'images', type: { kind: 'list', element: { kind: 'concrete', name: 'IMAGE' } }, optional: true },
+      { id: 'stable-inner', name: 'details', type: { kind: 'record', name: 'Details', fields: [] }, optional: false },
+    ] }
+    const link = { fromType: record, toType: { kind: 'wildcard' }, get value() { throw new Error('Value access is forbidden') } }
+    expect(resolveCanvasTooltip({ kind: 'link', hit: { link } }, { detailed: false })).toEqual({
+      title: 'Settings', lines: ['noise: INT', 'images: list<IMAGE>', 'details: Details'],
+    })
+    expect(resolveCanvasTooltip({ kind: 'link', hit: { link: {
+      fromType: record, mismatch: true, diagnostics: [{ severity: 'warning', message: 'Field noise must be STRING, got INT' }],
+    } } }, { detailed: false })).toEqual({
+      title: 'Type mismatch', lines: ['Field noise must be STRING, got INT'],
+    })
+    expect(resolveCanvasTooltip({ kind: 'link', hit: { link: { fromType: { kind: 'concrete', name: 'INT' } } } }, { detailed: false })).toBeUndefined()
+  })
+
   it('mismatch link hover shows every retained solver diagnostic', () => {
     const target = {
       kind: 'link',
@@ -274,6 +300,37 @@ describe('canvas tooltip provider', () => {
     ])
   })
 
+  it('explains why a numeric value was kept, without adding a note to ordinary values', () => {
+    const target = { kind: 'widget', keptNumberNote: 'Kept until you change it.', hit: {
+      node: { node: { type: 'Numbers', values: { amount: 14 } } },
+      row: { inputId: 'amount', valueKey: 'amount', label: 'amount', spec: { widgetType: 'INT', options: { min: 0, max: 20, step: 4 } } },
+    } }
+    expect(resolveCanvasTooltip(target, { detailed: false })).toEqual({
+      title: 'amount', lines: ['Value: 14'], note: 'Not a multiple of 4. Kept until you change it.',
+    })
+    expect(resolveCanvasTooltip({ ...target, keptNumberNote: undefined }, { detailed: false })?.lines).toEqual(['Value: 14'])
+  })
+
+  it('titles a row inside its member box with its full name, as for a kept row', () => {
+    const row = { inputId: 'loras.lora0.name', valueKey: 'loras.lora0.name', label: 'name', name: 'lora 1 name', spec: { widgetType: 'STRING', options: {} } }
+    const node = { node: { type: 'Stack', values: {} } }
+    expect(resolveCanvasTooltip({ kind: 'widget', hit: { node, row } }, { detailed: false })?.title).toBe('lora 1 name')
+    expect(resolveCanvasTooltip({ kind: 'widget', hit: { node, row: { ...row, kept: 'Kept for its wire.' } } }, { detailed: false })?.title).toBe('lora 1 name')
+    expect(resolveCanvasTooltip({ kind: 'widget', hit: { node, row: { ...row, disabled: true } } }, { detailed: false })?.title).toBe('lora 1 name')
+    for (const detailed of [false, true]) {
+      expect(resolveCanvasTooltip({ kind: 'widget', hit: { node, row: { ...row, disabled: true, inert: true } } }, { detailed })).toBeUndefined()
+    }
+  })
+
+  it('shows Save target naming help on its header but hides it under a wire', () => {
+    const row = { inputId: 'target', valueKey: 'target', label: 'Target', viewId: 'core.saveTarget',
+      spec: { widgetType: 'SAVE_TARGET', options: { suffix: '.png' } } }
+    const target = { kind: 'widget', hit: { node: { node: { type: 'Save', values: { target: { prefix: 'ComfyUI' } } } }, row } }
+    const help = 'Subfolders and filename stem only. The writer adds numbering and .png.'
+    expect(resolveCanvasTooltip(target, { detailed: false })?.lines).toContain(help)
+    expect(resolveCanvasTooltip({ ...target, connected: true }, { detailed: true })?.lines).not.toContain(help)
+  })
+
   it('exposes the full stored value and the intrinsic default for clipped numeric rows', () => {
     const row = {
       inputId: 'seed', valueKey: 'seed', label: 'seed',
@@ -290,9 +347,11 @@ describe('canvas tooltip provider', () => {
   })
 
   it.each([
-    ['expected', 'Current expected value: 1.30'],
+    ['expected', 'Arriving: 1.30'],
     ['cached', 'Retained last-resolved value: 1.30'],
     ['stale', 'Stale/unproven value: 1.30'],
+    ['unknown', 'The wire has no known value yet'],
+    ['nothing', 'Nothing: the node feeding this wire was skipped'],
   ] as const)('names the %s connected display state and dormant stored value truthfully', (state, line) => {
     const row = {
       inputId: 'cfg', valueKey: 'cfg', label: 'cfg',
@@ -305,7 +364,7 @@ describe('canvas tooltip provider', () => {
     }
     expect(resolveCanvasTooltip(target, { detailed: false })?.lines).toEqual([
       line,
-      'Dormant stored value under connection: 8.00',
+      'Stored: 8.00. Used again when the wire is removed.',
     ])
   })
 

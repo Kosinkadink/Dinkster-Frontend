@@ -46,12 +46,15 @@ test('unresolved imported model is actionable, cancel-safe, mappable, undoable, 
   const checkpointEntries = await checkpointResponse.json() as { entries: Array<Record<string, unknown>> }
   const checkpoint = checkpointEntries.entries.find((entry) => entry['name'] === 'audit-local-checkpoint.safetensors')
   expect(checkpoint).toBeDefined()
-  const { kind: _kind, ...checkpointRef } = checkpoint!
+  const checkpointRef = {
+    digest: checkpoint!['digest'], name: checkpoint!['name'], size: checkpoint!['size'],
+    mediaType: checkpoint!['mediaType'], virtualPath: checkpoint!['virtualPath'],
+  }
   await page.evaluate(async (requested) => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'auditModelLoader', displayName: 'audit Model Loader', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input', id: 'model', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
         widget: {
           widgetType: 'ASSET', kind: 'model/checkpoint',
@@ -73,17 +76,15 @@ test('unresolved imported model is actionable, cancel-safe, mappable, undoable, 
   await expect(importDialog).not.toBeVisible()
 
   await expect.poll(() => page.evaluate(() => {
-    const app = window.__dinksterTest!.app as unknown as {
-      solveDiagnostics: { get(): ReadonlyArray<{ code: string; severity: string; message: string }> }
-    }
-    return app.solveDiagnostics.get().map(({ code, severity, message }) => ({ code, severity, message }))
+    const app = window.__dinksterTest!.app
+    return app.problems.get().map(({ code, severity, message }) => ({ code, severity, message }))
   })).toContainEqual({
-    code: 'widget.ASSET.unresolvedImport', severity: 'error',
-    message: 'n1.model: imported file "audit-definitely-missing-model.safetensors" is unavailable',
+    code: 'model.availability.invalid', severity: 'error',
+    message: `${REQUESTED} is not a plain file name, so the model cannot be looked up.`,
   })
   expect(await page.evaluate(() => {
-    const app = window.__dinksterTest!.app as unknown as { solveDiagnostics: { get(): ReadonlyArray<{ code: string; message: string }> } }
-    return app.solveDiagnostics.get().find((entry) => entry.code === 'widget.ASSET.unresolvedImport')?.message
+    const app = window.__dinksterTest!.app
+    return app.problems.get().find((entry) => entry.code === 'model.availability.invalid')?.message
   })).toContain('audit-definitely-missing-model.safetensors')
   expect(await page.evaluate(() => {
     const app = window.__dinksterTest!.app as unknown as { solveDiagnostics: { get(): ReadonlyArray<{ code: string }> } }
@@ -127,8 +128,8 @@ test('unresolved imported model is actionable, cancel-safe, mappable, undoable, 
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())).toBe(true)
   expect(await currentValue(page)).toBe(REQUESTED)
   await expect.poll(() => page.evaluate(() => {
-    const app = window.__dinksterTest!.app as unknown as { solveDiagnostics: { get(): ReadonlyArray<{ code: string }> } }
-    return app.solveDiagnostics.get().some((entry) => entry.code === 'widget.ASSET.unresolvedImport')
+    const app = window.__dinksterTest!.app
+    return app.problems.get().some((entry) => entry.code === 'model.availability.invalid')
   })).toBe(true)
 
   const exported = await page.evaluate(() => {
@@ -141,8 +142,62 @@ test('unresolved imported model is actionable, cancel-safe, mappable, undoable, 
     return app.activeTab()!.store.doc.graphs.g0!.nodes.n1!.values.model
   }, exported)).toBe(REQUESTED)
   await expect.poll(() => page.evaluate(() => {
-    const app = window.__dinksterTest!.app as unknown as { solveDiagnostics: { get(): ReadonlyArray<{ code: string }> } }
-    return app.solveDiagnostics.get().some((entry) => entry.code === 'widget.ASSET.unresolvedImport')
+    const app = window.__dinksterTest!.app
+    return app.problems.get().some((entry) => entry.code === 'model.availability.invalid')
   })).toBe(true)
   expect(requestedUrls.some((url) => url.includes('audit-definitely-missing-model.safetensors'))).toBe(false)
+})
+
+test('a real missing model opens standalone review without posting a workflow', async ({ page }) => {
+  const posts: string[] = []
+  page.on('request', (request) => {
+    if (request.method() === 'POST') posts.push(new URL(request.url()).pathname)
+  })
+  await page.goto('/')
+  await waitForWorkspaceReady(page)
+  await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    app.registerSchemas([{
+      type: 'StandaloneModelReview', displayName: 'Load checkpoint', category: 'test', source: 'v3', isOutputNode: false,
+      body: [{ kind: 'input', id: 'model', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
+        widget: { widgetType: 'ASSET', kind: 'model/checkpoint', options: {}, default: null } }],
+    }])
+    await app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'standalone-model-review', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'root', nodes: {
+        n1: { id: 'n1', type: 'StandaloneModelReview', values: { model: 'audit-standalone-missing.safetensors' } },
+      }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
+      view: { graphs: { g0: { nodes: { n1: { position: { x: 180, y: 120 } } } } } },
+    }, 'Missing model')
+    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+  })
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.problems.get()
+    .filter((entry) => entry.code === 'model.availability.missing').map((entry) => entry.data?.['name'])))
+    .toEqual(['audit-standalone-missing.safetensors'])
+  const point = await page.evaluate(() => {
+    const renderer = window.__dinksterTest!.renderer!
+    const node = renderer.getScene().nodes.find((node) => node.id === 'n1')!
+    const tab = renderer.getNodeBadgeLayout(node).find((badge) => badge.badge.id === 'core.problem.error')!
+    const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+    return { x: canvas.left + tab.x + tab.width / 2, y: canvas.top + tab.y + tab.height / 2 }
+  })
+  await page.mouse.click(point.x, point.y)
+  const box = page.getByTestId('problem-box')
+  await expect(box.getByTestId('problem-box-line')).toHaveCount(1)
+  await page.screenshot({ path: test.info().outputPath('real-missing-model-box.png') })
+  await box.getByRole('button', { name: 'Download models', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Download models', exact: true })
+  const row = dialog.locator('.dinkster-model-download-row')
+  await expect(row).toHaveCount(1)
+  await expect(row).toContainText('No known source')
+  await expect(dialog.getByRole('button', { name: 'Run', exact: true })).toHaveCount(0)
+  await row.getByRole('button', { name: 'Choose a source', exact: true }).click()
+  await expect(dialog.getByRole('textbox', { name: 'Or paste a Hugging Face or Civitai file address', exact: true })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: /^Download/ })).toHaveCount(0)
+  await expect(page.getByTestId('asset-consent-acquire')).toHaveCount(0)
+  await page.screenshot({ path: test.info().outputPath('real-missing-model-review.png') })
+  await dialog.getByRole('button', { name: 'Close', exact: true }).last().click()
+  await expect(row).toHaveCount(0)
+  expect(posts.filter((path) => !['/api/models/presence', '/api/models/downloads/plan', '/api/workflows/plan'].includes(path))).toEqual([])
+  expect(await page.evaluate(() => window.__dinksterTest!.app.store.executions.get().size)).toBe(0)
 })

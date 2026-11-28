@@ -13,10 +13,11 @@ async function chipPoint(page: Page, inputId: string) {
     const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
     // Mirror controllerChipRect: the square chip sits immediately before the
     // trailing edge control with one control gap.
+    const stepperZone = renderer.getDesignTokens().rowGeometry.stepperZone
     const inset = row.inset ?? 0
     const rowWidth = node.layout.width - inset * 2
     const size = row.height - 8
-    const chipX = Math.max(12, rowWidth - 12 - 6 - size)
+    const chipX = Math.max(stepperZone, rowWidth - stepperZone - 6 - size)
     return {
       x: canvas.left + node.x + inset + chipX + size / 2,
       y: canvas.top + node.y + row.y + row.height / 2,
@@ -64,7 +65,7 @@ test.beforeEach(async ({ page, seedWorkflows }, testInfo) => {
   if (mockControllerDispatch) {
     await page.route('**/api/**', (route) => route.fulfill({ status: 503, json: {} }))
     await page.route('**/api/nodes*', (route) => route.fulfill({ json: {
-      schemaVersion: 1, epoch: 1, dinkster: { version: 'controller-fixture', schemaWire: 1 }, nodes: {},
+      schemaVersion: 1, epoch: 1, dinkster: { version: 'controller-fixture', schemaWire: 2 }, nodes: {},
     } }))
     await page.routeWebSocket('**/api/events?*', () => {})
     await page.goto('/')
@@ -88,7 +89,7 @@ test.beforeEach(async ({ page, seedWorkflows }, testInfo) => {
     const node = test.renderer!.getScene().nodes.find((item: any) => item.id === 'n0')!
     const registry = test.app.registry.get()!
     const original = registry.resolve(node.node.type)!
-    test.app.registerSchemas([{ ...original, items: original.items.map((item: any) =>
+    test.app.registerSchemas([{ ...original, body: original.body.map((item: any) =>
       item.kind === 'input' && item.id === 'width' && item.widget
         ? { ...item, widget: { ...item.widget, controller: 'after_generate' } }
         : item,
@@ -101,34 +102,33 @@ test.beforeEach(async ({ page, seedWorkflows }, testInfo) => {
   })
 })
 
-test('controller chip opens a detailed menu, selects a persistent mode, and undo restores it', async ({ page }) => {
+test('an open field\'s side part selects a persistent after-run mode, and undo restores it', async ({ page }) => {
   await expect.poll(() => state(page)).toMatchObject({ controller: 'fixed', displayed: 'fixed' })
-  const point = await chipPoint(page, 'width')
-  await page.mouse.move(point.x - 20, point.y)
-  await page.mouse.move(point.x, point.y)
-  await expect(page.getByTestId('app-tooltip')).toContainText('Fixed', { timeout: 1_500 })
-  await page.keyboard.down('Alt')
-  await expect(page.getByTestId('app-tooltip')).toContainText('Only successful runs', { timeout: 250 })
-  await page.keyboard.up('Alt')
+  const point = await widgetPoint(page, 'width')
   await page.mouse.click(point.x, point.y)
-  await expect(page.getByTestId('seed-controller-menu')).toBeVisible()
-  await expect(page.getByTestId('seed-controller-fixed')).toHaveAttribute('aria-checked', 'true')
-  await expect(page.getByTestId('seed-controller-randomize')).toContainText('Randomize after run')
-  await expect(page.getByTestId('seed-controller-randomize')).toContainText('selecting this mode does not change the current value')
-  await page.getByTestId('seed-controller-randomize').click()
+  const modes = page.getByRole('group', { name: 'After each run' })
+  await expect(modes.getByRole('button', { name: 'fixed' })).toHaveAttribute('aria-pressed', 'true')
+  const randomize = modes.getByRole('button', { name: 'randomize' })
+  await randomize.hover()
+  await expect(page.locator('.dinkster-canvas-side-mode-meaning')).toHaveText('randomize: a new seed after each run')
+  await randomize.click()
   await expect.poll(() => state(page)).toMatchObject({ controller: 'randomize', displayed: 'randomize' })
+  await expect(randomize).toHaveAttribute('aria-pressed', 'true')
+  await page.getByTestId('widget-editor').locator('input').press('Escape')
+  await expect(page.getByTestId('widget-editor')).toHaveCount(0)
   await page.keyboard.press('Control+z')
   await expect.poll(() => state(page)).toMatchObject({ controller: 'fixed', displayed: 'fixed' })
 })
 
-documentTest('20 rapid INT increments commit exact declared steps and undo individually', {
+documentTest('20 rapid INT increments follow the declared step grid and undo individually', {
   annotation: { type: 'mock-legacy-discovery' },
 }, async ({ page }) => {
   await page.evaluate(async () => {
     const test = window.__dinksterTest!
+    test.app.settings.set('automaticFixes.numberOutsideLimits', 'ask')
     test.app.registerSchemas([{
       type: 'RapidSeedE2E', displayName: 'Rapid Seed', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input', id: 'seed', type: { kind: 'concrete', name: 'INT' }, optional: false,
         widget: {
           widgetType: 'INT', options: { min: 0, max: Number.MAX_SAFE_INTEGER, step: 3 }, default: 100,
@@ -152,10 +152,11 @@ documentTest('20 rapid INT increments commit exact declared steps and undo indiv
   const before = await page.screenshot({ animations: 'disabled' })
   const point = await incrementPoint(page, 'seed')
   for (let index = 0; index < 20; index++) await page.mouse.click(point.x, point.y)
+  // The off-grid 100 first steps to 102, then nineteen more steps reach 159.
   await expect.poll(() => page.evaluate(() => {
     const tab = window.__dinksterTest!.app.activeTab()!
     return { value: tab.store.doc.graphs.g0!.nodes.n0!.values.seed, revision: tab.store.revision }
-  })).toEqual({ value: 160, revision: 20 })
+  })).toEqual({ value: 159, revision: 20 })
   const after = await page.screenshot({ animations: 'disabled' })
   await test.info().attach('rapid-seed-before', { body: before, contentType: 'image/png' })
   await test.info().attach('rapid-seed-after', { body: after, contentType: 'image/png' })
@@ -178,7 +179,7 @@ documentTest('completed runs advance promoted controller values on each subgraph
     const test = window.__dinksterTest!
     test.app.registerSchemas([{
       type: 'PromotedControllerE2E', displayName: 'Promoted Controller', category: 'test', source: 'v3', isOutputNode: true,
-      items: [
+      body: [
         {
           kind: 'input', id: 'seed', type: { kind: 'concrete', name: 'INT' }, optional: false,
           widget: {
@@ -207,8 +208,10 @@ documentTest('completed runs advance promoted controller values on each subgraph
           },
           links: {}, nets: {}, reroutes: {}, nextOrdinal: 2,
           boundary: {
-            inputs: [{ id: 'seed', binds: { kind: 'port', node: 'leaf', port: 'seed' }, promoted: true }],
-            outputs: [{ id: 'out', binds: { kind: 'port', node: 'leaf', port: 'out' } }],
+            body: [
+              { kind: 'input', id: 'seed', binds: { kind: 'port', node: 'leaf', port: 'seed' }, promoted: true },
+              { kind: 'output', id: 'out', binds: { kind: 'port', node: 'leaf', port: 'out' } },
+            ],
           },
         },
       },
@@ -254,7 +257,7 @@ documentTest('promoted fan-out advancement follows primary binding order', {
   await page.evaluate(async () => {
     const controlled = (type: string, name: string) => ({
       type, displayName: name, category: 'test', source: 'v3', isOutputNode: true,
-      items: [
+      body: [
         {
           kind: 'input', id: 'seed', type: { kind: 'concrete', name: 'INT' }, optional: false,
           widget: {
@@ -279,13 +282,14 @@ documentTest('promoted fan-out advancement follows primary binding order', {
       },
     }
     const boundary = {
-      inputs: [{
-        id: 'seed', displayName: 'Primary seed',
+      body: [{
+        kind: 'input', id: 'seed', displayName: 'Primary seed',
         binds: { kind: 'port', node: 'primary', port: 'seed' },
         alsoBinds: [{ kind: 'port', node: 'secondary', port: 'seed' }],
         promoted: true,
+      }, {
+        kind: 'output', id: 'out', binds: { kind: 'port', node: 'primary', port: 'out' },
       }],
-      outputs: [{ id: 'out', binds: { kind: 'port', node: 'primary', port: 'out' } }],
     }
     await test.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'controller-fanout-order-e2e', root: 'root',
@@ -345,20 +349,21 @@ documentTest('promoted fan-out advancement follows primary binding order', {
   })).toEqual({ primaryFirst: 11, secondaryFirst: 11 })
 })
 
-documentTest('remote COMBO reuses the controller chip with refresh-specific copy', async ({ page }) => {
+for (const trigger of ['after_refresh', 'after_generate'] as const) {
+documentTest(`remote COMBO keeps choice stepping labels for ${trigger}`, async ({ page }) => {
   let remoteRequests = 0
   await page.route('**/api/choices/seed-controller-options', async (route) => {
     remoteRequests += 1
     await route.fulfill({ json: ['alpha', 'beta', 'gamma'] })
   })
-  await page.evaluate(async () => {
+  await page.evaluate(async (trigger) => {
     const test = window.__dinksterTest!
     test.app.registerSchemas([{
       type: 'RefreshComboE2E', displayName: 'Refresh Combo', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input', id: 'choice', type: { kind: 'concrete', name: 'COMBO' }, optional: false,
         widget: {
-          widgetType: 'COMBO', options: {}, default: 'alpha', controller: 'after_refresh',
+          widgetType: 'COMBO', options: {}, default: 'alpha', controller: trigger,
           remote: { route: '/api/choices/seed-controller-options', refreshButton: true },
         },
       }],
@@ -371,14 +376,15 @@ documentTest('remote COMBO reuses the controller chip with refresh-specific copy
       view: { graphs: { g0: { nodes: { n0: { position: { x: 100, y: 100 } } } } } },
     }, 'Refresh Combo')
     test.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
-  })
+  }, trigger)
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes
     .find((node) => node.id === 'n0')?.layout.rows
     .some((row) => row.kind === 'widget' && row.inputId === 'choice'))).toBe(true)
   const chip = await chipPoint(page, 'choice')
   await page.mouse.click(chip.x, chip.y)
-  await expect(page.getByTestId('seed-controller-menu')).toContainText('After refresh')
-  await expect(page.getByTestId('seed-controller-increment')).toContainText('Choose the next option after refresh.')
+  await expect(page.getByTestId('seed-controller-menu')).toContainText(trigger === 'after_refresh' ? 'After refresh' : 'After each run')
+  await expect(page.getByTestId('seed-controller-increment')).toHaveText('Next')
+  await expect(page.getByTestId('seed-controller-decrement')).toHaveText('Previous')
   await page.keyboard.press('Escape')
   await expect(page.getByTestId('seed-controller-menu')).not.toBeVisible()
   const row = await widgetPoint(page, 'choice')
@@ -389,16 +395,21 @@ documentTest('remote COMBO reuses the controller chip with refresh-specific copy
   await page.getByTestId('remote-refresh').click()
   await expect.poll(() => remoteRequests).toBe(2)
   await expect.poll(() => page.evaluate(() =>
-    window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.n0!.values.choice)).toBe('beta')
-  await page.keyboard.press('Control+z')
-  await expect.poll(() => page.evaluate(() =>
-    window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.n0!.values.choice)).toBe('alpha')
+    window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.n0!.values.choice)).toBe(trigger === 'after_refresh' ? 'beta' : 'alpha')
+  if (trigger === 'after_refresh') {
+    await page.keyboard.press('Control+z')
+    await expect.poll(() => page.evaluate(() =>
+      window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.n0!.values.choice)).toBe('alpha')
+  }
 })
+}
 
 test('a completed backend run increments by step and leaves a fixed widget alone', async ({ page }) => {
-  const point = await chipPoint(page, 'width')
+  const point = await widgetPoint(page, 'width')
   await page.mouse.click(point.x, point.y)
-  await page.getByTestId('seed-controller-increment').click()
+  await page.getByRole('group', { name: 'After each run' }).getByRole('button', { name: 'increment' }).click()
+  await page.getByTestId('widget-editor').locator('input').press('Escape')
+  await expect(page.getByTestId('widget-editor')).toHaveCount(0)
   await page.getByTestId('queue-button').click()
   const row = page.getByTestId('execution-row').first()
   await expect(row.locator('.execution-status')).toHaveText('Completed', { timeout: 30_000 })

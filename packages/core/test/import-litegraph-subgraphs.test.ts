@@ -10,11 +10,13 @@ import { asConnectionId, asLinkId, asNodeId, asPortId } from '../src/ids.js'
 import { classifyFlattenBoundaryRoute, planFlattenBoundaryRoutes } from '../src/lifecycle/planner.js'
 import { deriveBoundarySchema } from '../src/schema/derive-boundary.js'
 import { elaborateInterface, elabInputsOf } from '../src/schema/elaborate.js'
-import type { NodeSchema } from '../src/schema/model.js'
+import type { InputSpec, NodeSchema } from '../src/schema/model.js'
+import { boundaryItems } from '../src/format/document.js'
+import { PRIMITIVE_SCHEMAS, withPrimitives } from './fixtures/primitive-schemas.js'
 
 const schema: NodeSchema = {
   type: 'Relay', displayName: 'Relay', category: 'test', source: 'v3', isOutputNode: true,
-  items: [
+  body: [
     { kind: 'input', id: 'value', type: { kind: 'concrete', name: 'INT' }, optional: false,
       widget: { widgetType: 'INT', options: {}, default: 5 } },
     { kind: 'output', id: 'result', type: { kind: 'concrete', name: 'INT' } },
@@ -34,14 +36,14 @@ const definition = (id = 'inner') => ({
 const instance = (id: number, type = 'inner', value = 19) => ({ id, type,
   inputs: [{ name: 'value', widget: { name: 'value' } }], outputs: [{ name: 'result' }], widgets_values: [value] })
 const imported = (raw: unknown, resolver = resolve): WorkflowDocument => {
-  const result = importLitegraph(raw as JsonObject, resolver)
+  const result = importLitegraph(raw as JsonObject, withPrimitives(resolver), undefined, [], PRIMITIVE_SCHEMAS)
   expect(result.diagnostics.filter((item) => item.severity === 'error')).toEqual([])
   expect(result.document).toBeDefined()
   expect(loadDocument(result.document).document).toEqual(result.document)
   return result.document!
 }
 const prompt = (document: WorkflowDocument, resolver = resolve) => {
-  const result = compile({ document, revision: 1, resolve: resolver, scope: { kind: 'full' },
+  const result = compile({ document, revision: 1, resolve: withPrimitives(resolver), scope: { kind: 'full' },
     connection: asConnectionId('test'), schemaHash: 'test' })
   expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
   if (!result.ok) throw new Error('compile failed')
@@ -67,7 +69,7 @@ describe('LiteGraph subgraphs', () => {
     expect(result.diagnostics.map(item => item.code)).toContain('import.subgraphs.obsoleteInput')
     expect(result.diagnostics.map(item => item.code)).not.toContain('import.subgraphs.boundaryUnresolved')
     const body = result.document!.graphs['inner']!
-    expect(body.boundary!.inputs[1]!.binds).toEqual({ kind: 'unbound', type: { kind: 'concrete', name: 'INT' } })
+    expect(boundaryItems(body.boundary, 'inputs')[1]!.binds).toEqual({ kind: 'unbound', type: { kind: 'concrete', name: 'INT' } })
     expect(deriveBoundarySchema(body, resolve).diagnostics.filter(item => item.severity === 'error')).toEqual([])
     expect(prompt(result.document!)['n10.n1']!.inputs).toEqual({ value: 19 })
     expect(raw).toEqual(original)
@@ -117,71 +119,16 @@ describe('LiteGraph subgraphs', () => {
     expect(dormant.diagnostics.map(item => item.code)).toContain('import.subgraphs.boundaryUnresolved')
   })
 
-  it.each([false, true])('forwards a dynamic selector and separate branch widgets (keyed: %s)', (keyed) => {
-    const render: NodeSchema = {
-      type: 'Render', displayName: 'Render', category: 'test', source: 'v3', isOutputNode: true,
-      items: [
-        { kind: 'input', id: 'output', type: { kind: 'concrete', name: 'COMBO' }, optional: false,
-          widget: { widgetType: 'COMBO', options: { values: ['depth', 'normal'] }, default: 'depth' },
-          dynamic: { kind: 'dynamicCombo', defaultOption: 'depth', materialization: 'wire15', options: [
-            { key: 'depth', inputs: [
-              { kind: 'input', id: 'normalize', type: { kind: 'concrete', name: 'BOOLEAN' }, optional: false,
-                widget: { widgetType: 'BOOLEAN', options: {}, default: false } },
-            ] },
-            { key: 'normal', inputs: [] },
-          ] } },
-        { kind: 'input', id: 'label', type: { kind: 'concrete', name: 'STRING' }, optional: false,
-          widget: { widgetType: 'STRING', options: {}, default: 'inner' } },
-        { kind: 'output', id: 'image', type: { kind: 'concrete', name: 'IMAGE' } },
-      ],
-    }
-    const resolver = (type: string) => type === render.type ? render : undefined
-    const raw = { nodes: [{ id: 10, type: 'inner', inputs: [
-      { name: 'output', widget: { name: 'output' } },
-      { name: 'output.normalize', widget: { name: 'output.normalize' } },
-      { name: 'label', widget: { name: 'label' } },
-    ], widgets_values: keyed ? { output: 'depth', 'output.normalize': true, label: 'outer' } : ['depth', true, 'outer'] }], links: [], definitions: { subgraphs: [{
-      id: 'inner', nodes: [{ id: 1, type: 'Render', inputs: [
-        { name: 'output', type: 'COMFY_DYNAMICCOMBO_V3', widget: { name: 'output' }, link: 1 },
-        { name: 'output.normalize', type: 'BOOLEAN', widget: { name: 'output.normalize' }, link: 2 },
-        { name: 'label', type: 'STRING', widget: { name: 'label' }, link: 3 },
-      ], outputs: [{ name: 'image' }], widgets_values: ['depth', false, 'inner'] }],
-      inputs: [
-        { id: 'mode', name: 'output', type: 'COMFY_DYNAMICCOMBO_V3', linkIds: [1] },
-        { id: 'normalize', name: 'output.normalize', type: 'BOOLEAN', linkIds: [2] },
-        { id: 'label', name: 'label', type: 'STRING', linkIds: [3] },
-      ], outputs: [{ id: 'image', name: 'image', type: 'IMAGE', linkIds: [4] }],
-      links: [link(1, -10, 0, 1, 0), link(2, -10, 1, 1, 1), link(3, -10, 2, 1, 2), link(4, 1, 0, -20, 0)],
-    }] } }
-    const original = structuredClone(raw)
-    const result = importLitegraph(raw as JsonObject, resolver)
-    expect(result.diagnostics.map(item => item.code)).not.toContain('import.subgraphs.boundaryUnresolved')
-    const body = result.document!.graphs['inner']!
-    const derived = deriveBoundarySchema(body, resolver)
-    expect(derived.diagnostics.filter(item => item.severity === 'error')).toEqual([])
-    expect(derived.schema!.items).toMatchObject([
-      { id: 'mode', dynamic: { kind: 'dynamicCombo', options: [{ key: 'depth' }, { key: 'normal' }] } },
-      { id: 'normalize', widget: { widgetType: 'BOOLEAN' } },
-      { id: 'label', widget: { widgetType: 'STRING' } },
-      { id: 'image', kind: 'output' },
-    ])
-    expect(prompt(result.document!, resolver)['n10.n1']!.inputs).toEqual({
-      output: 'depth', 'output.normalize': true, label: 'outer',
-    })
-    expect(raw).toEqual(original)
-  })
-
   it.each([false, true])('maps a scalar sink after a generated map crosses a subgraph boundary (unresolved input: %s)', (unresolved) => {
     const source: NodeSchema = {
       type: 'ListSource', displayName: 'Source', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'output', id: 'values', type: { kind: 'list', element: { kind: 'concrete', name: 'INT' } } }],
+      body: [{ kind: 'output', id: 'values', type: { kind: 'list', element: { kind: 'concrete', name: 'INT' } } }],
     }
     const sink: NodeSchema = {
       type: 'SaveValue', displayName: 'Save', category: 'test', source: 'v3', isOutputNode: true,
-      items: [
+      body: [
         { kind: 'input', id: 'value', type: { kind: 'concrete', name: 'INT' }, optional: false },
-        { kind: 'input', id: 'mode', type: { kind: 'concrete', name: 'COMBO' }, optional: false,
-          dynamic: { kind: 'dynamicCombo', options: [{ key: 'auto', inputs: [] }], defaultOption: 'auto' } },
+        { kind: 'choice', id: 'mode', required: true, default: 'auto', shared: [], options: [{ key: 'auto', rows: [] }] },
         { kind: 'output', id: 'value', type: { kind: 'concrete', name: 'INT' } },
       ],
     }
@@ -205,7 +152,7 @@ describe('LiteGraph subgraphs', () => {
       }] },
     }, resolver)
     expect(doc.graphs.g0!.nodes.n20!.region).toMatchObject({ kind: 'map', elementPorts: ['value'] })
-    expect(doc.graphs['list-map-n20']!.boundary!.outputs[0]!.id).toBe('output.value')
+    expect(boundaryItems(doc.graphs['list-map-n20']!.boundary, 'outputs')[0]!.id).toBe('output.value')
     if (unresolved) return
     const result = compile({ document: doc, revision: 1, resolve: resolver, scope: { kind: 'full' },
       connection: asConnectionId('test'), schemaHash: 'list-boundary', graphFeatures: ['regions', 'typedLiteral'] })
@@ -220,9 +167,13 @@ describe('LiteGraph subgraphs', () => {
     def.inputs[0]!.linkIds.push(3)
     const raw = { nodes: [instance(1), instance(2, 'inner', 31)], links: [], definitions: { subgraphs: [def] } }
     const doc = imported(raw)
-    expect(doc.graphs['inner']!.boundary).toEqual({ inputs: [{ id: 'in', displayName: 'value', promoted: true,
-      binds: { kind: 'port', node: 'n1', port: 'value' }, alsoBinds: [{ kind: 'port', node: 'n2', port: 'value' }] }],
-    outputs: [{ id: 'out', displayName: 'result', binds: { kind: 'port', node: 'n1', port: 'result' } }] })
+    expect(doc.graphs['inner']!.boundary).toEqual({
+      body: [
+        { kind: 'input', id: 'in', displayName: 'value', promoted: true,
+          binds: { kind: 'port', node: 'n1', port: 'value' }, alsoBinds: [{ kind: 'port', node: 'n2', port: 'value' }] },
+        { kind: 'output', id: 'out', displayName: 'result', binds: { kind: 'port', node: 'n1', port: 'result' } },
+      ],
+    })
     expect(doc.graphs.g0!.nodes.n1!.type).toBe('#inner')
     expect(doc.graphs.g0!.nodes.n1!.values).toEqual({ in: 19 })
     expect(doc.graphs.g0!.nodes.n2!.values).toEqual({ in: 31 })
@@ -234,7 +185,7 @@ describe('LiteGraph subgraphs', () => {
   it('uses the listed promoted widget without dropping unlisted input deliveries', () => {
     const toggle: NodeSchema = {
       type: 'Toggle', displayName: 'Toggle', category: 'test', source: 'v3', isOutputNode: true,
-      items: [{ kind: 'input', id: 'enabled', type: { kind: 'concrete', name: 'BOOLEAN' }, optional: false,
+      body: [{ kind: 'input', id: 'enabled', type: { kind: 'concrete', name: 'BOOLEAN' }, optional: false,
         widget: { widgetType: 'BOOLEAN', options: {}, default: false } }],
     }
     const def = { ...definition(), inputs: [{ id: 'in', name: 'value', type: 'INT', linkIds: [1767] }],
@@ -253,12 +204,12 @@ describe('LiteGraph subgraphs', () => {
     expect(raw).toEqual(original)
     const doc = imported(raw, resolver)
     const body = doc.graphs['inner']!
-    expect(body.boundary!.inputs[0]).toMatchObject({ promoted: true,
+    expect(boundaryItems(body.boundary, 'inputs')[0]).toMatchObject({ promoted: true,
       binds: { kind: 'port', node: 'n1', port: 'value' },
       alsoBinds: [{ kind: 'port', node: 'n2', port: 'enabled' }],
     })
     const derived = deriveBoundarySchema(body, resolver)
-    expect(derived.schema!.items[0]).toMatchObject({ type: { kind: 'concrete', name: 'INT' },
+    expect(derived.schema!.body[0]).toMatchObject({ type: { kind: 'concrete', name: 'INT' },
       widget: { widgetType: 'INT', default: 7 } })
     expect(Object.keys(body.nodes).sort()).toEqual(['n1', 'n2'])
     expect(body.nodes.n2!.values).toEqual({ enabled: false })
@@ -299,7 +250,7 @@ describe('LiteGraph subgraphs', () => {
   it('preserves a boundary port that is incompatible with an available schema', () => {
     const incompatibleSchema: NodeSchema = {
       ...schema,
-      items: [{ ...schema.items[0]!, id: 'current_value' }, schema.items[1]!],
+      body: [{ ...schema.body[0] as InputSpec, id: 'current_value' }, schema.body[1]!],
     }
     const result = importLitegraph(
       { nodes: [instance(1)], links: [], definitions: { subgraphs: [definition()] } } as JsonObject,
@@ -328,7 +279,7 @@ describe('LiteGraph subgraphs', () => {
     const result = importLitegraph(raw as unknown as JsonObject, resolve)
     expect(result.diagnostics.filter((item) => item.severity === 'error')).toEqual([])
     expect(Object.keys(result.document!.graphs).sort()).toEqual(['g0', 'inner', 'outer'])
-    expect(result.document!.graphs.outer!.boundary!.inputs[0]!.binds).toEqual({ kind: 'port', node: 'n1', port: 'in', viaReroute: 'r2' })
+    expect(boundaryItems(result.document!.graphs.outer!.boundary, 'inputs')[0]!.binds).toEqual({ kind: 'port', node: 'n1', port: 'in', viaReroute: 'r2' })
     expect(Object.values(result.document!.graphs.outer!.links)).toEqual([
       expect.objectContaining({ from: { reroute: 'r2' }, to: { node: 'n1', port: 'in' } }),
     ])
@@ -349,7 +300,7 @@ describe('LiteGraph subgraphs', () => {
     const sink = { ...relay(9), inputs: [{ name: 'value', link: 10 }] }
     const doc = imported({ nodes: [instance(1), sink], links: [link(10, 1, 0, 9, 0)],
       definitions: { subgraphs: [def] } })
-    expect(doc.graphs.inner!.boundary!.outputs[0]!.binds).toEqual({ kind: 'port', node: 'n2', port: 'result' })
+    expect(boundaryItems(doc.graphs.inner!.boundary, 'outputs')[0]!.binds).toEqual({ kind: 'port', node: 'n2', port: 'result' })
     expect(Object.values(doc.graphs.inner!.links).map(({ from, to }) => ({ from, to }))).toEqual([
       { from: { node: 'n1', port: 'result' }, to: { node: 'n2', port: 'value' } },
       { from: { node: 'n2', port: 'result' }, to: { reroute: 'r3' } },
@@ -446,7 +397,7 @@ describe('LiteGraph subgraphs', () => {
       { kind: 'port', node: 'n1', port: 'value', viaReroute: 'r3' },
       { kind: 'port', node: 'n2', port: 'value', viaReroute: 'r4' },
     ]
-    const item = doc.graphs.inner!.boundary!.inputs[0]!
+    const item = boundaryItems(doc.graphs.inner!.boundary, 'inputs')[0]!
     expect([item.binds, ...(item.alsoBinds ?? [])]).toEqual(directFirst ? [direct, ...junctions] : [...junctions, direct])
     expect(Object.keys(doc.graphs.inner!.nodes)).toEqual(['n1', 'n2', 'n5'])
     expect(Object.values(doc.graphs.inner!.links).map(({ from, to }) => ({ from, to }))).toEqual([
@@ -486,7 +437,7 @@ describe('LiteGraph subgraphs', () => {
     const def = { ...definition(), inputs: [], links: [link(2, 1, 0, -20, 0)] }
     const node = { ...instance(1), inputs: [], properties: { proxyWidgets: [['1', 'value']] }, widgets_values: [] }
     const doc = imported({ nodes: [node], links: [], definitions: { subgraphs: [def] } })
-    expect(doc.graphs['inner']!.boundary!.inputs[0]!.promoted).toBe(true)
+    expect(boundaryItems(doc.graphs['inner']!.boundary, 'inputs')[0]!.promoted).toBe(true)
     expect(doc.graphs.g0!.nodes.n1!.values).toEqual({})
     expect(doc.graphs['inner']!.nodes.n1!.values).toEqual({ value: 7 })
   })
@@ -562,9 +513,9 @@ describe('LiteGraph subgraphs', () => {
   })
 
   it('keeps modern promoted seed values separate from implicit controller entries', () => {
-    const controlled: NodeSchema = { ...schema, items: [
-      { ...schema.items[0]!, kind: 'input', id: 'value', type: { kind: 'concrete', name: 'INT' }, optional: false,
-        widget: { widgetType: 'INT', options: {}, controller: 'after_generate' } }, schema.items[1]!,
+    const controlled: NodeSchema = { ...schema, body: [
+      { ...schema.body[0] as InputSpec, kind: 'input', id: 'value', type: { kind: 'concrete', name: 'INT' }, optional: false,
+        widget: { widgetType: 'INT', options: {}, controller: 'after_generate' } }, schema.body[1]!,
     ] }
     const resolver = (type: string) => type === 'Relay' ? controlled : undefined
     const def = definition()
@@ -592,31 +543,31 @@ describe('LiteGraph subgraphs', () => {
       return
     }
     const doc = imported(raw)
-    expect(doc.graphs.inner!.boundary!.outputs[0]!.binds).toEqual({ kind: 'port', node: 'n1', port: 'result' })
+    expect(boundaryItems(doc.graphs.inner!.boundary, 'outputs')[0]!.binds).toEqual({ kind: 'port', node: 'n1', port: 'result' })
     expect(prompt(doc).n20!.inputs.value).toEqual(['n10.n1', 0])
     expect(JSON.stringify(raw)).toBe(before)
   })
 
   it.each([false, true])('resolves materialized native family members through imported boundaries (grouped: %s)', (grouped) => {
-    const family: NodeSchema = { ...schema, type: 'Family', items: [
-      { kind: 'input', id: 'items', type: { kind: 'wildcard' }, optional: false,
-        dynamic: { kind: 'autogrow', materialization: 'wire15',
-          template: [
-            { kind: 'input', id: 'amount', type: { kind: 'concrete', name: 'INT' }, optional: false },
-            ...(grouped ? [{ kind: 'input' as const, id: 'other', type: { kind: 'concrete' as const, name: 'INT' }, optional: true }] : []),
-          ],
-          naming: { kind: 'prefix', prefix: 'item', min: 1, max: 5 } } }, schema.items[1]!,
+    const amount = { kind: 'input' as const, id: 'amount', type: { kind: 'concrete' as const, name: 'INT' }, optional: false }
+    const family: NodeSchema = { ...schema, type: 'Family', body: [
+      { kind: 'group', id: 'items',
+        ...(grouped
+          ? { member: [amount, { kind: 'input' as const, id: 'other', type: { kind: 'concrete' as const, name: 'INT' }, optional: true }] }
+          : { value: amount }),
+        keys: { kind: 'numbered', prefix: 'item', start: 0, pad: 0 }, grows: 'link', minMembers: 1, maxMembers: 5 },
+      schema.body[1]!,
     ] }
     const resolver = (type: string) => type === 'Family' ? family : resolve(type)
     const def = { ...definition(), nodes: [{ id: 1, type: 'Family',
       inputs: [{ name: grouped ? 'items.item2.amount' : 'items.item2', link: 1 }], outputs: [{ name: 'result' }] }] }
     const result = importLitegraph({ nodes: [{ ...instance(1), inputs: [{ name: 'value' }], widgets_values: [] },
       { id: 3, type: 'PrimitiveNode', widgets_values: [29], outputs: [{ name: 'INT' }] }],
-      links: [[3, 3, 0, 1, 0, 'INT']], definitions: { subgraphs: [def] } } as JsonObject, resolver)
+      links: [[3, 3, 0, 1, 0, 'INT']], definitions: { subgraphs: [def] } } as JsonObject, withPrimitives(resolver), undefined, [], PRIMITIVE_SCHEMAS)
     expect(result.diagnostics.filter((item) => item.severity !== 'info')).toEqual([])
     const doc = result.document!
-    const port = grouped ? 'items.m0.amount' : 'items.m0'
-    expect(doc.graphs.inner!.boundary!.inputs[0]!.binds).toEqual({ kind: 'port', node: 'n1', port })
+    const port = grouped ? 'items.item2.amount' : 'items.item2'
+    expect(boundaryItems(doc.graphs.inner!.boundary, 'inputs')[0]!.binds).toEqual({ kind: 'port', node: 'n1', port })
     expect(deriveBoundarySchema(doc.graphs.inner!, resolver).diagnostics).toEqual([])
     const compiled = prompt(doc, resolver)
     expect(compiled['n1.n1']!.inputs).toEqual({ [port]: 29 })
@@ -629,21 +580,18 @@ describe('LiteGraph subgraphs', () => {
     expect(flattenPlan.statePlan.status).toBe('ready')
     const body = doc.graphs.inner!
     const missingMember = deriveBoundarySchema({ ...body, nodes: { ...body.nodes,
-      n1: { ...body.nodes.n1!, dynamic: { items: { members: ['m1'], seq: 2 } } },
+      n1: { ...body.nodes.n1!, dynamic: { items: { members: ['item1'], seq: 2 } } },
     } }, resolver)
     expect(missingMember.schema).toBeUndefined()
     expect(missingMember.diagnostics.some((item) => item.severity === 'error')).toBe(true)
   })
 
-  it('resolves nested materialized members beneath an ordinary outer family', () => {
-    const family: NodeSchema = { ...schema, type: 'NestedFamily', items: [
-      { kind: 'input', id: 'outer', type: { kind: 'wildcard' }, optional: false,
-        dynamic: { kind: 'autogrow', naming: { kind: 'prefix', prefix: 'row', min: 1, max: 1 }, template: [
-          { kind: 'input', id: 'inner', type: { kind: 'wildcard' }, optional: false,
-            dynamic: { kind: 'autogrow', materialization: 'wire15',
-              naming: { kind: 'prefix', prefix: 'sub', min: 1, max: 4 },
-              template: [{ kind: 'input', id: 'amount', type: { kind: 'concrete', name: 'INT' }, optional: false }] } },
-        ] } }, schema.items[1]!,
+  it('resolves a nested group member beneath an outer group', () => {
+    const family: NodeSchema = { ...schema, type: 'NestedFamily', body: [
+      { kind: 'group', id: 'outer', keys: { kind: 'numbered', prefix: 'row', start: 0, pad: 0 }, grows: 'link', minMembers: 1, maxMembers: 1,
+        member: [{ kind: 'group', id: 'inner', keys: { kind: 'numbered', prefix: 'sub', start: 0, pad: 0 }, grows: 'link', minMembers: 1, maxMembers: 4,
+          value: { kind: 'input', id: 'amount', type: { kind: 'concrete', name: 'INT' }, optional: false } }] },
+      schema.body[1]!,
     ] }
     const resolver = (type: string) => type === family.type ? family : resolve(type)
     const base = imported({ nodes: [{ ...instance(1), inputs: [{ name: 'value' }], widgets_values: [] },
@@ -652,37 +600,35 @@ describe('LiteGraph subgraphs', () => {
     const inner = base.graphs.inner!
     const doc = { ...base, graphs: { ...base.graphs, inner: { ...inner,
       nodes: { n1: { ...inner.nodes.n1!, type: family.type, values: {}, dynamic: {
-        outer: { members: ['m3'], seq: 4, memberState: { m3: { 'outer.inner': { members: ['m2'], seq: 3 } } } },
+        outer: { members: ['row0'], seq: 1 },
+        'outer.row0.inner': { members: ['sub2'], seq: 3 },
       } } },
-      boundary: { ...inner.boundary!, inputs: [{ id: 'in', binds: {
-        kind: 'port', node: 'n1', port: 'outer.inner.m2', members: ['m3'],
-      } }] },
+      boundary: { body: [{ kind: 'input', id: 'in', binds: {
+        kind: 'port', node: 'n1', port: 'outer.row0.inner.sub2',
+      } }, ...inner.boundary!.body.filter((entry) => entry.kind !== 'input')] },
     } } } as unknown as WorkflowDocument
     const body = doc.graphs.inner!
     const elaborated = elaborateInterface(family, body.nodes.n1!, undefined, { promoteGhosts: false })
     expect(elaborated.diagnostics).toEqual([])
     expect(elabInputsOf(elaborated).filter((input) => input.apiName !== undefined).map((input) => input.address))
-      .toEqual([{ port: 'outer.inner.m2', members: ['m3'] }])
+      .toEqual([{ port: 'outer.row0.inner.sub2' }])
     expect(deriveBoundarySchema(body, resolver).diagnostics).toEqual([])
-    expect(prompt(doc, resolver)['n1.n1']!.inputs).toEqual({ 'outer.inner.m2': 29 })
+    expect(prompt(doc, resolver)['n1.n1']!.inputs).toEqual({ 'outer.row0.inner.sub2': 29 })
     const reopened = loadDocument(JSON.parse(JSON.stringify(doc))).document!
     expect(prompt(reopened, resolver)).toEqual(prompt(doc, resolver))
-    expect(classifyFlattenBoundaryRoute(body, body.boundary!.inputs[0]!, resolver, 'input')).toBe('family')
+    expect(classifyFlattenBoundaryRoute(body, boundaryItems(body.boundary, 'inputs')[0]!, resolver, 'input')).toBe('plain')
     const flattenPlan = planFlattenBoundaryRoutes(body, resolver, doc.graphs.g0!.nodes.n1!, doc.graphs.g0!)
     expect(flattenPlan.boundaryPlan).toEqual([
-      { side: 'input', id: 'in', route: 'family' },
+      { side: 'input', id: 'in', route: 'plain' },
       { side: 'output', id: 'out', route: 'plain' },
     ])
     expect(flattenPlan.statePlan.status, JSON.stringify(flattenPlan.statePlan)).toBe('ready')
     if (flattenPlan.statePlan.status === 'ready') {
-      expect(flattenPlan.statePlan.addresses).toMatchObject([{
-        side: 'input', boundaryId: 'in', before: { port: 'in' }, uses: ['endpoint'],
-        targets: [{ binding: { kind: 'port', node: 'n1', port: 'outer.inner.m2', members: ['m3'] } }],
-      }])
       expect(flattenPlan.statePlan.nodes[0]!.dynamic).toEqual(body.nodes.n1!.dynamic)
     }
     const missingMember = { ...body, nodes: { n1: { ...body.nodes.n1!, dynamic: {
-      outer: { members: ['m3'], seq: 4, memberState: { m3: { 'outer.inner': { members: ['m1'], seq: 3 } } } },
+      outer: { members: ['row0'], seq: 1 },
+      'outer.row0.inner': { members: ['sub1'], seq: 3 },
     } } } } as unknown as typeof body
     expect(deriveBoundarySchema(missingMember, resolver).schema).toBeUndefined()
     expect(planFlattenBoundaryRoutes(missingMember, resolver, doc.graphs.g0!.nodes.n1!, doc.graphs.g0!).statePlan.status)
@@ -726,11 +672,11 @@ describe('LiteGraph subgraphs', () => {
     const doc = imported(raw)
     expect(JSON.stringify(raw)).toBe(source)
     const body = doc.graphs.inner!
-    expect(body.boundary!.inputs.map((item) => item.id)).toEqual(['unused-in', 'in'])
-    expect(body.boundary!.outputs.map((item) => item.id)).toEqual(['unused-out', 'out'])
+    expect(boundaryItems(body.boundary, 'inputs').map((item) => item.id)).toEqual(['unused-in', 'in'])
+    expect(boundaryItems(body.boundary, 'outputs').map((item) => item.id)).toEqual(['unused-out', 'out'])
     const derived = deriveBoundarySchema(body, resolve)
     expect(derived.diagnostics.filter((item) => item.severity === 'error')).toEqual([])
-    expect(derived.schema!.items.filter((item) => item.kind === 'input' || item.kind === 'output')
+    expect(derived.schema!.body.filter((item) => item.kind === 'input' || item.kind === 'output')
       .map((item) => [item.kind, item.id, item.type])).toEqual([
       ['input', 'unused-in', { kind: 'concrete', name: 'FLOAT' }],
       ['input', 'in', { kind: 'concrete', name: 'INT' }],
@@ -757,7 +703,7 @@ describe('LiteGraph subgraphs', () => {
     { value: true, controllers: { in: 'randomize' }, warnings: [] },
     { value: null, controllers: {}, warnings: ['import.subgraphs.widgetUnresolved'] },
   ])('decodes promoted controller $value without shifting the following literal', ({ value, controllers, warnings }) => {
-    const seeded: NodeSchema = { ...schema, items: [
+    const seeded: NodeSchema = { ...schema, body: [
       { kind: 'input', id: 'value', type: { kind: 'concrete', name: 'INT' }, optional: false,
         widget: { widgetType: 'INT', options: {}, default: 5, controller: 'after_generate' } },
       { kind: 'output', id: 'result', type: { kind: 'concrete', name: 'INT' } },
@@ -781,7 +727,7 @@ describe('LiteGraph subgraphs', () => {
 
   it('preserves primitive proxy values independently through structural output boundaries', () => {
     const def = { ...definition(), inputs: [], nodes: [
-      { id: 1, type: 'PrimitiveNode', pos: [61, 29], outputs: [{ name: 'INT' }], widgets_values: [7, 'fixed'] },
+      { id: 1, type: 'PrimitiveNode', pos: [61, 29], outputs: [{ name: 'INT', type: 'INT' }], widgets_values: [7, 'fixed'] },
     ], links: [link(2, 1, 0, -20, 0)] }
     const host = (id: number, value: Json, mode: string) => ({ ...instance(id), inputs: [], widgets_values: [value, mode],
       properties: { proxyWidgets: [['1', 'value'], ['1', 'control_after_generate']] } })
@@ -791,10 +737,14 @@ describe('LiteGraph subgraphs', () => {
     const source = JSON.stringify(raw)
     const doc = imported(raw)
     expect(JSON.stringify(raw)).toBe(source)
-    expect(doc.graphs.inner!.nodes).toEqual({})
+    expect(doc.graphs.inner!.nodes).toEqual({ n1: {
+      id: 'n1', type: 'dinkster.utilities.primitive_int', values: { value: 7 }, controllers: { value: 'fixed' },
+    } })
     expect(doc.graphs.inner!.links).toEqual({})
-    expect(doc.graphs.inner!.valueSources).toEqual({ v1: { id: 'v1', value: 7, controller: 'fixed' } })
-    expect(doc.view.graphs.inner!.valueSources!.v1!.position).toEqual({ x: 61, y: 29 })
+    expect(boundaryItems(doc.graphs.inner!.boundary, 'inputs')).toEqual([{
+      kind: 'input', id: 'proxy-primitive-1', displayName: 'value', binds: { kind: 'port', node: 'n1', port: 'value' }, promoted: true,
+    }])
+    expect(doc.view.graphs.inner!.nodes.n1!.position).toEqual({ x: 61, y: 29 })
     expect(doc.graphs.g0!.nodes.n1!.values).toEqual({ 'proxy-primitive-1': 11 })
     expect(doc.graphs.g0!.nodes.n2!.values).toEqual({ 'proxy-primitive-1': 29 })
     expect(doc.graphs.g0!.nodes.n1!.controllers).toEqual({ 'proxy-primitive-1': 'increment' })
@@ -819,8 +769,8 @@ describe('LiteGraph subgraphs', () => {
         to: { node: asNodeId('n1'), port: asPortId('proxy-primitive-1') } } },
     } } }
     expect(prompt(driven).n3!.inputs.value).toEqual(['n9', 0])
-    expect(store.dispatch({ command: 'valueSource.remove', params: { graphId: 'inner', valueSourceIds: ['v1'] } }).ok).toBe(true)
-    expect(store.doc.graphs.inner!.boundary).toEqual({ inputs: [], outputs: [] })
+    expect(store.dispatch({ command: 'node.remove', params: { graphId: 'inner', nodeIds: ['n1'] } }).ok).toBe(true)
+    expect(store.doc.graphs.inner!.nodes).toEqual({})
     expect(store.undo()).toBe(true)
     expect(store.doc.graphs.inner).toEqual(doc.graphs.inner)
     expect(prompt(store.doc)).toEqual(compiled)
@@ -854,7 +804,7 @@ describe('LiteGraph subgraphs', () => {
     expect(result.diagnostics).toEqual([])
     const doc = result.document!
     expect(deriveBoundarySchema(doc.graphs.inner!, resolve).schema).toBeDefined()
-    expect(doc.graphs.inner!.boundary!.inputs).toHaveLength(2)
+    expect(boundaryItems(doc.graphs.inner!.boundary, 'inputs')).toHaveLength(2)
     expect(Object.values(doc.graphs.inner!.nodes).map((node) => node.type)).toEqual(['Relay', 'Relay'])
     const compiled = prompt(doc)
     expect(compiled['n10.n1']!.inputs['value']).toBe(17)
@@ -871,7 +821,7 @@ describe('LiteGraph subgraphs', () => {
       { id: 3, type: 'GetNode', outputs: [{ name: 'INT', type: 'INT', links: [3] }], widgets_values: ['shared'] },
     ], links: [link(1, -10, 0, 2, 0), link(2, 1, 0, -20, 0), link(3, 3, 0, 1, 0)] }
     const doc = imported({ nodes: [instance(1), relay(2)], links: [[1, 2, 0, 1, 0, 'INT']], definitions: { subgraphs: [def] } })
-    expect(doc.graphs['inner']!.boundary!.inputs[0]!.binds).toEqual({ kind: 'port', node: 'n1', port: 'value' })
+    expect(boundaryItems(doc.graphs['inner']!.boundary, 'inputs')[0]!.binds).toEqual({ kind: 'port', node: 'n1', port: 'value' })
     expect(prompt(doc)['n1.n1']!.inputs['value']).toEqual(['n2', 0])
   })
 
@@ -880,7 +830,7 @@ describe('LiteGraph subgraphs', () => {
       links: [link(1, 41, 0, 1, 0), link(2, 1, 0, 42, 0)] }
     const doc = imported({ nodes: [instance(1)], definitions: { subgraphs: [def] } })
     expect(prompt(doc)['n1.n1']!.inputs['value']).toBe(19)
-    expect(doc.graphs['inner']!.boundary!.outputs[0]!.binds).toEqual({ kind: 'port', node: 'n1', port: 'result' })
+    expect(boundaryItems(doc.graphs['inner']!.boundary, 'outputs')[0]!.binds).toEqual({ kind: 'port', node: 'n1', port: 'result' })
   })
 
 })

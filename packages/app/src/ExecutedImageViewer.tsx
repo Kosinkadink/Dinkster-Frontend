@@ -9,8 +9,10 @@ import { ProductButton } from './ProductControls.js'
 import { ProductNumberInput } from './ProductNumberInput.js'
 import { ProductSlider } from './ProductSlider.js'
 import { ProductNotice } from './ProductForm.js'
+import { ProductImageUnavailable } from '@dinkster/ui'
 import { desktopFileBridge } from './desktop-bridge.js'
 import { activeProjectId } from './projects.js'
+import { failureMessage } from './request-failure.js'
 import './image-compare.css'
 
 export interface ExecutionOutputProvenance {
@@ -76,7 +78,7 @@ export function ViewerImage(props: {
       setUrl(ownedUrl)
     }
     void load().catch((error: unknown) => {
-      if (!controller.signal.aborted) props.onError(error instanceof Error ? error.message : 'Image unavailable')
+      if (!controller.signal.aborted) props.onError(failureMessage(error, 'Image unavailable.'))
     })
     onCleanup(() => {
       controller.abort()
@@ -381,7 +383,7 @@ export function ExecutedImageViewer(props: {
                 onClick={() => select(itemIndex)}
               >
                 <span class="output-viewer-grid-preview">
-                  <Show when={!failedKeys().has(image.key)} fallback={<span class="output-viewer-grid-unavailable">Unavailable</span>}>
+                  <Show when={!failedKeys().has(image.key)} fallback={<ProductImageUnavailable />}>
                     <ViewerImage image={image} alt="" onLoad={(element) => recordSize(image, element)} onError={(message) => markFailed(image.key, message)} />
                   </Show>
                 </span>

@@ -102,6 +102,20 @@ export const parseTypedLiteralWire = (v: Json): { readonly type: string; readonl
  */
 export const DINKSTER_GRAPH_FEATURE_TYPED_LITERAL = 'typedLiteral'
 
+/**
+ * The /api/nodes graph feature advertising the `{"$absent": {"reason"}}`
+ * input marker: a wire that gives nothing, which the receiving input's
+ * on_absent policy then decides. Absent flag = leave the input out instead.
+ */
+export const DINKSTER_GRAPH_FEATURE_ABSENT_INPUT = 'absentInput'
+
+/** Build the `$absent` input marker (the ONE constructor). */
+export const absentInputWire = (reason: string): Json => ({ $absent: { reason } })
+
+/** True when `v` is an `$absent` marker: not a literal, so it needs no runtime type. */
+export const isAbsentInputWire = (v: Json): boolean =>
+  typeof v === 'object' && v !== null && !Array.isArray(v) && Object.keys(v).length === 1 && '$absent' in v
+
 /** The /api/nodes graph feature advertising lossless unsafe INT literals. */
 export const DINKSTER_GRAPH_FEATURE_DECIMAL_INT = 'decimalInt'
 
@@ -227,8 +241,19 @@ export function typeExprToDinksterWire(t: TypeExpr): Json | undefined {
         : undefined
     case 'wildcard':
       return { kind: 'wildcard' }
-    case 'family_tuple':
-      return { kind: 'family_tuple', input: t.input }
+    case 'record': {
+      const fields: Json[] = []
+      for (const field of t.fields) {
+        const type = typeExprToDinksterWire(field.type)
+        if (type === undefined) return undefined
+        fields.push({ id: field.id, name: field.name, type, optional: field.optional,
+          ...(field.default !== undefined ? { default: field.default as Json } : {}) })
+      }
+      return { kind: 'record', types: [t.name], fields,
+        ...(t.templateId !== undefined ? { templateId: t.templateId } : {}) }
+    }
+    case 'record_field':
+      return { kind: 'record_field', input: t.input, index: t.index }
     case 'tuple_element': {
       const element = t.element === undefined ? undefined : typeExprToDinksterWire(t.element)
       return { kind: 'tuple_element', ...(t.input !== undefined ? { input: t.input } : element !== undefined ? { element } : {}), index: t.index }
@@ -348,6 +373,7 @@ function mayHoldResident(type: TypeExpr, types: readonly string[]): boolean {
     case 'list':
     case 'stream': return mayHoldResident(type.element, types)
     case 'tuple': return type.elements.some((element) => mayHoldResident(element, types))
+    case 'record': return type.fields.some((field) => mayHoldResident(field.type, types))
     case 'variable': return type.allowedTypes?.some((element) => mayHoldResident(element, types)) ?? false
     case 'tuple_element': return type.element !== undefined && mayHoldResident(type.element, types)
     default: return false
@@ -484,7 +510,7 @@ function validateScope(
     const inputs = isDinksterRegionEntry(entry) ? entry.region.inputs : entry.inputs
     for (const [inputId, value] of Object.entries(inputs)) {
       const expected = nodeContext?.inputTypes[inputId]
-      if (expected === undefined || asDinksterLink(value) !== undefined ||
+      if (expected === undefined || asDinksterLink(value) !== undefined || isAbsentInputWire(value as Json) ||
           parseTypedLiteralWire(value as Json) !== undefined || parseDecimalIntegerWire(value as Json) !== undefined) continue
       if (canonicalTypeIdOf(expected) === undefined) {
         out.push(diag(

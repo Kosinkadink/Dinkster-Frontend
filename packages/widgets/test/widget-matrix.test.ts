@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { effectiveWidgetDefault, type CompactState, type Json, type SceneBuilder, type WidgetSpec } from '@dinkster/core'
+import { effectiveWidgetDefault, registerCatalog, t, type CompactState, type Json, type SceneBuilder, type WidgetSpec } from '@dinkster/core'
 import { createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors } from '../src/index.js'
+
+registerCatalog('en', { 'widgetSummary.lines': '{count} lines' })
 
 const asset = { digest: `blake3:${'a'.repeat(64)}`, name: 'cat.png', size: 12, mediaType: 'image/png', virtualPath: 'input/cat.png' }
 
@@ -21,7 +23,6 @@ const cases: Array<{
   { type: 'COMBO', options: { options: ['euler', 'ddim'] }, explicit: 'ddim', intrinsic: 'euler', invalid: 'unknown', invalidCode: 'widget.COMBO.unknownOption', view: 'core.select' },
   { type: 'MULTI_COMBO', options: { options: ['euler', 'ddim'] }, explicit: ['ddim', 'euler', 'ddim'], intrinsic: [], invalid: ['unknown'], invalidCode: 'widget.MULTI_COMBO.unknownOption', view: 'core.multiSelect' },
   { type: 'COLOR', options: {}, explicit: '#12345678', intrinsic: '#ffffff', invalid: 42, view: 'core.color' },
-  { type: 'COLORS', options: {}, explicit: ['#A1B2C3dd', '#f00', '#A1B2C3dd'], intrinsic: [], invalid: ['#fff', 3], view: 'core.colors' },
   { type: 'CURVE', options: {}, explicit: { interpolation: 'linear', points: [{ position: 0, value: 0 }, { position: 1, value: 1 }] }, intrinsic: { interpolation: 'monotone_cubic', points: [{ position: 0, value: 0 }, { position: 1, value: 1 }] }, invalid: { points: [{ position: 1, value: 0 }, { position: 1, value: 1 }] }, view: 'core.curve' },
   { type: 'COMPOSITOR', options: {}, explicit: { version: 2, documentDigest: `blake3:${'a'.repeat(64)}`, commands: [{ op: 'layer', id: 'layer-0', changes: { visible: false } }] }, intrinsic: { version: 2, documentDigest: null, commands: [] }, invalid: { version: 2, documentDigest: 'bad', commands: [] }, view: 'core.compositor' },
   { type: 'ASSET', options: {}, explicit: asset, intrinsic: undefined, invalid: { ...asset, size: -1 }, view: 'core.asset' },
@@ -46,37 +47,50 @@ describe('registered widget disposition inventory', () => {
   it('admits only structured relative save targets and copies schema defaults', () => {
     const kind = registry.kind('SAVE_TARGET')!
     const initial = { mount: '0-renders', prefix: 'nested/frame' }
+    const projectDefault = { prefix: 'nested/frame' }
     expect(kind.valueSchema.validate(initial)).toBe(true)
+    expect(kind.valueSchema.validate(projectDefault)).toBe(true)
     expect(kind.valueSchema.validate(null)).toBe(true)
-    expect(kind.defaultValue({ widgetType: 'SAVE_TARGET', options: {}, default: initial })).toEqual(initial)
-    expect(kind.defaultValue({ widgetType: 'SAVE_TARGET', options: {}, default: initial })).not.toBe(initial)
+    for (const declared of [initial, projectDefault]) {
+      expect(kind.defaultValue({ widgetType: 'SAVE_TARGET', options: {}, default: declared })).toEqual(declared)
+      expect(kind.defaultValue({ widgetType: 'SAVE_TARGET', options: {}, default: declared })).not.toBe(declared)
+    }
+    // Project default has one spelling: the mount key left out.
     for (const value of [
       'output/frame', {}, { ...initial, extra: true }, { ...initial, mount: 'bad_mount' },
       { ...initial, mount: '/tmp' }, { ...initial, prefix: '/absolute' },
       { ...initial, prefix: 'a//b' }, { ...initial, prefix: 'a/../b' }, { ...initial, prefix: 'a\\b' },
+      { mount: null, prefix: 'nested/frame' }, { mount: '', prefix: 'nested/frame' }, { prefix: '' }, { prefix: 'a/../b' },
     ]) expect(kind.valueSchema.validate(value)).toBe(false)
   })
 
-  it('copies COLORS defaults without truncation or normalization and draws ordered compact swatches', () => {
-    const defaults = ['#A1B2C3dd', '#f00', '#A1B2C3dd', '#ffffff', '#000000']
-    const spec: WidgetSpec = { widgetType: 'COLORS', options: {}, default: defaults }
-    const kind = registry.kind('COLORS')!
-    const copied = kind.defaultValue(spec) as string[]
-    expect(copied).toEqual(defaults)
-    expect(copied).not.toBe(defaults)
-    copied.reverse()
-    expect(defaults).toEqual(['#A1B2C3dd', '#f00', '#A1B2C3dd', '#ffffff', '#000000'])
-    expect(kind.defaultValue({ ...spec, default: ['#fff', 3] })).toEqual([])
-    expect(effectiveWidgetDefault({ ...spec, default: ['#fff', 3] })).toEqual([])
-    const rec = recordingBuilder()
-    const view = registry.viewsFor('COLORS')[0]!
-    view.drawCompact(rec.builder, defaults, spec, { focused: false, connected: false, readonly: false })
-    expect(rec.rects.filter((rect) => rect.style['fill'] !== undefined).map((rect) => rect.style['fill'])).toEqual(defaults.slice(0, 4))
-    expect(rec.texts.map((text) => text.run)).toContain('5 colors')
-    expect(rec.actions).toEqual(['widget.edit'])
-    const readonly = recordingBuilder()
-    view.drawCompact(readonly.builder, defaults, spec, { focused: false, connected: true, readonly: true })
-    expect(readonly.actions).toEqual([])
+  it('draws a closed save target with the mount Project default means here and a missing mount struck through', () => {
+    const view = registry.viewsFor('SAVE_TARGET').find((entry) => entry.id === 'core.saveTarget')!
+    const spec: WidgetSpec = { widgetType: 'SAVE_TARGET', options: {}, default: { prefix: 'ComfyUI' } }
+    const drawn = (value: Json, hostFacts?: Readonly<Record<string, Json>>) => {
+      let style: Readonly<Record<string, unknown>> | undefined
+      let run: string | undefined
+      view.drawCompact({ rect: () => {}, hitRegion: () => {}, text: (_x, _y, text, textStyle) => {
+        if (textStyle['role'] === 'widgetValue') { run = text; style = textStyle }
+      } }, value, spec, { focused: false, connected: false, readonly: false, ...(hostFacts === undefined ? {} : { hostFacts }) })
+      return { run, parts: style?.['parts'] }
+    }
+    const facts = { SAVE_TARGET: { projectMount: 'output', ready: ['output', 'archive'] } }
+    expect(drawn({ prefix: 'renders/portrait' }, facts)).toEqual({ run: 'output/renders/portrait', parts: [{ text: 'output', look: 'resolved' }, { text: '/renders/portrait' }] })
+    expect(drawn({ mount: 'archive', prefix: 'renders/portrait' }, facts)).toEqual({ run: 'archive/renders/portrait', parts: undefined })
+    expect(drawn({ mount: 'usb1', prefix: 'renders/portrait' }, facts)).toEqual({
+      run: 'usb1/renders/portrait',
+      parts: [{ text: 'usb1', look: 'gone' }, { text: 'output', look: 'resolved' }, { text: '/renders/portrait' }],
+    })
+    // Without the mounts nothing is struck through and Project default is named as such.
+    expect(drawn({ mount: 'usb1', prefix: 'renders/portrait' })).toEqual({ run: 'usb1/renders/portrait', parts: undefined })
+    expect(drawn({ prefix: 'renders/portrait' }).parts).toEqual([{ text: t('saveTargetWidget.projectDefault'), look: 'resolved' }, { text: '/renders/portrait' }])
+    // An empty target reads as Project default with the declared name.
+    expect(drawn(null, facts).run).toBe('output/ComfyUI')
+    // A missing mount still names the unavailable destination instead of suggesting a root path.
+    const noDefault = { SAVE_TARGET: { ready: ['output', 'archive'] } }
+    expect(drawn({ prefix: 'renders/portrait' }, noDefault).parts).toEqual([{ text: t('saveTargetWidget.noOutputMount'), look: 'resolved' }, { text: '/renders/portrait' }])
+    expect(drawn({ mount: 'usb1', prefix: 'renders/portrait' }, noDefault).parts).toEqual([{ text: 'usb1', look: 'gone' }, { text: t('saveTargetWidget.noOutputMount'), look: 'resolved' }, { text: '/renders/portrait' }])
   })
 
   it('validates list elements and keeps display and submission defaults aligned', () => {
@@ -190,33 +204,55 @@ describe('compact display through the real registered views', () => {
     ['core.number', 'INT', 7, {}, '7'],
     ['core.number', 'FLOAT', 1.25, {}, '1.3'],
     ['core.line', 'STRING', 'hello', {}, 'hello'],
-    ['core.markdown', 'MARKDOWN', '## Heading\nsecond line', {}, '## Heading'],
+    ['core.markdown', 'MARKDOWN', '## Heading\nsecond line', {}, '## Heading (2 lines)'],
     ['core.text', 'STRING', 'first\nsecond', {}, ['first', 'second']],
     ['core.toggle', 'BOOLEAN', true, {}, 'true'],
     ['core.toggle', 'BOOLEAN', true, { labelOn: 'Enabled' }, 'Enabled'],
     ['core.select', 'COMBO', 'euler', { options: ['euler', 'ddim'] }, 'euler'],
-    ['core.multiSelect', 'MULTI_COMBO', ['ddim', 'euler', 'ddim'], { options: ['euler', 'ddim'] }, '3 selected'],
+    ['core.multiSelect', 'MULTI_COMBO', ['ddim', 'euler', 'ddim'], { options: ['euler', 'ddim'] }, 'ddim, euler, ddim'],
     ['core.compositor', 'COMPOSITOR', { version: 2, documentDigest: `blake3:${'a'.repeat(64)}`, commands: [{ op: 'layer' }] }, {}, '1 document edit'],
     ['core.compositor', 'COMPOSITOR', { version: 2, documentDigest: null, commands: [] }, {}, 'Run to load layers'],
+    ['core.list', 'LIST', [1, 'two', { three: 3 }], {}, '1, two, {"three":3}'],
+    ['core.list', 'LIST', [], {}, 'Empty'],
     ['core.asset', 'ASSET', asset, {}, 'cat.png'],
-    ['core.asset', 'ASSET', null, {}, 'no asset'],
-    // Multi-select values (list-of-asset declarations): one name, else a count.
+    // An empty asset asks for what its accepted media are; mixed or undeclared media ask for a file.
+    ['core.asset', 'ASSET', null, {}, 'Choose file'],
+    ['core.asset', 'ASSET', null, { accept: ['image/png', 'image/jpeg'] }, 'Choose image'],
+    ['core.asset', 'ASSET', null, { accept: ['audio/wav'] }, 'Choose audio'],
+    ['core.asset', 'ASSET', null, { accept: ['image/png', 'video/mp4'] }, 'Choose file'],
+    // Multi-select values keep every name; the painter fits them in the row.
     ['core.asset', 'ASSET', [asset], {}, 'cat.png'],
-    ['core.asset', 'ASSET', [asset, { ...asset, name: 'dog.png' }], {}, '2 assets'],
-    ['core.asset', 'ASSET', [], {}, 'no asset'],
+    ['core.asset', 'ASSET', [asset, { ...asset, name: 'dog.png' }], {}, 'cat.png, dog.png'],
+    ['core.asset', 'ASSET', [], { accept: ['video/mp4'] }, 'Choose video'],
   ] as const)('%s (%s) displays %j as %j', (viewId, widgetType, value, options, expected) => {
     const rec = draw(viewId, widgetType, value as Json, options as Record<string, unknown>)
     expect(displayed(rec.texts)).toEqual(Array.isArray(expected) ? expected : [expected])
     expect(rec.actions).toEqual(viewId === 'core.compositor' ? [] : ['widget.edit'])
   })
 
+  it('writes a list of numbers as stored, not rounded to the element step', () => {
+    const view = registry.viewsFor('LIST').find((candidate) => candidate.id === 'core.list')!
+    const rec = recordingBuilder()
+    view.drawCompact(rec.builder, [0.125, 1, 0.1 + 0.2], {
+      widgetType: 'LIST', options: {}, element: { widgetType: 'FLOAT', options: { step: 0.1 } },
+    }, editable)
+    expect(displayed(rec.texts)).toEqual(['0.125, 1, 0.30000000000000004'])
+  })
+
   it('marks only the empty ASSET compact value as a placeholder', () => {
     const empty = draw('core.asset', 'ASSET', null)
-    expect(empty.texts.find((text) => text.run === 'no asset')?.style['placeholder']).toBe(true)
+    expect(empty.texts.find((text) => text.run === 'Choose file')?.style['placeholder']).toBe(true)
     const populated = draw('core.asset', 'ASSET', asset)
     expect(populated.texts.find((text) => text.run === 'cat.png')?.style['placeholder']).toBeUndefined()
-    const sameName = draw('core.asset', 'ASSET', { ...asset, name: 'no asset' })
-    expect(sameName.texts.find((text) => text.run === 'no asset')?.style['placeholder']).toBeUndefined()
+    const sameName = draw('core.asset', 'ASSET', { ...asset, name: 'Choose file' })
+    expect(sameName.texts.find((text) => text.run === 'Choose file')?.style['placeholder']).toBeUndefined()
+  })
+
+  it('an empty model asset asks for a model, whatever it accepts', () => {
+    const view = registry.viewsFor('ASSET').find((candidate) => candidate.id === 'core.asset')!
+    const rec = recordingBuilder()
+    view.drawCompact(rec.builder, null, { widgetType: 'ASSET', kind: 'model/checkpoint', options: { accept: ['image/png'] } }, editable)
+    expect(displayed(rec.texts)).toEqual(['Choose model'])
   })
 
   it('marks an empty multiline STRING display name as a placeholder without changing populated lines', () => {

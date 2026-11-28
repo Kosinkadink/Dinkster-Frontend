@@ -2,19 +2,19 @@ import { expect, nativeTest as test, type Page } from './fixtures.js'
 
 const concrete = (type: string) => ({ kind: 'concrete', types: [type] })
 
-// Exact wire-29 shape of the backend's scalar dinkster.math.expression schema,
+// Body shape of the backend's scalar dinkster.math.expression schema,
 // including its declared expression mirror.
 const mathExpressionNode = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   nodeType: 'dinkster.math.expression',
   version: 1,
   displayName: 'Math Expression',
   category: 'math',
   description: 'Deterministic scalar expression grammar v1.',
   idempotent: true,
-  interface: [
+  body: [
     {
-      role: 'input',
+      kind: 'input',
       id: 'expression',
       type: concrete('STRING'),
       required: true,
@@ -22,21 +22,21 @@ const mathExpressionNode = {
       widget: { type: 'STRING', multiline: true },
     },
     {
-      role: 'inputFamily',
+      kind: 'group',
       id: 'values',
-      template: [{
-        role: 'input',
+      value: {
+        kind: 'input',
         id: 'value',
         type: { kind: 'union', types: ['FLOAT', 'INT', 'BOOLEAN'] },
         required: true,
-      }],
+      },
+      keys: { named: 'abcdefghijklmnopqrstuvwxyz'.split('') },
+      grows: 'link',
       minMembers: 1,
-      required: true,
-      memberNames: 'abcdefghijklmnopqrstuvwxyz'.split(''),
     },
-    { role: 'output', id: 'float', type: concrete('FLOAT') },
-    { role: 'output', id: 'int', type: concrete('INT') },
-    { role: 'output', id: 'boolean', type: concrete('BOOLEAN') },
+    { kind: 'output', id: 'float', type: concrete('FLOAT') },
+    { kind: 'output', id: 'int', type: concrete('INT') },
+    { kind: 'output', id: 'boolean', type: concrete('BOOLEAN') },
   ],
   searchTerms: ['formula', 'calculate', 'calculator', 'eval'],
   mirror: {
@@ -49,47 +49,48 @@ const mathExpressionNode = {
 
 const scalarChainNode = (nodeType: string, inputType: string) => ({
   ...mathExpressionNode,
-  schemaVersion: 1,
+  schemaVersion: 2,
   nodeType,
-  interface: mathExpressionNode.interface.map((item) => item.role === 'inputFamily'
-    ? {
-        ...item,
-        template: [{ ...item.template?.[0], type: concrete(inputType) }],
-      }
+  body: mathExpressionNode.body.map((item) => item.kind === 'group'
+    ? { ...item, value: { ...item.value, type: concrete(inputType) } }
     : item),
 })
 
 const scalarChainIntNode = scalarChainNode('e2e.math.expression.scalar-chain-int', 'INT')
 const scalarChainFloatNode = scalarChainNode('e2e.math.expression.scalar-chain-float', 'FLOAT')
 
-const knownIntNode = {
-  schemaVersion: 1,
-  nodeType: 'e2e.identity.int',
+const knownNode = (nodeType: string, displayName: string, type: string, fallback: number | boolean) => ({
+  schemaVersion: 2,
+  nodeType,
   version: 1,
-  displayName: 'Integer',
+  displayName,
   category: 'test',
-  interface: [
+  body: [
     {
-      role: 'input', id: 'source', required: false,
-      type: concrete('INT'), default: 0,
+      kind: 'input', id: 'source', required: false,
+      type: concrete(type), default: fallback,
     },
     {
-      role: 'output', id: 'result', type: concrete('INT'),
+      kind: 'output', id: 'result', type: concrete(type),
       knownValue: { input: 'source' },
     },
   ],
-}
+})
+
+const knownIntNode = knownNode('e2e.identity.int', 'Integer', 'INT', 0)
+const knownFloatNode = knownNode('e2e.identity.float', 'Float', 'FLOAT', 0)
+const knownBooleanNode = knownNode('e2e.identity.boolean', 'Boolean', 'BOOLEAN', false)
 
 const sinkNode = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   nodeType: 'e2e.mirror.sink',
   displayName: 'Sink',
   category: 'test',
   outputNode: true,
   signature: 'mirror-estimates-proof',
-  interface: [
+  body: [
     {
-      role: 'input',
+      kind: 'input',
       id: 'value',
       required: false,
       type: concrete('FLOAT'),
@@ -99,20 +100,20 @@ const sinkNode = {
   ],
 }
 
-const scalarChainSinkNode = { ...sinkNode, schemaVersion: 1 }
+const scalarChainSinkNode = { ...sinkNode, schemaVersion: 2 }
 
 const socketSinkNode = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   nodeType: 'e2e.mirror.socket-sink',
   displayName: 'Socket-only destination',
   category: 'test',
   outputNode: true,
   signature: 'mirror-estimates-socket-proof',
-  interface: [{
-    role: 'input',
+  body: [{
+    kind: 'input',
     id: 'value',
     required: true,
-    forceInput: true,
+    pinFirst: true,
     type: concrete('BOOLEAN'),
   }],
 }
@@ -142,8 +143,11 @@ test('expression mirrors paint local estimates gated by execution.mirrorPreviews
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'mirror-estimates-proof', schemaWire: 1 },
+    dinkster: { version: 'mirror-estimates-proof', schemaWire: 2 },
     nodes: {
+      'e2e.identity.int': knownIntNode,
+      'e2e.identity.float': knownFloatNode,
+      'e2e.identity.boolean': knownBooleanNode,
       'dinkster.math.expression': mathExpressionNode,
       'e2e.mirror.sink': sinkNode,
       'e2e.mirror.socket-sink': socketSinkNode,
@@ -152,7 +156,7 @@ test('expression mirrors paint local estimates gated by execution.mirrorPreviews
 
   await page.goto('/')
   await expect.poll(() => page.evaluate(() =>
-    window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.size)).toBe(3)
+    window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.size)).toBe(6)
   await page.evaluate(async () => {
     await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow',
@@ -168,41 +172,37 @@ test('expression mirrors paint local estimates gated by execution.mirrorPreviews
               id: 'math',
               type: 'dinkster.math.expression',
               values: { expression: 'a + b if c else 0' },
-              // Wire-decoded memberNames families persist the names
-              // themselves as member ids and address them as memberless
-              // ports (values.a), unlike builder-schema autogrow (m0/m1).
+              // A group with named keys stores the names themselves as
+              // member keys, so its members are the ports values.a, values.b.
               dynamic: { values: { members: ['a', 'b', 'c'] } },
             },
             sink: { id: 'sink', type: 'e2e.mirror.sink', values: { value: 0 } },
             socket: { id: 'socket', type: 'e2e.mirror.socket-sink', values: {} },
+            // The scene navigator starts at the first node, so the operands follow the math node.
+            va: { id: 'va', type: 'e2e.identity.int', values: { source: 3 } },
+            vb: { id: 'vb', type: 'e2e.identity.float', values: { source: 0.5 } },
+            vc: { id: 'vc', type: 'e2e.identity.boolean', values: { source: true } },
           },
           links: {
-            la: { id: 'la', from: { valueSource: 'va' }, to: { node: 'math', port: 'values.a' } },
-            lb: { id: 'lb', from: { valueSource: 'vb' }, to: { node: 'math', port: 'values.b' } },
-            lc: { id: 'lc', from: { valueSource: 'vc' }, to: { node: 'math', port: 'values.c' } },
+            la: { id: 'la', from: { node: 'va', port: 'result' }, to: { node: 'math', port: 'values.a' } },
+            lb: { id: 'lb', from: { node: 'vb', port: 'result' }, to: { node: 'math', port: 'values.b' } },
+            lc: { id: 'lc', from: { node: 'vc', port: 'result' }, to: { node: 'math', port: 'values.c' } },
             ld: { id: 'ld', from: { node: 'math', port: 'float' }, to: { node: 'sink', port: 'value' } },
             le: { id: 'le', from: { node: 'math', port: 'boolean' }, to: { node: 'socket', port: 'value' } },
           },
           nets: {},
           reroutes: {},
-          valueSources: {
-            va: { id: 'va', value: 3, spec: { widgetType: 'INT' } },
-            vb: { id: 'vb', value: 0.5, spec: { widgetType: 'FLOAT' } },
-            vc: { id: 'vc', value: true, spec: { widgetType: 'BOOLEAN' } },
-          },
           nextOrdinal: 10,
         },
       },
       view: { graphs: { g0: {
         nodes: {
+          va: { position: { x: 20, y: 90 } },
+          vb: { position: { x: 20, y: 210 } },
+          vc: { position: { x: 20, y: 330 } },
           math: { position: { x: 300, y: 100 } },
           sink: { position: { x: 700, y: 120 } },
           socket: { position: { x: 700, y: 360 } },
-        },
-        valueSources: {
-          va: { position: { x: 60, y: 90 } },
-          vb: { position: { x: 60, y: 210 } },
-          vc: { position: { x: 60, y: 330 } },
         },
       } } },
     } as never, 'Mirror estimates')
@@ -246,7 +246,7 @@ test('expression mirrors paint local estimates gated by execution.mirrorPreviews
 
   const navigator = page.getByRole('listbox', { name: 'Canvas scene navigator' })
   await navigator.focus()
-  await expect(navigator.getByRole('option').filter({ hasText: 'Node: Math Expression' }))
+  await expect(navigator.getByRole('option', { name: /^Node: Math Expression/ }))
     .toContainText('live result estimated locally: float: 3.5, int: 3, boolean: true')
   await page.keyboard.press('Escape')
 
@@ -262,11 +262,11 @@ test('expression mirrors paint local estimates gated by execution.mirrorPreviews
       .toContainText('Mirrored estimate (computed locally, not executed): 3.5', { timeout: 1000 })
   }).toPass()
 
-  // BOOLEAN literals participate in the same scalar mirror and update live.
+  // BOOLEAN known values participate in the same scalar mirror and update live.
   await page.evaluate(() => {
     window.__dinksterTest!.app.activeTab()!.store.dispatch({
-      command: 'valueSource.setValue',
-      params: { graphId: 'g0', valueSourceId: 'vc', value: false },
+      command: 'node.setValue',
+      params: { graphId: 'g0', nodeId: 'vc', inputId: 'source', value: false },
     })
   })
   await expect.poll(() => sinkCompanion(page)).toEqual({ value: 0, state: 'estimate' })
@@ -277,8 +277,8 @@ test('expression mirrors paint local estimates gated by execution.mirrorPreviews
 
   await page.evaluate(() => {
     window.__dinksterTest!.app.activeTab()!.store.dispatch({
-      command: 'valueSource.setValue',
-      params: { graphId: 'g0', valueSourceId: 'vc', value: true },
+      command: 'node.setValue',
+      params: { graphId: 'g0', nodeId: 'vc', inputId: 'source', value: true },
     })
   })
 
@@ -321,7 +321,7 @@ test('expression mirrors paint local estimates gated by execution.mirrorPreviews
   await page.evaluate(() => {
     window.__dinksterTest!.app.activeTab()!.store.dispatch({
       command: 'link.connect',
-      params: { graphId: 'g0', from: { valueSource: 'vb' }, to: { node: 'math', port: 'values.b' } },
+      params: { graphId: 'g0', from: { node: 'vb', port: 'result' }, to: { node: 'math', port: 'values.b' } },
     })
   })
   await expect.poll(() => sinkCompanion(page)).toEqual({ value: 1.5, state: 'estimate' })
@@ -352,7 +352,7 @@ test('scalar estimates propagate through calculated outputs with truthful proven
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'scalar-propagation-proof', schemaWire: 1 },
+    dinkster: { version: 'scalar-propagation-proof', schemaWire: 2 },
     nodes: {
       'e2e.identity.int': knownIntNode,
       'e2e.math.expression.scalar-chain-int': scalarChainIntNode,

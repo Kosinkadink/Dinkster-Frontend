@@ -49,6 +49,8 @@ export function AppWidgetPreview(props: {
       spec,
       address: props.row.item.address,
       ...(props.row.item.spec.optional ? { optional: true } : {}),
+      ...(props.row.item.disabled ? { disabled: true } : {}),
+      ...(props.row.item.inert ? { inert: true } : {}),
       ...(props.row.item.derivedValue !== undefined ? { derivedValue: props.row.item.derivedValue } : {}),
     }
     createRegistryPainter(props.registry)({

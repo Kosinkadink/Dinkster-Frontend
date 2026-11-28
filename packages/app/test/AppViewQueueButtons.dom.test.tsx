@@ -23,7 +23,7 @@ describe('App View queue button component', () => {
       category: 'test',
       source: 'v3',
       isOutputNode: true,
-      items: [],
+      body: [],
     }])
     await app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'queue-component', root: 'root',

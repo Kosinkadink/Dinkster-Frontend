@@ -23,12 +23,13 @@ import type {
   DinksterSubmitResult,
   MissingAsset,
   DinksterConnection,
-  ModelRequirement,
-  ModelDownloadPlan,
-  ModelDownloadJob,
+  ModelDownloadRequirement,
+  ModelSettingsState,
 } from '@dinkster/client'
 import type { ImportAssetPromptReason } from './import-asset-autoresolve.js'
 import type { ModelProviderConnection } from './ModelProvider.js'
+import { ModelDownloadsController, type ModelDownloadState } from './model-downloads.js'
+import { failureMessage } from './request-failure.js'
 
 /** Minimal slot surface (a core Signal satisfies it). */
 export interface RequestSlot<T> {
@@ -36,28 +37,30 @@ export interface RequestSlot<T> {
   set(value: T | undefined): void
 }
 
-export interface ModelConsentState {
-  readonly requirement: ModelRequirement
-  readonly source?: string
-  readonly pending: boolean
-  readonly plan?: ModelDownloadPlan
-  readonly job?: ModelDownloadJob
-  readonly interrupted?: boolean
-  readonly error?: string
-}
+export type ModelConsentState = ModelDownloadState
 
 export interface AssetConsentRequest {
+  readonly workflowTitle?: string
+  readonly focusedModel?: ModelDownloadRequirement
+  readonly modelDownloadController?: ModelDownloadsController
   readonly providerConnection?: ModelProviderConnection
   readonly providerChanged?: () => void
   readonly providerBackendUrl?: string
+  readonly fetchModelSettings?: () => Promise<ModelSettingsState>
   readonly models?: readonly ModelConsentState[]
+  readonly modelDownloadLocation?: string
+  readonly selectModelLocation?: (location: string) => Promise<void>
   readonly selectModelSource?: (index: number, source: string) => void
   readonly reviewModel?: (index: number) => Promise<void>
   readonly downloadModel?: (index: number) => Promise<void>
+  readonly downloadModels?: (indices: readonly number[]) => Promise<void>
   readonly cancelModel?: (index: number) => Promise<void>
+  readonly enableModelLocation?: (index: number, location: string) => Promise<void>
+  readonly showModel?: (index: number) => Promise<void>
+  readonly locateModel?: (index: number) => void
   readonly assets: readonly MissingAsset[]
   readonly busy: boolean
-  readonly retry: (digests: readonly string[]) => Promise<void>
+  readonly retry?: (digests: readonly string[]) => Promise<void>
   readonly enableLocation?: (location: string) => Promise<void>
   readonly enablingLocation?: string
 }
@@ -104,7 +107,8 @@ type AssetsMissingResult = Extract<DinksterSubmitResult, { assetsMissing: unknow
 type SubmitOk = Extract<DinksterSubmitResult, { ok: true }>
 
 /**
- * Install an asset-consent request and own its whole retry chain. One call
+ * Review model requirements without a submission, or install an asset-consent
+ * request and own its whole retry chain. One call
  * covers the full conversation with the server: retry may come back with
  * MORE missing assets (reopen), a terminal rejection, a transport failure,
  * or success. Each busy toggle and reopen installs a fresh request object
@@ -118,7 +122,9 @@ type SubmitOk = Extract<DinksterSubmitResult, { ok: true }>
  * reopening over the newer owner's dialog.
  */
 export function installAssetConsent(p: {
-  readonly result: AssetsMissingResult
+  readonly workflowTitle?: string
+  readonly focusedModel?: ModelDownloadRequirement
+  readonly modelReferences?: readonly ModelDownloadRequirement[]
   readonly slot: RequestSlot<AssetConsentRequest> & Pick<ReadonlySignal<AssetConsentRequest | undefined>, 'subscribe'>
   readonly signal?: AbortSignal
   /** Releases submission resources after the dialog and any posted retry settle. */
@@ -126,23 +132,33 @@ export function installAssetConsent(p: {
   /** Final app-owned safety check run before every captured-body retry. */
   readonly beforeRetry?: () => boolean
   readonly enableLocation?: (location: string) => Promise<void>
+  readonly unhideModel?: (identity: string) => Promise<void>
+  readonly locateModel?: (requirement: ModelDownloadRequirement, status: 'duplicate' | 'destination-required') => void
   readonly modelDownloads?: {
-    readonly connection: Pick<DinksterConnection, 'planModelDownload' | 'startModelDownload' | 'fetchModelDownloads' | 'fetchModelDownload' | 'cancelModelDownload'>
+    readonly connection: Pick<DinksterConnection, 'planModelDownload' | 'startModelDownload' | 'fetchModelDownloads' | 'fetchModelDownload' | 'cancelModelDownload'> & Partial<Pick<DinksterConnection, 'fetchModelSettings'>>
     readonly project: string
+    readonly controller?: ModelDownloadsController
     readonly providerConnection?: ModelProviderConnection
     readonly backendUrl?: string
   }
+} & ({
+  readonly result: AssetsMissingResult
   readonly onSubmitted: (submitted: SubmitOk) => void
   readonly onRejected: (diagnostics: readonly Diagnostic[]) => void
   readonly onTransportError: (message: string) => void
   readonly onSuperseded: (assets: readonly MissingAsset[]) => void
-}): void {
+} | {
+  readonly models: readonly ModelDownloadRequirement[]
+  readonly result?: never
+})): void {
   /** The request object this chain most recently installed - its owner token. */
   let chain: AssetConsentRequest | undefined
   let inFlight = false
   let settled = false
-  let poll: ReturnType<typeof setTimeout> | undefined
-  const observation = new AbortController()
+  let modelDownloadLocation: string | undefined
+  const transfers = p.modelDownloads && (p.modelDownloads.controller ?? new ModelDownloadsController(p.modelDownloads.connection, p.modelDownloads.project))
+  let unsubscribeModels: (() => void) | undefined
+  let unsubscribe = (): void => {}
   const owned = (): boolean => chain !== undefined && p.slot.get() === chain
   const clearIfOwned = (): void => {
     if (owned()) p.slot.set(undefined)
@@ -151,8 +167,8 @@ export function installAssetConsent(p: {
   const settle = (): void => {
     if (settled || inFlight) return
     settled = true
-    clearTimeout(poll)
-    observation.abort()
+    unsubscribeModels?.()
+    if (!p.modelDownloads?.controller) transfers?.dispose()
     unsubscribe()
     p.signal?.removeEventListener('abort', cancel)
     p.onSettled?.()
@@ -161,108 +177,100 @@ export function installAssetConsent(p: {
     clearIfOwned()
     settle()
   }
-  const unsubscribe = p.slot.subscribe(() => { if (!owned()) settle() })
   p.signal?.addEventListener('abort', cancel, { once: true })
-  const install = (result: AssetsMissingResult): void => {
+  const install = (assets: readonly MissingAsset[], models: readonly ModelDownloadRequirement[] | undefined, result?: AssetsMissingResult, includeModels = true): void => {
     // This STAGE's own request (advanced to its busy copy). `chain` alone
     // is not enough: a retained retry closure from an earlier stage of the
     // same chain would otherwise see the reopened request as "current" and
     // retry with ITS captured result. Each stage may only act through the
     // request object it installed itself.
     let owner: AssetConsentRequest
-    const active = (job: ModelDownloadJob): boolean => !['completed', 'cancelled', 'failed'].includes(job.status)
-    const update = (index: number, state: ModelConsentState): void => {
-      const next: AssetConsentRequest = { ...owner, models: owner.models!.map((entry, i) => i === index ? state : entry),
+    unsubscribeModels?.()
+    const exact = transfers ? (p.modelReferences ?? []).filter((requirement) => requirement.asset !== undefined &&
+      assets.some((asset) => asset.digest === requirement.asset!.digest)) : []
+    const keys = new Set<string>()
+    const requirements = (includeModels ? [...(models ?? []), ...exact] : []).filter((requirement) => {
+      const key = JSON.stringify([requirement.name, requirement.kind, requirement.asset?.digest])
+      if (keys.has(key)) return false
+      keys.add(key)
+      return true
+    })
+    const remainingAssets = assets.filter((asset) => !exact.some((requirement) => requirement.asset?.digest === asset.digest))
+    transfers?.ensure(requirements, result !== undefined)
+    const currentModels = (): readonly ModelConsentState[] => requirements.flatMap((requirement) => {
+      const row = transfers?.rows.get().find((row) => row.requirement.name === requirement.name && row.requirement.kind === requirement.kind &&
+        row.requirement.asset?.digest === requirement.asset?.digest)
+      return row ? [row] : [{ requirement, pending: false }]
+    })
+    const update = (): void => {
+      if (!owned() || settled) return
+      const next: AssetConsentRequest = { ...owner, models: currentModels(),
+        ...(modelDownloadLocation === undefined ? {} : { modelDownloadLocation }),
+        selectModelLocation: (location) => selectModelLocation(location, next),
         selectModelSource: (i, source) => selectModelSource(i, source, next),
         reviewModel: (i) => modelAction(i, 'review', next),
         downloadModel: (i) => modelAction(i, 'download', next),
+        downloadModels: (indices) => downloadModels(indices, next),
         cancelModel: (i) => modelAction(i, 'cancel', next),
+        ...(p.locateModel ? { locateModel: (i: number) => locateModel(i, next) } : {}),
+        ...(p.enableLocation ? { enableModelLocation: (i: number, location: string) => modelAction(i, 'enable', next, location) } : {}),
+        ...(p.unhideModel ? { showModel: (i: number) => modelAction(i, 'show', next) } : {}),
         ...(p.modelDownloads?.providerConnection ? { providerChanged: () => providerChanged(next) } : {}),
       }
       owner = next
       chain = next
       p.slot.set(next)
     }
+    const selectModelLocation = async (location: string, expected: AssetConsentRequest): Promise<void> => {
+      if (!transfers || !owned() || settled || owner.busy || owner !== expected) return
+      if (p.beforeRetry && !p.beforeRetry()) { clearIfOwned(); return }
+      modelDownloadLocation = location
+      await transfers.setLocation(requirements, location)
+      if (owned() && p.beforeRetry && !p.beforeRetry()) clearIfOwned()
+    }
     const selectModelSource = (index: number, source: string, expected: AssetConsentRequest): void => {
       const state = owner.models?.[index]
       if (!owned() || settled || owner.busy || owner !== expected || !state || state.pending ||
-        (state.job && active(state.job))) return
+        state.queued) return
       if (p.beforeRetry && !p.beforeRetry()) { clearIfOwned(); return }
-      update(index, { requirement: state.requirement, source, pending: false,
-        ...(state.plan?.status === 'picker-required' ? { plan: state.plan } : {}),
-      })
+      transfers?.setSource(state.requirement, source)
     }
     const providerChanged = (expected: AssetConsentRequest): void => {
       if (!owned() || settled || owner.busy || owner !== expected) return
       if (p.beforeRetry && !p.beforeRetry()) { clearIfOwned(); return }
-      for (const [index, entry] of (owner.models ?? []).entries())
-        update(index, { requirement: entry.requirement, pending: false,
-          ...(entry.source === undefined ? {} : { source: entry.source }),
-        })
+      for (const entry of owner.models ?? []) transfers?.invalidate(entry.requirement)
     }
-    const modelAction = async (index: number, action: 'review' | 'download' | 'cancel', expected = owner): Promise<void> => {
-      const scope = p.modelDownloads
+    const locateModel = (index: number, expected: AssetConsentRequest): void => {
       const state = owner.models?.[index]
-      if (!scope || settled || !owned() || chain !== owner || expected !== owner || owner.busy || !state || state.pending) return
+      if (!p.locateModel || !owned() || settled || owner !== expected || owner.busy || !state || state.pending ||
+        (state.plan?.status !== 'duplicate' && state.plan?.status !== 'destination-required')) return
       if (p.beforeRetry && !p.beforeRetry()) { clearIfOwned(); return }
-      if (action === 'download' && state.plan?.status !== 'consent-required') return
-      if (action === 'cancel' && (!state.job || !active(state.job))) return
-      const { error: _error, ...withoutError } = state
-      const pending: ModelConsentState = { ...withoutError, pending: true }
-      update(index, pending)
-      const current = (): boolean => !settled && owned() && chain === owner && owner.models?.[index] === pending
-      try {
-        const matches = (job: ModelDownloadJob): boolean => job.project === scope.project &&
-          job.name === state.requirement.name && job.kind === state.requirement.kind
-        let next: ModelConsentState = { requirement: state.requirement, pending: false,
-          ...(state.source === undefined ? {} : { source: state.source }),
-        }
-        if (action === 'download' && state.plan?.status === 'consent-required') {
-          const job = await scope.connection.startModelDownload(state.plan.planId, observation.signal)
-          if (!matches(job)) throw new Error('Model job does not match the captured project and requirement')
-          next = { ...next, job }
-        } else if (action === 'cancel' && state.job) {
-          const job = await scope.connection.cancelModelDownload(state.job.jobId, observation.signal)
-          if (!matches(job)) throw new Error('Model job no longer matches the captured project and requirement')
-          next = { ...next, job }
-        } else if (state.job && active(state.job)) {
-          const job = await scope.connection.fetchModelDownload(state.job.jobId, observation.signal)
-          if (job && !matches(job)) throw new Error('Model job no longer matches the captured project and requirement')
-          next = { ...next, ...(job ? { job } : { interrupted: true }) }
-        } else {
-          const { jobs } = await scope.connection.fetchModelDownloads(observation.signal)
-          const job = [...jobs].reverse().find((entry) => matches(entry) && active(entry))
-          if (job) next = { ...next, job }
-          else {
-            const plan = await scope.connection.planModelDownload(state.requirement, observation.signal, state.source || undefined)
-            if (plan.status === 'consent-required' && (plan.project !== scope.project ||
-              plan.name !== state.requirement.name || plan.kind !== state.requirement.kind))
-              throw new Error('Model plan does not match the captured project and requirement')
-            next = { ...next, plan }
-          }
-        }
-        if (!current()) return
-        if (p.beforeRetry && !p.beforeRetry()) { clearIfOwned(); return }
-        update(index, next)
-      } catch (error) {
-        if (current()) update(index, { ...(action === 'download' ? { requirement: state.requirement,
-          ...(state.source === undefined ? {} : { source: state.source }),
-        } : state), pending: false,
-          // A timed-out start may have reached the server. Discover before another consent.
-          ...(action === 'download' ? { interrupted: true } : {}),
-          error: error instanceof Error ? error.message : String(error),
-        })
+      p.locateModel(state.requirement, state.plan.status)
+      clearIfOwned()
+    }
+    const modelAction = async (index: number, action: 'review' | 'download' | 'cancel' | 'enable' | 'show', expected = owner, location?: string): Promise<void> => {
+      const state = owner.models?.[index]
+      if (!transfers || settled || !owned() || chain !== owner || expected !== owner || owner.busy || !state || state.pending) return
+      if (p.beforeRetry && !p.beforeRetry()) { clearIfOwned(); return }
+      if (action === 'review') await transfers.review(state.requirement)
+      else if (action === 'download') await transfers.download([state.requirement])
+      else if (action === 'enable') {
+        if (p.enableLocation && location !== undefined) await transfers.enableLocation(state.requirement, location, p.enableLocation)
       }
-      if (owned() && !settled) {
-        clearTimeout(poll)
-        poll = setTimeout(() => {
-          for (const [i, entry] of (owner.models ?? []).entries()) {
-            if (entry.job && active(entry.job) && !entry.error) void modelAction(i, 'review')
-          }
-        }, 1000)
+      else if (action === 'show') {
+        if (p.unhideModel) await transfers.showModel(state.requirement, p.unhideModel)
       }
+      else await transfers.cancel(state.requirement)
+      if (owned() && p.beforeRetry && !p.beforeRetry()) clearIfOwned()
+    }
+    const downloadModels = async (indices: readonly number[], expected: AssetConsentRequest): Promise<void> => {
+      if (!transfers || settled || !owned() || expected !== owner || owner.busy) return
+      if (p.beforeRetry && !p.beforeRetry()) { clearIfOwned(); return }
+      await transfers.download(indices.flatMap((index) => owner.models?.[index]?.requirement ? [owner.models[index]!.requirement] : []))
+      if (owned() && p.beforeRetry && !p.beforeRetry()) clearIfOwned()
     }
     const retry = async (digests: readonly string[], location?: string): Promise<void> => {
+      if (!result || !p.result) return
       // Only this stage's CURRENT request may start a retry, and only once:
       // a stale closure (dialog replaced between render and click, or a
       // reopened stage of this same chain) or a double-click during flight
@@ -271,7 +279,11 @@ export function installAssetConsent(p: {
       if (settled || p.signal?.aborted || current === undefined || current !== owner || current !== chain || current.busy) return
       if (current.models?.some((entry) => entry.pending || (entry.plan?.status !== 'local' && entry.job?.status !== 'completed'))) return
       if (location !== undefined && (!p.enableLocation || !current.assets.some((asset) => asset.disabledLocations?.includes(location)))) return
-      clearTimeout(poll)
+      if (current.models?.length && remainingAssets.length) {
+        if (p.beforeRetry !== undefined && !p.beforeRetry()) { clearIfOwned(); return }
+        install(assets, models, result, false)
+        return
+      }
       inFlight = true
       const busy: AssetConsentRequest = { ...current, busy: true, ...(location !== undefined ? { enablingLocation: location } : {}) }
       owner = busy
@@ -287,13 +299,14 @@ export function installAssetConsent(p: {
           if (!owned() || p.signal?.aborted) return
           if (p.beforeRetry !== undefined && !p.beforeRetry()) { clearIfOwned(); return }
         }
-        const retried = await result.retryWithAssets(digests)
+        const retried = await result.retryWithAssets(digests.filter((digest) =>
+          !exact.some((requirement) => requirement.asset?.digest === digest)))
         if (retried.ok) {
           clearIfOwned()
           p.onSubmitted(retried)
         } else if ('assetsMissing' in retried) {
           if (owned()) {
-            install(retried)
+            install(retried.assetsMissing.assets, retried.assetsMissing.models, retried)
           } else {
             chain = undefined
             p.onSuperseded(retried.assetsMissing.assets)
@@ -304,33 +317,48 @@ export function installAssetConsent(p: {
         }
       } catch (error) {
         clearIfOwned()
-        p.onTransportError(error instanceof Error ? error.message : String(error))
+        p.onTransportError(failureMessage(error))
       } finally {
         inFlight = false
         if (!owned()) settle()
       }
     }
-    const request: AssetConsentRequest = { assets: result.assetsMissing.assets, busy: false, retry,
+    const request: AssetConsentRequest = { assets: requirements.length ? [] : remainingAssets, busy: false,
+      ...(p.workflowTitle === undefined ? {} : { workflowTitle: p.workflowTitle }),
+      ...(p.focusedModel === undefined ? {} : { focusedModel: p.focusedModel }),
+      ...(transfers ? { modelDownloadController: transfers } : {}),
+      ...(p.modelDownloads?.connection.fetchModelSettings ? { fetchModelSettings: () => p.modelDownloads!.connection.fetchModelSettings!() } : {}),
+      ...(result === undefined ? {} : { retry }),
       ...(p.modelDownloads?.providerConnection ? {
         providerConnection: p.modelDownloads.providerConnection,
         ...(p.modelDownloads.backendUrl === undefined ? {} : { providerBackendUrl: p.modelDownloads.backendUrl }),
         providerChanged: () => providerChanged(request),
       } : {}),
-      ...(result.assetsMissing.models?.length ? {
-        models: result.assetsMissing.models.map((requirement) => ({ requirement, pending: false })),
+      ...(requirements.length ? {
+        models: currentModels(),
+        ...(modelDownloadLocation === undefined ? {} : { modelDownloadLocation }),
+        selectModelLocation: (location: string) => selectModelLocation(location, request),
         selectModelSource: (index: number, source: string) => selectModelSource(index, source, request),
         reviewModel: (index: number) => modelAction(index, 'review', request),
         downloadModel: (index: number) => modelAction(index, 'download', request),
+        downloadModels: (indices: readonly number[]) => downloadModels(indices, request),
         cancelModel: (index: number) => modelAction(index, 'cancel', request),
+        ...(p.locateModel ? { locateModel: (index: number) => locateModel(index, request) } : {}),
+        ...(p.enableLocation ? { enableModelLocation: (index: number, location: string) => modelAction(index, 'enable', request, location) } : {}),
+        ...(p.unhideModel ? { showModel: (index: number) => modelAction(index, 'show', request) } : {}),
       } : {}),
-      ...(p.enableLocation ? { enableLocation: (location: string) => retry([], location) } : {}),
+      ...(p.enableLocation && result ? { enableLocation: (location: string) => retry([], location) } : {}),
     }
     owner = request
     chain = request
     p.slot.set(request)
+    unsubscribeModels = transfers?.rows.subscribe(update)
   }
   if (p.signal?.aborted) settle()
-  else install(p.result)
+  else if (p.result) install(p.result.assetsMissing.assets, p.result.assetsMissing.models, p.result)
+  else install([], p.models)
+  if (!owned()) settle()
+  else unsubscribe = p.slot.subscribe(() => { if (!owned()) settle() })
 }
 
 /**

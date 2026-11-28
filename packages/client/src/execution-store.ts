@@ -15,6 +15,7 @@ import {
   executionKey,
   isControlEvent,
   parseOccurrenceKey,
+  type AutomaticValueRecord,
   type CompileArtifact,
   type ConnectionId,
   type Diagnostic,
@@ -73,6 +74,7 @@ export interface PreviewRing {
 export interface ExecutionLogEntry {
   readonly level: 'info' | 'warning'
   readonly message: string
+  readonly code?: string
   /** Backend emit time when stamped, else client arrival time (epoch ms). */
   readonly timestamp: number
   /** Absent on run-level records not attributed to one node. */
@@ -84,7 +86,7 @@ export interface ExecutionLogEntry {
   readonly seq: number
 }
 
-/** Content-addressed file retained by a completed execution. */
+/** Content-addressed file retained by an execution, including partial saves. */
 export interface ExecutionArtifact {
   readonly nodeId: string
   readonly digest: string
@@ -127,6 +129,8 @@ export interface ExecutionState {
   readonly valueDiagnostics?: readonly ValueDiagnostic[]
   /** Execution log records, bounded FIFO within this execution only. */
   readonly logs: readonly ExecutionLogEntry[]
+  /** Explicit coded node warnings survive eviction of unrelated log lines. */
+  readonly warnings?: readonly ExecutionLogEntry[]
   /** Records discarded from the front of `logs` by the buffer cap. */
   readonly logsDropped: number
   /** Latest frame WITHOUT node attribution (legacy binary protocol). */
@@ -137,6 +141,10 @@ export interface ExecutionState {
   readonly jobRef?: string
   /** Content digest of the exact workflow document submitted for this run. */
   readonly sourceDocument?: string
+  /** The workflow's name when the run was submitted. */
+  readonly workflowName?: string
+  /** What the run's automatic fields used, from the persisted run record. */
+  readonly automaticValues?: readonly AutomaticValueRecord[]
   readonly queuedAt: number
   readonly startedAt?: number
   readonly endedAt?: number
@@ -383,7 +391,7 @@ export class ExecutionStore {
     ref: ExecutionRef,
     artifact: CompileArtifact,
     now: number = Date.now(),
-    identity?: { readonly jobRef?: string; readonly sourceDocument?: string },
+    identity?: { readonly jobRef?: string; readonly sourceDocument?: string; readonly workflowName?: string },
   ): void {
     const key = executionKey(ref)
     // A fresh local submission is a new, confirmed run - never late chatter.
@@ -434,13 +442,16 @@ export class ExecutionStore {
     readonly outputs: Readonly<Record<string, Readonly<Record<string, unknown>>>>
     readonly artifacts: readonly ExecutionArtifact[]
     readonly submittedBy?: ExecutionSubmitter
+    readonly automaticValues?: readonly AutomaticValueRecord[]
     readonly jobRef: string
     readonly sourceDocument: string
+    readonly workflowName?: string
     readonly queuedAt: number
     readonly endedAt: number
   }): void {
     const key = executionKey(state.ref)
     if (!this.canRestoreCompleted(state.ref)) return
+    const previous = this.get(state.ref)
     this.recentlyEvicted.delete(key)
     this.unconfirmed.delete(key)
     this.provisionallyLost.delete(key)
@@ -458,12 +469,15 @@ export class ExecutionStore {
       artifactsHydrated: true,
       previews: {},
       activities: [],
-      logs: [],
-      logsDropped: 0,
+      logs: previous?.logs ?? [],
+      logsDropped: previous?.logsDropped ?? 0,
+      ...(previous?.warnings === undefined ? {} : { warnings: previous.warnings }),
       errors: [],
       ...(state.submittedBy === undefined ? {} : { submittedBy: state.submittedBy }),
+      ...(state.automaticValues === undefined || state.automaticValues.length === 0 ? {} : { automaticValues: state.automaticValues }),
       jobRef: state.jobRef,
       sourceDocument: state.sourceDocument,
+      ...(state.workflowName === undefined ? {} : { workflowName: state.workflowName }),
       queuedAt: state.queuedAt,
       endedAt: state.endedAt,
     })
@@ -713,10 +727,10 @@ export class ExecutionStore {
         // were already tallied in logsDropped when they were evicted.
         const index = logInsertionIndex(state.logs, event.seq)
         if (index < 0) return
-        if (index === 0 && state.logs.length >= EXECUTION_LOG_CAP) return
         const entry: ExecutionLogEntry = {
           level: event.level,
           message: event.message,
+          ...(event.code === undefined ? {} : { code: event.code }),
           timestamp: event.emittedAt ?? event.timestamp,
           seq: event.seq,
           ...(event.runtimeNodeId !== undefined ? { runtimeNodeId: event.runtimeNodeId } : {}),
@@ -724,12 +738,22 @@ export class ExecutionStore {
           ...(event.logger !== undefined ? { logger: event.logger } : {}),
           ...(event.pythonLevel !== undefined ? { pythonLevel: event.pythonLevel } : {}),
         }
+        const previousWarning = state.warnings?.find((warning) => warning.runtimeNodeId === entry.runtimeNodeId && warning.code === entry.code)
+        const warnings = event.level === 'warning' && event.code !== undefined && event.origin === undefined && event.runtimeNodeId !== undefined &&
+          (previousWarning === undefined || previousWarning.seq < entry.seq)
+          ? [...(state.warnings ?? []).filter((warning) => warning !== previousWarning), entry].slice(-EXECUTION_LOG_CAP)
+          : state.warnings
+        if (index === 0 && state.logs.length >= EXECUTION_LOG_CAP) {
+          if (warnings !== undefined && warnings !== state.warnings) this.put({ ...state, warnings })
+          return
+        }
         const inserted = [...state.logs.slice(0, index), entry, ...state.logs.slice(index)]
         const dropped = Math.max(0, inserted.length - EXECUTION_LOG_CAP)
         this.put({
           ...state,
           logs: dropped > 0 ? inserted.slice(dropped) : inserted,
           logsDropped: state.logsDropped + dropped,
+          ...(warnings === undefined ? {} : { warnings }),
         })
         return
       }
@@ -823,11 +847,18 @@ export class ExecutionStore {
     this.put({ ...state, outputs: merged })
   }
 
-  /** Install the completed job's authoritative, already-decoded artifact list. */
+  /** Install the terminal job's authoritative, already-decoded artifact list. */
   hydrateArtifacts(ref: ExecutionRef, artifacts: readonly ExecutionArtifact[]): void {
     const state = this.map.get(executionKey(ref))
     if (!state) return
     this.put({ ...state, artifacts: [...artifacts], artifactsHydrated: true })
+  }
+
+  /** Attach what the run's automatic fields used, from its persisted record. */
+  hydrateAutomaticValues(ref: ExecutionRef, automaticValues: readonly AutomaticValueRecord[]): void {
+    const state = this.map.get(executionKey(ref))
+    if (!state) return
+    this.put({ ...state, automaticValues })
   }
 
   /** Attach the server-authenticated principal that submitted this job. */

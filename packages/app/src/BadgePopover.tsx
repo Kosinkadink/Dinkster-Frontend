@@ -12,12 +12,8 @@
 
 import { For, Show } from 'solid-js'
 import type { NodeBadge } from '@dinkster/canvas'
-import type { Diagnostic } from '@dinkster/core'
-import type { ExecutionLogEntry } from '@dinkster/client'
-import { formatActivityTimestamp } from './ActivityLog.js'
 import type { DeprecationBadgeInfo, SubgraphBadgeInfo } from './badge-info.js'
 import type { NodeProblemKind } from './problem-display.js'
-import { RuntimeErrorHints } from './RuntimeErrorHints.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
 import { ProductButton } from './ProductControls.js'
 import { useAppMessage } from './locale.js'
@@ -32,11 +28,6 @@ export interface BadgeAnchor {
 
 export function BadgePopover(props: {
   anchor: BadgeAnchor
-  errors: (nodeId: string) => readonly Diagnostic[]
-  /** This run's log records for one node at one level (bottom badges). */
-  nodeLogs: (nodeId: string, level: 'info' | 'warning') => readonly ExecutionLogEntry[]
-  onDismissError?: (nodeId: string) => void
-  onOpenExecutionLog?: (nodeId: string) => void
   problems: (nodeId: string, kind: NodeProblemKind) => readonly string[]
   subgraphInfo: (nodeId: string) => SubgraphBadgeInfo | undefined
   deprecationInfo: (nodeId: string) => DeprecationBadgeInfo | undefined
@@ -58,91 +49,10 @@ export function BadgePopover(props: {
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) props.onClose()
       }}
     >
-      <Show when={props.anchor.badge.id === 'core.error'}>
-        <div class="badge-popover-title">Execution errors: {props.anchor.nodeId}</div>
-        <For each={props.errors(props.anchor.nodeId)} fallback={<ProductEmptyState title="No error details recorded." />}>
-          {(d) => (
-            <div class="badge-error" data-testid="badge-error-detail">
-              <div class="badge-error-head">
-                {d.runtime ? `${d.runtime.exceptionType}: ` : `${d.code}: `}
-                {d.message}
-              </div>
-              <Show when={d.runtime?.hints?.length}>
-                <RuntimeErrorHints hints={d.runtime!.hints} />
-              </Show>
-              <Show when={d.runtime}>
-                <pre class="traceback">{d.runtime!.traceback.join('\n')}</pre>
-              </Show>
-              <Show when={d.runtime?.currentInputs}>
-                <pre class="traceback">inputs: {JSON.stringify(d.runtime!.currentInputs, null, 2)}</pre>
-              </Show>
-            </div>
-          )}
-        </For>
-        <Show when={props.onOpenExecutionLog}>
-          <button
-            class="banner-button"
-            data-testid="badge-open-execution-log"
-            // mousedown, not click: fires before the popover blurs.
-            onMouseDown={(e) => {
-              e.preventDefault()
-              props.onOpenExecutionLog!(props.anchor.nodeId)
-            }}
-          >
-            Open in Execution log
-          </button>
-        </Show>
-        <Show when={props.onDismissError}>
-          <button
-            class="banner-button"
-            data-testid="badge-dismiss-error"
-            // mousedown, not click: fires before the popover blurs.
-            onMouseDown={(e) => {
-              e.preventDefault()
-              props.onDismissError!(props.anchor.nodeId)
-            }}
-          >
-            Dismiss
-          </button>
-        </Show>
-      </Show>
-      <Show when={props.anchor.badge.id === 'core.log.warning' || props.anchor.badge.id === 'core.log.info'}>
-        {(() => {
-          const level = props.anchor.badge.id === 'core.log.warning' ? 'warning' as const : 'info' as const
-          const title = level === 'warning' ? 'Node warnings' : 'Node messages'
-          return <>
-            <div class="badge-popover-title">{title}: {props.anchor.nodeId}</div>
-            <For each={props.nodeLogs(props.anchor.nodeId, level)} fallback={<ProductEmptyState title="No log records for this run." />}>
-              {(entry) => (
-                <p class="badge-popover-line badge-log-entry" data-testid="badge-log-entry">
-                  <span class="badge-log-time">{formatActivityTimestamp(entry.timestamp)}</span> {entry.message}
-                </p>
-              )}
-            </For>
-            <Show when={props.onOpenExecutionLog}>
-              <button
-                class="banner-button"
-                data-testid="badge-open-execution-log"
-                // mousedown, not click: fires before the popover blurs.
-                onMouseDown={(e) => {
-                  e.preventDefault()
-                  props.onOpenExecutionLog!(props.anchor.nodeId)
-                }}
-              >
-                Open in Execution log
-              </button>
-            </Show>
-          </>
-        })()}
-      </Show>
       <Show when={props.anchor.badge.id.startsWith('core.problem.')}>
         {(() => {
           const kind = props.anchor.badge.id.slice('core.problem.'.length) as NodeProblemKind
-          const title = kind === 'error'
-            ? 'Document errors'
-            : kind === 'blocking-warning'
-              ? 'Execution-blocking warnings'
-              : 'Document warnings'
+          const title = kind === 'error' ? 'Errors' : 'Warnings'
           return <>
             <div class="badge-popover-title">{title}: {props.anchor.nodeId}</div>
             <For each={props.problems(props.anchor.nodeId, kind)} fallback={<ProductEmptyState title="No problem details recorded." />}>

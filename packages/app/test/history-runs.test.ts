@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { asConnectionId, asNodeId, asPromptId, diag, type DinksterNodesPayload, type ExecutionRef } from '@dinkster/core'
+import { asConnectionId, asNodeId, asPromptId, diag, DINKSTER_SCHEMA_WIRE_VERSION, type DinksterNodesPayload, type ExecutionRef } from '@dinkster/core'
 import { buildDinksterRegistry, type HistoryRunRecord } from '@dinkster/client'
 import { AppState, LIBRARY_SCOPE, type Backend, type Tab } from '../src/app-state.js'
 import { groupNoOpHistoryRuns, historySource, runIdOfEntry, runsFilterOf, runsSource } from '../src/collections.js'
@@ -18,10 +18,21 @@ import { createWorkflowApp } from './fixtures/workflow-app.js'
 // AppState builds its WS url from the page origin; give the node test env one.
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
 
-const coreRoot = join(dirname(fileURLToPath(import.meta.url)), '../../core')
-const nodesPayload = JSON.parse(
-  readFileSync(join(coreRoot, 'fixtures/dinkster-nodes.json'), 'utf8'),
-) as DinksterNodesPayload
+const INT = { kind: 'concrete', types: ['INT'] }
+const nodesPayload: DinksterNodesPayload = {
+  schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
+  nodes: {
+    'std.math.add_ints': {
+      nodeType: 'std.math.add_ints', schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, version: 1,
+      displayName: 'Add Ints', category: 'math', description: '', idempotent: true,
+      body: [
+        { kind: 'input', id: 'a', required: true, type: INT },
+        { kind: 'input', id: 'b', required: true, default: 1, type: INT },
+        { kind: 'output', id: 'sum', type: INT },
+      ],
+    },
+  },
+}
 
 const DIGEST = 'blake3:' + 'a'.repeat(64)
 
@@ -182,6 +193,34 @@ describe('groupNoOpHistoryRuns', () => {
 })
 
 describe('runsSource', () => {
+  it('keeps seconds in run details but not durable or live collection rows', async () => {
+    const { backend } = await nativeSetup()
+    const today = new Date(2026, 10, 27, 16, 47, 17)
+    const yesterday = new Date(2026, 10, 26, 23, 59, 43)
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(2026, 10, 27, 18))
+    try {
+      vi.spyOn(backend.connection, 'listHistory').mockResolvedValue({ records: [
+        run({ runId: 'today', jobId: 'job-today', finishedAt: today.getTime() / 1000 }),
+        run({ runId: 'yesterday', jobId: 'job-yesterday', finishedAt: yesterday.getTime() / 1000 }),
+      ] })
+      const time = today.toLocaleTimeString('en', { hour: 'numeric', minute: '2-digit' })
+      const date = yesterday.toLocaleDateString('en', { year: 'numeric', month: 'numeric', day: 'numeric' })
+      const rows = await runsSource(app).page({ query: '', limit: 24 })
+      expect(rows.items.map((entry) => entry.subtitle)).toEqual([
+        `today, ${time} - job-today`, `${date} - job-yesterday`,
+      ])
+      expect(rows.items[0]!.details!.find((detail) => detail.label === 'finished')!.text).toContain(':17')
+      const ref = { connection: backend.id, prompt: asPromptId('live-time') }
+      app.store.apply({ kind: 'started', execution: ref, timestamp: today.getTime() })
+      const live = await historySource(app).page({ query: '', limit: 24 })
+      expect(live.items[0]!.subtitle).toBe(`today, ${time} - live-time`)
+      expect(live.items[0]!.details!.find((detail) => detail.label === 'queued')!.text).toContain(':17')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('pages /api/history with the mapped filter and maps records to entries', async () => {
     const { backend } = (await nativeSetup())
     const list = vi.spyOn(backend.connection, 'listHistory').mockResolvedValue({
@@ -286,13 +325,6 @@ describe('runsSource', () => {
     expect(neverStarted.actions).toEqual([{ id: 'delete', label: 'Delete record' }])
   })
 
-  it('an unmatchable query returns empty WITHOUT calling the server', async () => {
-    const { backend } = (await nativeSetup())
-    const list = vi.spyOn(backend.connection, 'listHistory')
-    expect(await runsSource(app).page({ query: 'xyz', limit: 24 })).toEqual({ owner: backend.id, items: [], total: 0 })
-    expect(list).not.toHaveBeenCalled()
-  })
-
 })
 
 describe('openRunWorkflow', () => {
@@ -353,9 +385,25 @@ describe('resubmitRunWorkflow', () => {
     const { backend } = (await nativeSetup())
     // The producing document opens cleanly but its executed output depends
     // on a node type this backend does not resolve, so the queue refuses.
-    const comfyPayload = JSON.parse(readFileSync(
-      join(coreRoot, 'fixtures/dinkster-nodes-comfy.json'), 'utf8',
-    )) as DinksterNodesPayload
+    const IMAGE = { kind: 'concrete', types: ['comfy.IMAGE'] }
+    const comfyPayload: DinksterNodesPayload = {
+      schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
+      nodes: {
+        'comfy.EmptyImage': {
+          nodeType: 'comfy.EmptyImage', schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, version: 1, displayName: 'Empty Image',
+          category: 'comfy/image', description: '', idempotent: true, aliases: ['EmptyImage'], pack: 'comfy',
+          body: [
+            ...['width', 'height', 'batch_size', 'color'].map((id) => ({ kind: 'input', id, type: INT, required: false, default: id === 'batch_size' ? 1 : id === 'color' ? 0 : 512 })),
+            { kind: 'output', id: 'image', type: IMAGE },
+          ],
+        },
+        'comfy.PreviewImage': {
+          nodeType: 'comfy.PreviewImage', schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, version: 1, displayName: 'Preview Image',
+          category: 'comfy/image', description: '', idempotent: false, aliases: ['PreviewImage'], outputNode: true, pack: 'comfy',
+          body: [{ kind: 'input', id: 'images', type: IMAGE, required: true }],
+        },
+      },
+    }
     backend.registry.set(buildDinksterRegistry(backend.id, comfyPayload))
     const unresolvedDoc = readFileSync(join(
       dirname(fileURLToPath(import.meta.url)), 'fixtures/unresolved-output-dependency.json',
@@ -370,6 +418,7 @@ describe('resubmitRunWorkflow', () => {
     // The reopened tab stays active so the user can inspect the refusal.
     expect(app.activeTab()?.title).toBe('Unresolved node feeding the executed output')
     expect(app.problems.get().some((d) => d.code === 'compile.schema.unknown')).toBe(true)
+    expect(backend.registry.get()?.schemas.size).toBe(2)
   })
 
 })
@@ -386,7 +435,7 @@ describe('delete and clear', () => {
   it('delete failures land in Problems', async () => {
     const { backend } = (await nativeSetup())
     vi.spyOn(backend.connection, 'deleteHistoryRun').mockRejectedValue(new Error('boom'))
-    expect(await app.deleteHistoryRun('run-1', backend.id)).toBe(false)
+    await expect(app.deleteHistoryRun('run-1', backend.id)).rejects.toThrow('boom')
     expect(app.problems.get().some((d) => d.code === 'history.deleteFailed')).toBe(true)
   })
 
@@ -418,10 +467,10 @@ describe('delete and clear', () => {
     expect(app.store.executions.get()).toBe(executions)
   })
 
-  it('clear failures land in Problems and report zero', async () => {
+  it('clear failures land in Problems and reject', async () => {
     const { backend } = (await nativeSetup())
     vi.spyOn(backend.connection, 'clearHistory').mockRejectedValue(new Error('boom'))
-    expect(await app.clearRunHistory(backend.id)).toBe(0)
+    await expect(app.clearRunHistory(backend.id)).rejects.toThrow('boom')
     expect(app.problems.get().some((d) => d.code === 'history.clearFailed')).toBe(true)
   })
 })

@@ -20,7 +20,7 @@ test.beforeEach(async ({ page }) => {
   await page.route(/\/api\//, (route) => route.fulfill({ status: 404, json: { error: 'Not part of this isolated fixture' } }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'isolated test' }))
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'test' }, devices: [] } }))
-  await page.route('/api/nodes*', (route) => route.fulfill({ json: { schemaVersion: 1, epoch: 1, dinkster: { version: 'audio-test', schemaWire: 1 }, nodes: {} } }))
+  await page.route('/api/nodes*', (route) => route.fulfill({ json: { schemaVersion: 1, epoch: 1, dinkster: { version: 'audio-test', schemaWire: 2 }, nodes: {} } }))
   await page.route('/api/mounts*', (route) => route.fulfill({ json: { mounts: [] } }))
   await page.routeWebSocket('**/api/events?*', () => {})
 })
@@ -32,7 +32,7 @@ async function graph(page: Page, recorded = false) {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'AudioControlsTest', displayName: 'Audio waveform and recording', category: 'test', source: 'v3', isOutputNode: true,
-      items: [
+      body: [
         { kind: 'input', id: 'clip', type: { kind: 'asset', element: { kind: 'concrete', name: 'AUDIO' } }, optional: true, widget: { widgetType: 'ASSET', kind: 'media/audio', allowUpload: true, options: { accept: ['audio/wav', 'audio/flac', 'audio/mpeg', 'audio/ogg', 'audio/webm', 'video/mp4'] } } },
         { kind: 'output', id: 'audio', type: { kind: 'concrete', name: 'AUDIO' }, preview: true },
       ],
@@ -72,7 +72,7 @@ test('recorded audio downloads only on click in Canvas and App View', async ({ p
   for (const appView of [false, true]) {
     if (appView) {
       await page.getByTestId('views-switcher').click()
-      await page.getByRole('menuitemradio', { name: 'App view' }).click()
+      await page.getByRole('menuitemradio', { name: 'App', exact: true }).click()
     }
     const link = appView ? page.getByTestId('app-preview-download') : page.locator('.node-media-overlay .node-output-download')
     await expect(link).toBeVisible()
@@ -113,13 +113,30 @@ test('waveform, window scrub, batch, local loop/gain and App playback', async ({
   }), 'base64')
   await graph(page)
   const transport = page.locator('.node-media-overlay .audio-transport')
-  await expect(transport.getByRole('img', { name: 'Server audio waveform' })).toBeVisible()
+  const position = transport.getByRole('slider', { name: 'Audio position', exact: true })
+  await expect(position).toBeVisible()
+  await expect(position).toHaveCount(1)
   await expect(transport).toContainText('Channels: 6')
   await expect(transport).toContainText('Layout: 5.1')
   await expect(transport).toContainText('Sample rate (Hz): 48000')
   const revision = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
-  await transport.getByRole('slider', { name: 'Audio position', exact: true }).click({ position: { x: 100, y: 5 } })
+  const bounds = (await position.boundingBox())!
+  await page.mouse.click(bounds.x + bounds.width * 0.25, bounds.y + bounds.height / 2)
+  await expect(position).toHaveAttribute('aria-valuenow', '3')
   await expect.poll(() => requests.some((url) => Number(url.searchParams.get('window')?.split(',')[0]) > 0)).toBe(true)
+  await page.mouse.move(bounds.x + bounds.width * 0.25, bounds.y + bounds.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(bounds.x + bounds.width * 0.625, bounds.y + bounds.height / 2)
+  await page.mouse.up()
+  await expect(position).toHaveAttribute('aria-valuenow', '7.5')
+  await position.press('ArrowLeft')
+  await expect(position).toHaveAttribute('aria-valuenow', '7.49')
+  await expect(position).toHaveCSS('outline-style', 'solid')
+  await expect(transport).toContainText('0:07 / 0:12')
+  await expect(transport).not.toContainText('sampled peaks')
+  await page.mouse.click(bounds.x + bounds.width * 0.625, bounds.y + bounds.height / 2)
+  await expect(position).toHaveCSS('outline-style', 'none')
+  await transport.screenshot({ path: info.outputPath('audio-waveform-seek.png') })
   await transport.getByRole('button', { name: 'Play audio' }).click()
   await expect(transport.getByRole('button', { name: 'Pause audio' })).toBeVisible()
   await transport.getByRole('button', { name: 'Pause audio' }).click()
@@ -130,16 +147,16 @@ test('waveform, window scrub, batch, local loop/gain and App playback', async ({
   await expect(transport).toContainText('Batch 2/3')
   await expect.poll(() => requests.some((url) => url.searchParams.get('batch') === '1')).toBe(true)
   expect(requests.every((url) => !url.searchParams.has('element'))).toBe(true)
-  await expect(transport).toContainText('Waveform: sampled peaks (not exhaustive)')
+  await expect(transport).not.toContainText('Waveform: sampled peaks (not exhaustive)')
   await expect(transport.getByRole('button', { name: 'Play audio' })).toBeEnabled()
   await transport.screenshot({ path: info.outputPath('audio-waveform-window.png') })
   expect(requests.filter((url) => url.searchParams.has('window')).every((url) => Number(url.searchParams.get('window')!.split(',')[1]) <= 3)).toBe(true)
   expect(requests.filter((url) => url.searchParams.has('waveform')).every((url) => url.searchParams.get('waveform') === '512x128')).toBe(true)
   expect(requests.some((url) => url.searchParams.get('rendition') === 'original')).toBe(false)
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(revision)
-  await page.getByTestId('views-switcher').click(); await page.getByRole('menuitemradio', { name: 'App view' }).click()
+  await page.getByTestId('views-switcher').click(); await page.getByRole('menuitemradio', { name: 'App', exact: true }).click()
   const appPreview = page.getByTestId('app-preview-surface')
-  await expect(appPreview.getByRole('img', { name: 'Server audio waveform' })).toBeVisible()
+  await expect(appPreview.getByRole('slider', { name: 'Audio position', exact: true })).toBeVisible()
   await appPreview.screenshot({ path: info.outputPath('audio-app-preview.png') })
 })
 

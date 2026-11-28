@@ -31,7 +31,7 @@ test.beforeEach(async ({ page, request }) => {
   const sameOrigin = await request.get('/api/nodes')
   expect(sameOrigin.ok()).toBe(true)
   const payload = await sameOrigin.json() as { dinkster?: { schemaWire?: number }; nodes?: Record<string, unknown> }
-  expect(payload.dinkster?.schemaWire).toBe(1)
+  expect(payload.dinkster?.schemaWire).toBe(2)
   expect(payload.nodes?.['dinkster.utilities.preview_any']).toBeDefined()
   expect(payload.nodes?.['dinkster.image.save_image']).toBeDefined()
 
@@ -46,9 +46,9 @@ test('native palette exposes canonical accessible identity', async ({ page }) =>
   await openPalette(page)
   await page.getByTestId('palette-search').fill('Preview as Text')
 
-  const native = page.locator('[data-node-type="dinkster.utilities.preview_any"]').getByRole('option')
+  const native = page.locator('[data-key="entry:dinkster.utilities.preview_any"]')
   await expect(native).toBeVisible()
-  await expect(native.locator('.search-result-row-detail')).toHaveText(
+  await expect(native.locator('.dinkster-search-row-detail')).toHaveText(
     'dinkster-utilities - utilities - dinkster.utilities.preview_any',
   )
   await expect(native).toHaveRole('option')

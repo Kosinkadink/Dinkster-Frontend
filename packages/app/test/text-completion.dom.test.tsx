@@ -43,13 +43,14 @@ function mountEditor(
     },
   }
   const tab = { store } as unknown as Tab
-  const dispatchTo = vi.fn((_tab: Tab, _invocation: unknown) => {
+  const dispatchEditTo = vi.fn((_tab: Tab, _invocation: unknown) => {
     store.revision += 1
     return { ok: true, diagnostics: [] }
   })
   const app = {
     backendForTab: () => ({ protocol: 'v1' }),
-    dispatchTo,
+    commands: { get: () => undefined },
+    dispatchEditTo,
     liveEmbeddingAndLoraInventory,
     textEditorExtensionRegistry,
     widgetRegistry: { kind: () => undefined },
@@ -90,7 +91,7 @@ function mountEditor(
     await Promise.resolve()
     await new Promise<void>((resolve) => queueMicrotask(resolve))
   }
-  return { root, textarea, input, key, flush, store, dispatchTo, disposers, unmount }
+  return { root, textarea, input, key, flush, store, dispatchEditTo, disposers, unmount }
 }
 
 const staticExtension = (items: readonly TextCompletion[]): TextWidgetEditorExtension => ({
@@ -121,7 +122,7 @@ describe('multiline text suggestion surface', () => {
     mounted.key('Enter')
     expect(mounted.textarea.value).toBe('prefix embedding:castle suffix')
     expect(mounted.textarea.selectionStart).toBe(23)
-    expect(mounted.dispatchTo).not.toHaveBeenCalled()
+    expect(mounted.dispatchEditTo).not.toHaveBeenCalled()
     mounted.unmount()
   })
 
@@ -226,7 +227,7 @@ describe('multiline text suggestion surface', () => {
     expect(mounted.textarea.value).toBe('prefix embedding:cats suffix')
     expect(mounted.textarea.selectionStart).toBe(21)
     expect(mounted.textarea.selectionEnd).toBe(21)
-    expect(mounted.dispatchTo).not.toHaveBeenCalled()
+    expect(mounted.dispatchEditTo).not.toHaveBeenCalled()
     mounted.unmount()
   })
 
@@ -238,7 +239,7 @@ describe('multiline text suggestion surface', () => {
     await mounted.flush()
     expect(document.querySelector('[data-testid="suggestion-surface"]')).toBeNull()
     expect(mounted.textarea.value).toBe('draft')
-    expect(mounted.dispatchTo).not.toHaveBeenCalled()
+    expect(mounted.dispatchEditTo).not.toHaveBeenCalled()
     expect(document.activeElement).toBe(mounted.textarea)
     mounted.unmount()
   })
@@ -359,8 +360,8 @@ describe('multiline text suggestion surface', () => {
     expect(mounted.store.revision).toBe(before)
     mounted.key('Enter', { ctrlKey: true })
     expect(mounted.store.revision).toBe(before + 1)
-    expect(mounted.dispatchTo).toHaveBeenCalledOnce()
-    expect(mounted.dispatchTo.mock.calls[0]?.[1]).toMatchObject({
+    expect(mounted.dispatchEditTo).toHaveBeenCalledOnce()
+    expect(mounted.dispatchEditTo.mock.calls[0]?.[1]).toMatchObject({
       command: 'text.splice',
       params: { graphId: 'g0', nodeId: 'n0', inputId: 'text', offset: 0, deleteCount: 0, insert: 'accepted' },
     })
@@ -387,8 +388,8 @@ describe('text editor views and invalid drafts', () => {
     mounted.key('Tab')
     expect(mounted.textarea.value).toBe('sin')
     mounted.key('Enter')
-    expect(mounted.dispatchTo).toHaveBeenCalledOnce()
-    expect(mounted.dispatchTo.mock.calls[0]?.[1]).toMatchObject({
+    expect(mounted.dispatchEditTo).toHaveBeenCalledOnce()
+    expect(mounted.dispatchEditTo.mock.calls[0]?.[1]).toMatchObject({
       command: 'text.splice',
       params: { graphId: 'g0', nodeId: 'n0', inputId: 'text', offset: 0, deleteCount: 0, insert: 'sin' },
     })
@@ -420,8 +421,8 @@ describe('text editor views and invalid drafts', () => {
     expect(mounted.textarea.hasAttribute('aria-invalid')).toBe(false)
     expect(document.querySelector('[role="alert"]')).toBeNull()
     mounted.key('Enter', { ctrlKey: true })
-    expect(mounted.dispatchTo).toHaveBeenCalledOnce()
-    expect(mounted.dispatchTo.mock.calls[0]?.[1]).toMatchObject({
+    expect(mounted.dispatchEditTo).toHaveBeenCalledOnce()
+    expect(mounted.dispatchEditTo.mock.calls[0]?.[1]).toMatchObject({
       command: 'text.splice',
       params: { graphId: 'g0', nodeId: 'n0', inputId: 'text', offset: 0, deleteCount: 0, insert: 'a +' },
     })

@@ -1,3 +1,4 @@
+import { formatByteSize } from '@dinkster/core'
 import {
   For,
   Match,
@@ -10,9 +11,13 @@ import {
   type JSX,
 } from 'solid-js'
 import { render } from 'solid-js/web'
+import { canvasPaintTokens, canvasTypePaintForTheme, modelKindColorMap } from '@dinkster/canvas'
+import { semanticTokensForTheme } from '@dinkster/core'
+import components from '@dinkster/branding/components' with { type: 'json' }
 import {
   Bell,
   CircleAlert,
+  Download,
   Ellipsis,
   LayoutList,
   PanelLeft,
@@ -20,11 +25,13 @@ import {
   PanelRight,
   MousePointer,
   Search,
-  Square,
   Plus,
+  Play,
   Settings,
   SlidersHorizontal,
+  Star,
   Trash2,
+  TriangleAlert,
   User,
   Users,
 } from 'lucide-solid'
@@ -33,18 +40,24 @@ import {
   ProductWindowChrome,
   ProductWindowToolbar,
   ProductWindowAction,
+  ProductShortcut,
+  ProductShortcutText,
   ProductAccountMenu,
   ProductSignInControl,
   ProductBrandMark,
   ProductCodeBlock,
   ProductCopyValue,
+  ProductCountStrip,
   ProductDisclosure,
   ProductFacts,
   ProductQrCode,
   ProductResourceUsage,
   ProductButton,
+  ProductByteSizeInput,
   ProductCheckbox,
+  ProductColorInput,
   ProductConfirmation,
+  ProductConfirmationDialog,
   ProductDialog,
   ProductEmptyState,
   ProductErrorBanner,
@@ -53,6 +66,7 @@ import {
   ProductIcon,
   ProductRunIcon,
   ProductRunActivity,
+  ProductCancelButton,
   ProductIconButton,
   ProductLink,
   ProductList,
@@ -60,16 +74,20 @@ import {
   ProductLoading,
   ProductMenu,
   ProductNotice,
+  ProductProgress,
   ProductProjectMenu,
   ProductPage,
+  ProductPanel,
   ProductRadio,
   ProductSection,
+  ProductSegmented,
   ProductSelect,
   ProductShell,
   ProductSpinner,
   ProductStringsProvider,
   ProductTable,
   ProductTextArea,
+  ProductTextButton,
   ProductTextInput,
   ProductToast,
   reportProductEvent,
@@ -77,9 +95,35 @@ import {
   type ProductAttention,
 } from '../src/index.js'
 import '../dist/dinkster.css'
-import { CanvasGallery } from './canvas.js'
+import {
+  CanvasGallery,
+  canvasNavigationGroups,
+  canvasPage,
+  canvasPageHref,
+  selectCanvasPage,
+} from './canvas.js'
+import { ContextMenuGallery } from './context-menus.js'
+import { PageLoadingGallery, ProjectLoadingGallery } from './page-loading.js'
+import { CanvasChromeGallery } from './canvas-chrome.js'
+import { RunControlsGallery } from './run-controls.js'
 import { SiteGallery } from './site.js'
 import { EditorBarGallery } from './editor-bar.js'
+import { ProjectsGallery } from './projects.js'
+import { TemplatesGallery } from './templates.js'
+import { ModelDownloadsGallery } from './model-downloads.js'
+import { EngineStatesGallery } from './engine-states.js'
+import { PageTabsGallery } from './page-tabs.js'
+import { SearchGallery } from './search.js'
+import { BoardGallery } from './board.js'
+import { BoardCardsGallery } from './board-cards.js'
+import { BoardResultsGallery } from './board-results.js'
+import { ResultPicturesGallery } from './result-pictures.js'
+import { NodeSearchGallery } from './node-search.js'
+import { ModelsGallery } from './models.js'
+import { SettingsSectionGallery } from './settings-section.js'
+import { FieldAlignmentGallery, SelectGallery } from './select.js'
+import { TooltipsGallery } from './tooltips.js'
+import { attachDomTooltips, ProductTooltip, TooltipController, type DomTooltipTarget } from '../src/index.js'
 
 const navigation = [
   { label: 'Buttons and fields', href: '#controls', icon: MousePointer },
@@ -88,7 +132,15 @@ const navigation = [
   { label: 'Menus and messages', href: '#messages', icon: Bell },
   { label: 'Confirmations', href: '#confirmations', icon: CircleAlert },
   { label: 'Account data', href: '#account-data', icon: User },
-  { label: 'Canvas', href: '#canvas', icon: LayoutList },
+  { label: 'Board', href: '#board', icon: LayoutList },
+  { label: 'Board cards', href: '#board-cards', icon: LayoutList },
+  { label: 'Board results', href: '#board-results', icon: LayoutList },
+  {
+    label: 'Canvas',
+    href: '#canvas',
+    icon: LayoutList,
+    groups: canvasNavigationGroups,
+  },
   { label: 'Desktop information', href: '#desktop-about', icon: User },
 ]
 
@@ -105,21 +157,62 @@ function Section(props: {
   )
 }
 
+/** Choices that cannot be chosen keep their place, dimmed, with the reason as their description. */
+function SegmentedStates() {
+  const [scope, setScope] = createSignal('all')
+  const [range, setRange] = createSignal('day')
+  return (
+    <Section title="Unavailable choices" components="ProductSegmented">
+      <div><ProductSegmented label="Runs scope" value={scope()} onChange={setScope} options={[
+        { value: 'workflow', label: 'This workflow', disabled: 'A page is in front, not a workflow.' },
+        { value: 'all', label: 'All workflows' },
+      ]} /></div>
+      <div><ProductSegmented label="History range" value={range()} onChange={setRange} options={[
+        { value: 'day', label: 'Day' },
+        { value: 'week', label: 'Week', disabled: 'Not enough history yet.' },
+        { value: 'month', label: 'Month' },
+      ]} /></div>
+      <div><ProductSegmented label="Chosen but unavailable" value="workflow" onChange={() => {}} options={[
+        { value: 'workflow', label: 'This workflow', disabled: 'A page is in front, not a workflow.' },
+        { value: 'all', label: 'All workflows' },
+      ]} /></div>
+    </Section>
+  )
+}
+
 function Gallery() {
   const [route, setRoute] = createSignal(window.location.hash || '#controls')
+  const [brushColor, setBrushColor] = createSignal(canvasPaintTokens.editor.painter.initialColor)
   const [toast, setToast] = createSignal<{ readonly message: string }>()
   const [error, setError] = createSignal(true)
   const [dialog, setDialog] = createSignal(false)
+  const [confirmationCase, setConfirmationCase] = createSignal<'one' | 'several' | 'safe' | 'working' | 'failed'>('one')
+  const [wideDialog, setWideDialog] = createSignal(false)
   const [pending, setPending] = createSignal(false)
   const [fail, setFail] = createSignal(false)
   const [invalid, setInvalid] = createSignal(false)
   const [refuseName, setRefuseName] = createSignal(false)
   const [nameTaken, setNameTaken] = createSignal(false)
   const [activity, setActivity] = createSignal('No action yet')
+  const [sizeLimit, setSizeLimit] = createSignal(10000000000)
   const [loading, setLoading] = createSignal(false)
+  const [quietType, setQuietType] = createSignal('Any type')
+  const [formMount, setFormMount] = createSignal('input')
+  const [formFolder, setFormFolder] = createSignal('reference/')
+  const [formRemember, setFormRemember] = createSignal(false)
+  const [serverOpen, setServerOpen] = createSignal(false)
+  const [progressOpen, setProgressOpen] = createSignal(false)
+  const [storageOpen, setStorageOpen] = createSignal(false)
+  const [versionSelected, setVersionSelected] = createSignal(false)
+  let versionButton: HTMLButtonElement | undefined
   let navigationTimer: number | undefined
   onCleanup(() => window.clearTimeout(navigationTimer))
   const navigate = (href: string) => {
+    if (href.startsWith('?page=')) {
+      selectCanvasPage(href)
+      if (route() === '#canvas') return
+      href = '#canvas'
+    }
     window.clearTimeout(navigationTimer)
     window.location.hash = href
     setRoute(href)
@@ -140,8 +233,11 @@ function Gallery() {
     <ProductShell
       title="Component gallery"
       navigation={route() === '#signed-out' ? [] : navigation}
-      currentHref={route()}
+      currentHref={
+        route() === '#canvas' ? canvasPageHref(canvasPage()) : route()
+      }
       onNavigate={navigate}
+      contentDensity={['#canvas', '#canvas-chrome', '#run-controls', '#board', '#board-cards', '#board-results', '#engine-states', '#models', '#settings-section', '#setup-components', '#field-alignment'].includes(route()) ? undefined : 'site'}
       account={
         <Show when={route() !== '#signed-out'}>
           <ProductAccountMenu
@@ -154,13 +250,25 @@ function Gallery() {
     >
       <ProductPage
         title={
-          route() === '#signed-out'
+          route() === '#settings-section'
+            ? 'Settings groups'
+            : route() === '#dropdowns'
+            ? 'Dropdowns'
+            : route().endsWith('field-alignment')
+            ? 'Field alignment'
+            : route() === '#tooltips'
+            ? 'Tooltips'
+            : route() === '#signed-out'
             ? 'Signed-out shell'
             : (navigation.find((item) => item.href === route())?.label ??
-              (route() === '#resource-usage' ? 'Resource usage' : 'Buttons and fields'))
+              (route() === '#models' ? 'Models' : route() === '#project-loading' ? 'Project loading' : route() === '#menu-filter' ? 'Menu filter' : route() === '#menu-alignment' ? 'Menu alignment' : route() === '#segmented-states' ? 'Segmented choices' : route() === '#page-loading' ? 'Page loading' : route() === '#setup-components' ? 'Setup feedback' : route() === '#resource-usage' ? 'Resource usage' : route() === '#run-controls' ? 'Run controls' : 'Buttons and fields'))
         }
-        description="The live shared components. Use a pointer or keyboard to inspect hover, focus and pressed states."
-        table={route() === '#lists' || route() === '#canvas'}
+        description={
+          route() === '#canvas'
+            ? 'Fixed examples drawn by the canvas renderer the editor uses, without a backend.'
+            : 'The live shared components. Use a pointer or keyboard to inspect hover, focus and pressed states.'
+        }
+        table={route() === '#lists' || route() === '#canvas' || route() === '#search' || route() === '#board' || route() === '#board-cards' || route() === '#board-results' || route() === '#node-search'}
       >
         <Show
           when={!loading()}
@@ -169,10 +277,140 @@ function Gallery() {
           <Switch
             fallback={<ProductEmptyState message="Choose a gallery page." />}
           >
+            <Match when={route() === '#color-input'}>
+              <Section title="Color chooser" components="ProductColorInput, CanvasColorPicker, CanvasColorSquare">
+                <ProductField label="Brush color">
+                  {(attributes) => <ProductColorInput {...attributes} value={brushColor()} onChange={setBrushColor} />}
+                </ProductField>
+                <ProductField label="Unavailable brush color">
+                  {(attributes) => <ProductColorInput {...attributes} value={canvasPaintTokens.editor.painter.initialColor} disabled onChange={() => {}} />}
+                </ProductField>
+                <ProductField label="Unchanged brush color" description="The owner does not accept changes.">
+                  {(attributes) => <ProductColorInput {...attributes} value={canvasPaintTokens.editor.painter.initialColor} onChange={() => {}} />}
+                </ProductField>
+                <output aria-label="Chosen brush color">{brushColor()}</output>
+              </Section>
+            </Match>
+            <Match when={route() === '#settings-section'}>
+              <SettingsSectionGallery />
+            </Match>
+            <Match when={route() === '#page-loading'}>
+              <PageLoadingGallery activity={activity()} />
+            </Match>
+            <Match when={route() === '#segmented-states'}>
+              <SegmentedStates />
+            </Match>
+            <Match when={route() === '#project-loading'}>
+              <ProjectLoadingGallery />
+            </Match>
+            <Match when={route() === '#menu-filter'}>
+              <Section title="Filtered menu" components="ProductMenu, ProductTextInput">
+                <ProductMenu
+                  label="Choose a format"
+                  filter={{ label: 'Filter formats', placeholder: 'Find a format' }}
+                  items={[
+                    { label: 'Image', checked: true, onSelect: () => setActivity('Image selected') },
+                    { label: 'Image file', description: 'An image stored in a file.', checked: false, onSelect: () => setActivity('Image file selected') },
+                    { label: 'Image sequence', description: 'Not available for this example.', disabled: true, onSelect: () => setActivity('Unavailable format selected') },
+                    'separator',
+                    { label: 'Audio', description: 'A sound recording.', onSelect: () => setActivity('Audio selected') },
+                    { label: 'Video', onSelect: () => setActivity('Video selected') },
+                  ]}
+                />
+              </Section>
+            </Match>
+            <Match when={route() === '#menu-alignment'}>
+              <Section title="Trigger edges" components="ProductMenu">
+                <div class="dinkster-actions">
+                  <ProductMenu label="End actions" align="end" fill="quiet" items={[
+                    { label: 'Recommended build', description: 'Matches the detected graphics card.', checked: true, onSelect: () => complete('Recommended build selected') },
+                    { label: 'Alternative build', description: 'Use an earlier runtime for this driver.', checked: false, onSelect: () => complete('Alternative build selected') },
+                  ]} />
+                  <ProductMenu label="Start actions" items={[
+                    { label: 'View package', onSelect: () => complete('Package viewed') },
+                    { label: 'Unavailable action', disabled: true, onSelect: () => {} },
+                  ]} />
+                </div>
+              </Section>
+            </Match>
+            <Match when={route() === '#setup-components'}>
+              <Section title="Filled setup blocks" components="ProductPanel, ProductFacts, ProductDisclosure">
+                <ProductPanel fill="quiet">
+                  <ProductFacts label="Installation location" items={[
+                    { label: 'Install to', value: '/home/alex/Dinkster/nightly' },
+                  ]} />
+                </ProductPanel>
+                <ProductPanel fill="quiet">
+                  <ProductFacts label="Selected build" items={[
+                    { label: 'Build', value: 'NVIDIA graphics' },
+                    { label: 'Download', value: 'About 7 GB - 212 GB free' },
+                  ]} />
+                  <ProductDisclosure title="Details">
+                    <ProductFacts label="Build versions" items={[
+                      { label: 'Python', value: '3.13.8' },
+                      { label: 'PyTorch', value: '2.14.1+cu132' },
+                      { label: 'CUDA', value: '13.2' },
+                      { label: 'Dinkster', value: '0.0.19' },
+                    ]} />
+                  </ProductDisclosure>
+                </ProductPanel>
+              </Section>
+              <Section title="Editable filled block" components="ProductPanel, ProductField, ProductSelect, ProductTextInput, ProductCheckbox">
+                <ProductPanel fill="quiet">
+                  <ProductField label="Mount" layout="inline">
+                    {(attributes) => <ProductSelect {...attributes} value={formMount()} onChange={setFormMount}
+                      options={['input', 'reference'].map((value) => ({ value, label: value }))} />}
+                  </ProductField>
+                  <ProductField label="Folder" layout="inline"
+                    {...(formFolder().startsWith('/') || formFolder().split('/').includes('..')
+                      ? { error: 'Enter a folder inside this Mount.' } : {})}>
+                    {(attributes) => <ProductTextInput {...attributes} value={formFolder()}
+                      onInput={(event) => setFormFolder(event.currentTarget.value)} />}
+                  </ProductField>
+                  <ProductField layout="self-labeled">
+                    {(attributes) => <ProductCheckbox {...attributes} label="Remember for this project" checked={formRemember()}
+                      onChange={(event) => setFormRemember(event.currentTarget.checked)} />}
+                  </ProductField>
+                </ProductPanel>
+              </Section>
+              <Section title="Progress" components="ProductProgress">
+                <For each={[
+                  { label: 'Not started', value: 0 },
+                  { label: 'Downloading', value: 0.37 },
+                  { label: 'Complete', value: 1 },
+                  { label: 'Preparing' },
+                ]}>
+                  {(progress) => (
+                    <div class="dinkster-stack">
+                      <span>{progress.label}</span>
+                      <ProductProgress label={progress.label} value={progress.value} />
+                    </div>
+                  )}
+                </For>
+              </Section>
+              <Section title="Standing notices" components="ProductNotice">
+                <ProductNotice>Choose a folder for the installation.</ProductNotice>
+                <ProductNotice tone="warning">Another Dinkster installation is running. Stop it, then check again.</ProductNotice>
+                <ProductNotice tone="error">Setup failed. Check the connection, then try again.</ProductNotice>
+              </Section>
+              <Section title="Choice descriptions" components="ProductMenu">
+                <ProductMenu
+                  label="Change build"
+                  fill="quiet"
+                  items={[
+                    { label: 'Recommended build', description: 'Matches the detected graphics card.', checked: true, onSelect: () => setActivity('Recommended build selected') },
+                    { label: 'Alternative build', description: 'Use this build when your driver requires an earlier runtime.', checked: false, onSelect: () => setActivity('Alternative build selected') },
+                    { label: 'View build information', onSelect: () => setActivity('Build information selected') },
+                  ]}
+                />
+              </Section>
+            </Match>
             <Match when={route() === '#resource-usage'}>
               <Section title="Card memory" components="ProductResourceUsage">
                 <For each={[false, true]}>
                   {(compact) => (
+                    <section class="dinkster-resource-card">
+                    <header class="dinkster-resource-card-heading"><strong>{compact ? 'RTX 3090' : 'RTX 4090'}</strong><span class="dinkster-resource-total"><strong>12.0</strong> <span>of 24.0 GB</span></span></header>
                     <ProductResourceUsage
                       label={compact ? 'Compact card memory' : 'Card memory'}
                       total={24}
@@ -189,11 +427,13 @@ function Gallery() {
                       ]}
                       now={120_000}
                       limit={22}
-                      format={(value) => `${value.toFixed(1)} GB`}
+                      format={(value) => formatByteSize(value * 1024 ** 3)}
                       historyLabel="Last 2 minutes"
                       limitLabel="Limit"
                       compact={compact}
                     />
+                    <dl class="dinkster-resource-live"><div><dt>Busy</dt><dd>73%</dd></div><div><dt>Temperature</dt><dd>61 C</dd></div><div><dt>Power</dt><dd>310 W</dd></div></dl>
+                    </section>
                   )}
                 </For>
               </Section>
@@ -203,7 +443,7 @@ function Gallery() {
                     <span>Flux model</span><span>3.0 GB</span>
                     <span class="dinkster-resource-model-action">
                       <span aria-hidden="true">Unload</span>
-                      <Show when={inUse} fallback={<ProductButton intent="remove">Unload</ProductButton>}>
+                      <Show when={inUse} fallback={<ProductButton intent="remove" fill="quiet" data-resource-release>Unload</ProductButton>}>
                         <span>In use</span>
                       </Show>
                     </span>
@@ -220,7 +460,7 @@ function Gallery() {
                   segments={[{ label: 'Used', value: 5, tone: 'other' }]}
                   samples={[]}
                   now={120_000}
-                  format={(value) => `${value.toFixed(1)} GB`}
+                  format={(value) => formatByteSize(value * 1024 ** 3)}
                   historyLabel="Last 2 minutes"
                   limitLabel="Limit"
                 />
@@ -237,6 +477,8 @@ function Gallery() {
                 <ProductLink href="#editor-bar">
                   Inspect the editor bar and left bar
                 </ProductLink>
+                <ProductLink href="#projects">Inspect the projects page</ProductLink>
+                <ProductLink href="#templates">Inspect the templates page</ProductLink>
                 <For each={['win32', 'linux', 'darwin'] as const}>
                   {(platform) => {
                     const [error, setError] = createSignal(true)
@@ -303,6 +545,56 @@ function Gallery() {
             <Match when={route() === '#canvas'}>
               <CanvasGallery />
             </Match>
+            <Match when={route() === '#canvas-chrome'}>
+              <Section title="Canvas corner, view bar and Run" components="CanvasCornerControls, CanvasViewControls, WorkflowQueueControl">
+                <CanvasChromeGallery />
+              </Section>
+            </Match>
+            <Match when={route() === '#engine-states'}>
+              <Section title="Engine states" components="EngineRunControl, WorkflowQueueControl">
+                <EngineStatesGallery />
+              </Section>
+            </Match>
+            <Match when={route() === '#search'}>
+              <SearchGallery />
+            </Match>
+            <Match when={route() === '#board'}>
+              <BoardGallery />
+            </Match>
+            <Match when={route() === '#board-cards'}>
+              <BoardCardsGallery />
+            </Match>
+            <Match when={route() === '#board-results'}>
+              <BoardResultsGallery />
+            </Match>
+            <Match when={route() === '#result-pictures'}>
+              <ResultPicturesGallery />
+            </Match>
+            <Match when={route() === '#node-search'}>
+              <NodeSearchGallery />
+            </Match>
+            <Match when={route() === '#models'}>
+              <ModelsGallery />
+            </Match>
+            <Match when={route() === '#run-controls'}>
+              <Section title="Run controls" components="RunActivityControl, WorkflowQueueControl, RunRow, RunSection, ProductCancelButton">
+                <RunControlsGallery />
+              </Section>
+            </Match>
+            <Match when={route() === '#context-menus'}>
+              <Section title="Context menus" components="ContextMenu">
+                <ContextMenuGallery />
+              </Section>
+            </Match>
+            <Match when={route() === '#dropdowns'}>
+              <SelectGallery />
+            </Match>
+            <Match when={route() === '#tooltips'}>
+              <TooltipsGallery />
+            </Match>
+            <Match when={route() === '#field-alignment' || route() === '#site-field-alignment'}>
+              <FieldAlignmentGallery />
+            </Match>
             <Match when={route() === '#controls'}>
               <Section
                 title="Button roles and fills"
@@ -360,6 +652,7 @@ function Gallery() {
                   />
                   <ProductIconButton
                     label="Remove item"
+                    data-tooltip-label="Remove this item"
                     icon={Trash2}
                     intent="remove"
                     onClick={() => setDialog(true)}
@@ -371,6 +664,7 @@ function Gallery() {
                     onClick={() => {}}
                   />
                   <ProductSpinner label="Pending work" />
+                  <ProductIconButton label="Loading preview" icon={Play} pending />
                   <ProductIcon icon={Settings} />
                 </div>
                 <p class="dinkster-description">
@@ -442,6 +736,12 @@ function Gallery() {
                     />
                   )}
                 </ProductField>
+                <ProductField label="Keep at most">
+                  {(attributes) => <ProductByteSizeInput {...attributes} value={sizeLimit()} minimum={1} onCommit={setSizeLimit} />}
+                </ProductField>
+                <ProductField label="Unavailable size limit">
+                  {(attributes) => <ProductByteSizeInput {...attributes} value={4097} disabled onCommit={() => {}} />}
+                </ProductField>
                 <ProductField
                   label="Email address"
                   description="A filled field."
@@ -509,27 +809,20 @@ function Gallery() {
                   error="Choose an access level."
                 >
                   {(attributes) => (
-                    <ProductSelect {...attributes}>
-                      <option value="">Choose access</option>
-                      <option>Read only</option>
-                    </ProductSelect>
+                    <ProductSelect {...attributes} options={[{ value: '', label: 'Choose access' }, { value: 'read', label: 'Read only' }]} />
                   )}
                 </ProductField>
                 <ProductField label="Access">
                   {(attributes) => (
-                    <ProductSelect {...attributes}>
-                      <option>Read only</option>
-                      <option>Mint only</option>
-                    </ProductSelect>
+                    <ProductSelect {...attributes} options={[{ value: 'read', label: 'Read only' }, { value: 'disabled', label: 'Unavailable', disabled: true }, { value: 'mint', label: 'Mint only' }]} />
                   )}
                 </ProductField>
                 <ProductField label="Unavailable choice">
                   {(attributes) => (
-                    <ProductSelect {...attributes} disabled>
-                      <option>Read only</option>
-                    </ProductSelect>
+                    <ProductSelect {...attributes} disabled options={[{ value: 'read', label: 'Read only' }]} />
                   )}
                 </ProductField>
+                <ProductLink href="#dropdowns">All dropdown states</ProductLink>
               </Section>
               <Section
                 title="Choices"
@@ -663,23 +956,79 @@ function Gallery() {
                 )}
               </ProductForm>
             </Match>
+            <Match when={route() === '#count-strips'}>
+              <Section title="Count strips" components="ProductCountStrip">
+                <For each={['dark', 'light'] as const}>{(theme) => {
+                  const colors = canvasTypePaintForTheme(theme).typeColors
+                  return <div class="dinkster-panel dinkster-stack" data-theme={theme}>
+                    <h3 class="dinkster-heading">{theme === 'dark' ? 'Dark' : 'Light'}</h3>
+                    <ProductCountStrip label={`Model kinds, ${theme}`} segments={[
+                      { label: 'LoRAs', count: 38, kind: 'model/lora' },
+                      { label: 'Checkpoints', count: 12, kind: 'model/checkpoint' },
+                      { label: 'ControlNet', count: 9, kind: 'model/controlnet' },
+                      { label: 'Text encoders', count: 6, kind: 'model/text-encoder' },
+                      { label: 'VAEs', count: 4, kind: 'model/vae' },
+                      { label: 'Upscalers', count: 3, kind: 'model/upscaler' },
+                      { label: 'Other', count: 1, kind: 'other' },
+                    ].map((segment) => ({ ...segment, color: Object.hasOwn(modelKindColorMap, segment.kind) ? colors[modelKindColorMap[segment.kind]!]! : semanticTokensForTheme(theme).text.muted }))} />
+                  </div>
+                }}</For>
+              </Section>
+            </Match>
             <Match when={route() === '#lists'}>
-              <Section title="Storage folders" components="ProductDisclosure, ProductMenu">
+              <Section title="Grouped expandable rows" components="ProductList, ProductListRow, ProductFacts, ProductMenu">
+                <ProductList label="Backend servers" variant="grouped">
+                  <ProductListRow
+                    title="This computer"
+                    trailing="Dinkster, 70 node types"
+                    expanded={serverOpen()}
+                    onToggle={setServerOpen}
+                    action={<ProductMenu label="Server actions" icon={Ellipsis} iconOnly fill="quiet" items={[{ label: 'Change access token', onSelect: () => complete('Change access token chosen') }]} />}
+                  >
+                    <ProductFacts label="This computer" items={[{ label: 'Address', value: 'This computer' }, { label: 'Engine', value: 'Running' }]} />
+                    <ProductTextButton label="Restart engine" onClick={() => complete('Restart engine chosen')} />
+                  </ProductListRow>
+                  <ProductListRow title="Studio" trailing="Not connected" />
+                </ProductList>
+              </Section>
+              <Section title="Plain navigation rows" components="ProductList, ProductListRow">
+                <ProductList label="Asset folders" variant="plain">
+                  <ProductListRow title="Renders" description={<code>/home/name/Portraits/renders</code>} trailing="24 files" onActivate={() => complete('Renders opened')} />
+                </ProductList>
+              </Section>
+              <Section title="Rows with progress" components="ProductList, ProductListRow, ProductProgress">
+                <ProductList label="Model downloads" variant="plain">
+                  <ProductListRow title="Studio checkpoint" description="Checkpoint" trailing="42%" expanded={progressOpen()} onToggle={setProgressOpen}
+                    status={<ProductProgress label="Downloading Studio checkpoint" value={0.42} />}>
+                    <p class="dinkster-metadata">Download continues when details are closed.</p>
+                  </ProductListRow>
+                  <ProductListRow title="Pending checkpoint" description="Checkpoint, not downloaded"
+                    action={<ProductTextButton icon={Download} label="7.1 GB" aria-label="Download Pending checkpoint, 7.1 GB" intent="add" onClick={() => complete('Checkpoint download chosen')} />} />
+                </ProductList>
+              </Section>
+              <Section title="Selectable rows" components="ProductList, ProductListRow, ProductTextButton">
+                <ProductTextButton label="Focus version" onClick={() => versionButton?.focus()} />
+                <ProductList label="Model versions" variant="plain">
+                  <ProductListRow title="Studio checkpoint fp16" ref={(element) => { versionButton = element }} tabIndex={-1}
+                    pressed={versionSelected()} onActivate={() => setVersionSelected(!versionSelected())} />
+                </ProductList>
+              </Section>
+              <Section title="Storage folders" components="ProductList, ProductListRow, ProductMenu, ProductFacts">
                 <div class="storage-folders">
-                  <div class="storage-group-heading"><h3>Models</h3><ProductButton intent="add" onClick={() => complete('Add models folder chosen')}>Add</ProductButton></div>
-                  <article class="storage-folder">
-                    <div class="storage-folder-heading">
-                      <div class="storage-folder-copy"><strong>Studio models folder with a long descriptive name</strong><code>/home/name/Dinkster/Models</code></div>
-                      <ProductMenu label="Folder actions" icon={Ellipsis} iconOnly items={[{ label: 'Edit', onSelect: () => complete('Edit folder chosen') }]} />
-                    </div>
-                    <ProductDisclosure title="Model kinds"><ProductFacts label="Model kinds" items={[{ label: 'Checkpoints', value: '12 files' }, { label: 'LoRAs', value: '48 files' }]} /></ProductDisclosure>
-                    <span class="storage-folder-mark">Downloads land here</span>
-                  </article>
-                  <article class="storage-folder">
-                    <div class="storage-folder-heading"><div class="storage-folder-copy"><strong>Renders</strong><code>/home/name/Portraits/renders</code></div></div>
-                    <div class="storage-folder-summary"><span>Images</span><span>24 files</span><ProductButton onClick={() => complete('Assets chosen')}>Open in Assets</ProductButton></div>
-                    <span class="storage-folder-mark">New saves go here</span>
-                  </article>
+                  <div class="storage-group-heading"><h3>Model folders</h3><ProductTextButton icon={Plus} onClick={() => complete('Add models folder chosen')} label="Add" /></div>
+                  <ProductList label="Storage model folders" variant="grouped">
+                    <ProductListRow title={<strong>Studio models folder with a long descriptive name</strong>} trailing="60 models" expanded={storageOpen()} onToggle={setStorageOpen}
+                      description={<span class="storage-folder-description"><code class="storage-folder-path"><span>/home/name/Dinkster</span><span>/Models</span></code><span class="storage-folder-role storage-folder-mark"><ProductIcon icon={Download} />Downloads land here</span></span>}
+                      action={<ProductMenu label="Folder actions" fill="quiet" icon={Ellipsis} iconOnly items={[{ label: 'Edit', onSelect: () => complete('Edit folder chosen') }]} />}>
+                      <ProductFacts label="Model kinds" items={[{ label: 'Checkpoints', value: 12 }, { label: 'LoRAs', value: 48 }]} />
+                      <ProductTextButton label="Show these models" onClick={() => complete('Models chosen')} />
+                    </ProductListRow>
+                  </ProductList>
+                  <div class="storage-group-heading"><h3>Mounts</h3><ProductTextButton icon={Plus} onClick={() => complete('Add mount chosen')} label="Add" /></div>
+                  <ProductList label="Storage mounts" variant="grouped">
+                    <ProductListRow title={<strong>Renders</strong>} trailing="24 files" onActivate={() => complete('Assets chosen')}
+                      description={<span class="storage-folder-description"><code class="storage-folder-path"><span>/home/name/Portraits</span><span>/renders</span></code><span class="storage-folder-role storage-folder-mark"><ProductIcon icon={Star} />New saves go here</span></span>} />
+                  </ProductList>
                 </div>
               </Section>
               <Section
@@ -723,6 +1072,36 @@ function Gallery() {
                     }
                   />
                 </ProductList>
+              </Section>
+              <Section
+                title="Rows to pick from"
+                components=".dinkster-list-rows, .dinkster-list-row"
+              >
+                <ul class="dinkster-list-rows" aria-label="Recent workflows">
+                  <li class="dinkster-list-row">
+                    <span class="dinkster-list-row-name">Portrait upscale</span>
+                    <span class="dinkster-list-row-detail">Edited 2 hours ago</span>
+                  </li>
+                  <li class="dinkster-list-row" aria-current="true">
+                    <span class="dinkster-list-row-name">Product shots, studio light</span>
+                    <span class="dinkster-list-row-detail">Open now</span>
+                  </li>
+                  <li class="dinkster-list-row" data-state="opening">
+                    <span class="dinkster-list-row-name">Landscape batch</span>
+                    <span class="dinkster-list-row-detail">Opening...</span>
+                  </li>
+                  <li class="dinkster-list-row" data-state="failed">
+                    <span class="dinkster-list-row-name">Old inpainting setup</span>
+                    <span class="dinkster-list-row-detail">
+                      <ProductIcon icon={TriangleAlert} />
+                      Could not open: a node pack is missing
+                    </span>
+                  </li>
+                  <li class="dinkster-list-row">
+                    <span class="dinkster-list-row-name">A workflow with a much longer name that wraps onto a second line in a narrow panel</span>
+                    <span class="dinkster-list-row-detail">Edited yesterday</span>
+                  </li>
+                </ul>
               </Section>
               <Section title="Table" components="ProductTable">
                 <ProductTable
@@ -789,6 +1168,7 @@ function Gallery() {
                     items={[
                       {
                         label: 'View package',
+                        keys: ['Ctrl', 'Shift', '1'],
                         onSelect: () => complete('Package viewed'),
                       },
                       {
@@ -824,6 +1204,15 @@ function Gallery() {
                     name="Alex Morgan"
                     email="alex@example.test"
                     onSignOut={() => complete('Signed out')}
+                  />
+                  <ProductMenu
+                    label={`Type: ${quietType().toLowerCase()}`}
+                    fill="quiet"
+                    items={['Any type', 'Image', 'String'].map((type) => ({
+                      label: type,
+                      checked: type === quietType(),
+                      onSelect: () => setQuietType(type),
+                    }))}
                   />
                 </div>
               </Section>
@@ -949,13 +1338,14 @@ function Gallery() {
             </Match>
             <Match when={route() === '#confirmations'}>
               <Section
-                title="Site confirmation"
+                title="In place"
                 components="ProductConfirmation"
               >
+                <ProductList label="Backend above the question"><ProductListRow title="Local" description="This computer" /></ProductList>
                 <ProductConfirmation
-                  title="Remove API key?"
-                  consequence="Applications using this key will lose access immediately."
-                  actionLabel="Remove key"
+                  title={'Remove "Studio B"?'}
+                  consequence="Studio B and its saved access tokens are removed from this project. No files are deleted."
+                  actionLabel="Remove backend"
                   intent="remove"
                   pending={pending()}
                   onConfirm={async () => {
@@ -968,15 +1358,32 @@ function Gallery() {
                   }}
                   onCancel={() => complete('Removal cancelled')}
                 />
+                <ProductList label="Backend below the question"><ProductListRow title="Render farm" description="Disconnected" /></ProductList>
               </Section>
               <Section
-                title="App dialog"
-                components="ProductDialog with ProductConfirmation"
+                title="Something is lost"
+                components="ProductConfirmationDialog"
               >
                 <ProductButton intent="remove" onClick={() => setDialog(true)}>
                   Review removal
                 </ProductButton>
+                <ProductButton onClick={() => setWideDialog(true)}>
+                  Open wide dialog
+                </ProductButton>
               </Section>
+              <For each={[
+                { id: 'several' as const, title: 'Several things' },
+                { id: 'safe' as const, title: 'Nothing is lost' },
+                { id: 'working' as const, title: 'Working' },
+                { id: 'failed' as const, title: 'Failed' },
+              ]}>{(example) => <Section title={example.title} components="ProductConfirmationDialog">
+                <ProductButton onClick={() => {
+                  setConfirmationCase(example.id)
+                  setPending(example.id === 'working')
+                  setDialog(true)
+                  if (example.id === 'working') window.setTimeout(() => setPending(false), 600)
+                }}>Review {example.title.toLowerCase()}</ProductButton>
+              </Section>}</For>
               <Section
                 title="Replaced built-in text"
                 components="ProductStringsProvider"
@@ -994,39 +1401,63 @@ function Gallery() {
             </Match>
           </Switch>
         </Show>
-        <p class="dinkster-metadata" role="status">
-          {activity()}
-        </p>
+        <Show when={route() !== '#canvas' && route() !== '#page-loading' && route() !== '#project-loading'}>
+          <p class="dinkster-metadata" role="status">
+            {activity()}
+          </p>
+        </Show>
       </ProductPage>
       <ProductToast
         notification={toast()}
         onDismiss={() => setToast(undefined)}
       />
       <Show when={dialog()}>
-        <ProductDialog
-          title="Remove item?"
+        <ProductConfirmationDialog
+          title={confirmationCase() === 'several' ? 'Close 3 other tabs?' : confirmationCase() === 'safe' ? 'Show "strength" on Portrait fix?' : 'Remove "Studio B"?'}
           pending={pending()}
-          onDismiss={() => setDialog(false)}
-        >
-          <ProductConfirmation
-            consequence="This item will no longer be available."
-            actionLabel="Remove item"
-            intent="remove"
-            pending={pending()}
+            consequence={confirmationCase() === 'several' ? 'Two of them have unsaved changes, which will be lost.' : confirmationCase() === 'safe' ? 'The row is added to each subgraph on the way up. A subgraph used in several places gets it in every place.' : 'Studio B and its saved access tokens are removed from this project. No files are deleted.'}
+            actionLabel={confirmationCase() === 'several' ? 'Close and discard' : confirmationCase() === 'safe' ? 'Show on Portrait fix' : 'Remove backend'}
+            intent={confirmationCase() === 'safe' ? 'add' : 'remove'}
+            items={confirmationCase() === 'several' ? [
+              { name: 'Valley matte paintings', outcome: 'Unsaved changes' },
+              { name: 'Film grain experiments', outcome: 'Unsaved changes' },
+            ] : confirmationCase() === 'safe' ? [
+              { name: 'Blend detail', detail: 'used in 2 places', outcome: 'Already has it' },
+              { name: 'Detail pass', detail: 'used in 2 places', outcome: 'Gets the row' },
+              { name: 'Portrait fix', detail: 'used in 3 places', outcome: 'Gets the row' },
+            ] : undefined}
+            error={confirmationCase() === 'failed' ? 'Studio B was not removed. The library did not answer.' : undefined}
             onConfirm={async () => {
               setPending(true)
               await new Promise((resolve) => window.setTimeout(resolve, 600))
               setPending(false)
               setDialog(false)
+              setConfirmationCase('one')
               complete('Item removed')
             }}
-            onCancel={() => setDialog(false)}
+            onCancel={() => { setDialog(false); setConfirmationCase('one') }}
+          />
+      </Show>
+      <Show when={wideDialog()}>
+        <ProductDialog
+          title="Diagnostics"
+          size="wide"
+          onDismiss={() => setWideDialog(false)}
+        >
+          <ProductCodeBlock
+            label="Output"
+            value="Startup complete. All services are available and ready to accept requests."
           />
         </ProductDialog>
       </Show>
     </ProductShell>
   )
 }
+
+// The same width at which the stylesheet switches to the narrow layout.
+const narrowQuery = matchMedia(
+  `(max-width: ${components.layout.sidebarBreakpoint}px)`,
+)
 
 function WindowToolbarGallery() {
   const [state, setState] = createSignal('idle')
@@ -1077,17 +1508,36 @@ function WindowToolbarGallery() {
         <ProductLink href="#desktop-about">
           Back to Desktop information
         </ProductLink>
+        <ProductSection title="Shortcut keys">
+          <div class="dinkster-stack">
+            <span class="dinkster-description">Compact</span>
+            <div class="dinkster-search-row-keys">
+              <ProductShortcut keys="Ctrl+Shift+O" />
+              <ProductShortcut keys="Cmd+," />
+              <ProductShortcut keys={['Alt', '+']} />
+            </div>
+          </div>
+          <div class="dinkster-stack">
+            <span class="dinkster-description">Settings</span>
+            <ProductShortcut keys="Ctrl+Shift+O" size="settings" />
+          </div>
+          <div class="dinkster-stack">
+            <span class="dinkster-description">Two presses in sequence</span>
+            <div class="dinkster-search-row-keys">
+              <ProductShortcut keys="Ctrl+K" />
+              <ProductShortcut keys="Ctrl+C" />
+            </div>
+          </div>
+          <p class="dinkster-description"><ProductShortcutText text="Pan moves the canvas; `Ctrl+wheel` zooms. `Cmd+,` opens settings." /></p>
+        </ProductSection>
         <ProductField label="Execution state">
           {(attributes) => (
             <ProductSelect
               {...attributes}
               value={state()}
-              onChange={(event) => setState(event.currentTarget.value)}
-            >
-              <For each={['idle', 'running', 'pending']}>
-                {(value) => <option value={value}>{value}</option>}
-              </For>
-            </ProductSelect>
+              onChange={setState}
+              options={['idle', 'running', 'pending'].map((value) => ({ value, label: value }))}
+            />
           )}
         </ProductField>
         <ProductField label="All-workflow activity">
@@ -1095,13 +1545,9 @@ function WindowToolbarGallery() {
             <ProductSelect
               {...attributes}
               value={runActivity()}
-              onChange={(event) => setRunActivity(event.currentTarget.value)}
-            >
-              <option value="idle">Idle</option>
-              <option value="waiting">Queued only</option>
-              <option value="running">One running, two queued</option>
-              <option value="multiple">Three running, two queued</option>
-            </ProductSelect>
+              onChange={setRunActivity}
+              options={[{ value: 'idle', label: 'Idle' }, { value: 'waiting', label: 'Queued only' }, { value: 'running', label: 'One running, two queued' }, { value: 'multiple', label: 'Three running, two queued' }]}
+            />
           )}
         </ProductField>
         <ProductField label="Brand presentation">
@@ -1109,11 +1555,9 @@ function WindowToolbarGallery() {
             <ProductSelect
               {...attributes}
               value={brand()}
-              onChange={(event) => setBrand(event.currentTarget.value)}
-            >
-              <option value="menu">Plain menu</option>
-              <option value="wordmark">D symbol action</option>
-            </ProductSelect>
+              onChange={setBrand}
+              options={[{ value: 'menu', label: 'Plain menu' }, { value: 'wordmark', label: 'D symbol action' }]}
+            />
           )}
         </ProductField>
         <ProductField label="Project name">
@@ -1130,21 +1574,9 @@ function WindowToolbarGallery() {
             <ProductSelect
               {...attributes}
               value={account()}
-              onChange={(event) => setAccount(event.currentTarget.value)}
-            >
-              <option value="none">No account control</option>
-              <option value="signed-out">Signed out</option>
-              <option value="signing-in">Signing in</option>
-              <option value="signing-in-no-url">
-                Signing in without local URL
-              </option>
-              <option value="sign-in-unavailable">
-                Sign in from engine machine
-              </option>
-              <option value="signed-in">Signed in</option>
-              <option value="signed-in-email">Email only</option>
-              <option value="signed-in-empty">No profile</option>
-            </ProductSelect>
+              onChange={setAccount}
+              options={[{ value: 'none', label: 'No account control' }, { value: 'signed-out', label: 'Signed out' }, { value: 'signing-in', label: 'Signing in' }, { value: 'signing-in-no-url', label: 'Signing in without local URL' }, { value: 'sign-in-unavailable', label: 'Sign in from engine machine' }, { value: 'signed-in', label: 'Signed in' }, { value: 'signed-in-email', label: 'Email only' }, { value: 'signed-in-empty', label: 'No profile' }]}
+            />
           )}
         </ProductField>
         <ProductField label="Right panel attention">
@@ -1152,13 +1584,9 @@ function WindowToolbarGallery() {
             <ProductSelect
               {...attributes}
               value={rightAttention()}
-              onChange={(event) => setRightAttention(event.currentTarget.value)}
-            >
-              <option value="none">None</option>
-              <option value="info">One message</option>
-              <option value="warning">Two warnings</option>
-              <option value="problem">Three problems</option>
-            </ProductSelect>
+              onChange={setRightAttention}
+              options={[{ value: 'none', label: 'None' }, { value: 'info', label: 'One message' }, { value: 'warning', label: 'Two warnings' }, { value: 'problem', label: 'Three problems' }]}
+            />
           )}
         </ProductField>
         <ProductField label="Search shortcut">
@@ -1166,12 +1594,9 @@ function WindowToolbarGallery() {
             <ProductSelect
               {...attributes}
               value={shortcut()}
-              onChange={(event) => setShortcut(event.currentTarget.value)}
-            >
-              <option value="Ctrl+K">Ctrl+K</option>
-              <option value="Alt+K">Alt+K</option>
-              <option value="">No shortcut</option>
-            </ProductSelect>
+              onChange={setShortcut}
+              options={[{ value: 'Ctrl+K', label: 'Default binding' }, { value: 'Alt+K', label: 'Alternate binding' }, { value: '', label: 'No shortcut' }]}
+            />
           )}
         </ProductField>
         <p role="status">{activity()}</p>
@@ -1302,20 +1727,22 @@ function WindowToolbarGallery() {
                       }
                       actions={(narrow) => (
                         <>
-                          <Show when={runCounts().running > 0}>
-                            <ProductRunActivity
-                              {...runCounts()}
-                              label={runSummary()}
-                            />
-                          </Show>
-                          <Show when={state() !== 'idle'}>
-                            <ProductWindowAction
-                              label="Cancel run"
-                              icon={Square}
-                              intent="remove"
-                              pending={state() === 'pending'}
-                              onClick={() => setActivity('Run cancelled')}
-                            />
+                          <Show when={runCounts().running > 0 || state() !== 'idle'}>
+                            <span class="run-activity-control">
+                              <Show when={runCounts().running > 0}>
+                                <ProductRunActivity
+                                  {...runCounts()}
+                                  label={runSummary()}
+                                />
+                              </Show>
+                              <Show when={state() !== 'idle'}>
+                                <ProductCancelButton
+                                  label="Cancel Long run"
+                                  pending={state() === 'pending'}
+                                  onClick={() => setActivity('Run cancelled')}
+                                />
+                              </Show>
+                            </span>
                           </Show>
                           <ProductIconButton
                             label="Collaboration"
@@ -1387,23 +1814,53 @@ function WindowToolbarGallery() {
 
 function GalleryRoot() {
   const [route, setRoute] = createSignal(window.location.hash)
+  const [narrow, setNarrow] = createSignal(narrowQuery.matches)
+  const tooltips = new TooltipController()
+  const [tooltip, setTooltip] = createSignal(tooltips.visible)
+  tooltips.register({
+    id: 'gallery.dom',
+    resolve(target, options) {
+      const dom = target as Partial<DomTooltipTarget>
+      return dom.kind === 'dom' && dom.label ? {
+        lines: [dom.label],
+        ...(dom.shortcut ? { shortcut: dom.shortcut } : {}),
+        ...(options.detailed && dom.detail ? { detail: dom.detail } : {}),
+      } : undefined
+    },
+  })
+  onMount(() => {
+    createEffect(() => {
+      if (route() === '#tooltips') return
+      const detach = attachDomTooltips(document.getElementById('root')!, tooltips)
+      const unsubscribe = tooltips.subscribe(() => setTooltip(tooltips.visible))
+      onCleanup(() => { detach(); tooltips.hide(); unsubscribe(); setTooltip(undefined) })
+    })
+  })
+  // The site pages use the site form throughout. The gallery uses the Canvas
+  // page's frame, except that below the breakpoint its other pages keep the
+  // site form's narrow frame. Their content uses the site form, except the
+  // Canvas and canvas chrome pages, which show app controls at the app's size.
   createEffect(() => {
-    document.documentElement.dataset.density = [
-      '#canvas',
-      '#window-toolbar',
-      '#editor-bar',
-    ].includes(route())
-      ? 'app'
-      : 'site'
+    document.documentElement.dataset.density = route().startsWith('#site-')
+      ? 'site'
+      : !['#canvas', '#canvas-chrome', '#run-controls', '#engine-states', '#window-toolbar', '#editor-bar', '#projects', '#templates', '#model-downloads', '#page-tabs', '#models', '#settings-section', '#setup-components', '#field-alignment'].includes(route()) &&
+          narrow()
+        ? 'site'
+        : 'app'
+  })
+  onMount(() => {
+    const change = () => setNarrow(narrowQuery.matches)
+    narrowQuery.addEventListener('change', change)
+    onCleanup(() => narrowQuery.removeEventListener('change', change))
   })
   onMount(() => {
     const update = () => setRoute(window.location.hash)
     window.addEventListener('hashchange', update)
     onCleanup(() => window.removeEventListener('hashchange', update))
   })
-  return (
+  return (<>
     <Show
-      when={route().startsWith('#site-')}
+      when={route().startsWith('#site-') && route() !== '#site-field-alignment'}
       fallback={
         <Switch fallback={<Gallery />}>
           <Match when={route() === '#window-toolbar'}>
@@ -1411,6 +1868,18 @@ function GalleryRoot() {
           </Match>
           <Match when={route() === '#editor-bar'}>
             <EditorBarGallery />
+          </Match>
+          <Match when={route() === '#projects'}>
+            <ProjectsGallery />
+          </Match>
+          <Match when={route() === '#templates'}>
+            <TemplatesGallery />
+          </Match>
+          <Match when={route() === '#model-downloads'}>
+            <ModelDownloadsGallery />
+          </Match>
+          <Match when={route() === '#page-tabs'}>
+            <PageTabsGallery />
           </Match>
         </Switch>
       }
@@ -1423,7 +1892,8 @@ function GalleryRoot() {
         }}
       />
     </Show>
-  )
+    <Show when={tooltip()}>{(tip) => <ProductTooltip tip={tip()} label="Context help" />}</Show>
+  </>)
 }
 
 render(() => <GalleryRoot />, document.getElementById('root')!)

@@ -9,7 +9,7 @@ import {
   type Accessor,
   type JSX,
 } from 'solid-js'
-import { Menu, type LucideIcon } from 'lucide-solid'
+import { ChevronRight, Menu, type LucideIcon } from 'lucide-solid'
 import components from '@dinkster/branding/components' with { type: 'json' }
 import symbolUrl from '../../../branding/svg/dinkster-symbol-color.svg?url'
 import wordmarkUrl from '../../../branding/svg/dinkster-wordmark-color-dark.svg?url'
@@ -51,8 +51,12 @@ export function ProductAuthCard(props: {
   )
 }
 
-export function ProductPanel(props: { children: JSX.Element }) {
-  return <div class="dinkster-panel">{props.children}</div>
+export function ProductPanel(props: { fill?: 'quiet'; children: JSX.Element }) {
+  return (
+    <div class="dinkster-panel" data-fill={props.fill}>
+      {props.children}
+    </div>
+  )
 }
 
 export function ProductWindowIdentity(props: {
@@ -217,6 +221,79 @@ export interface ProductNavigationItem {
   label: string
   href: string
   icon: LucideIcon
+  /** Pages under this item, listed in headings while the item is current. */
+  groups?: readonly ProductNavigationGroup[]
+}
+
+export interface ProductNavigationGroup {
+  label: string
+  items: readonly { label: string; href: string }[]
+}
+
+/** A heading that opens and closes its pages. Only the heading holding the
+ * current page starts open, and moving to a page opens its heading. */
+function ProductNavigationGroups(props: {
+  groups: readonly ProductNavigationGroup[]
+  currentHref: string
+  onSelect: (event: MouseEvent, href: string) => void
+}) {
+  const holding = () =>
+    props.groups.find((group) =>
+      group.items.some((item) => item.href === props.currentHref),
+    )?.label
+  const [open, setOpen] = createSignal<ReadonlySet<string>>(new Set())
+  createEffect(() => {
+    const label = holding()
+    if (label !== undefined && !open().has(label))
+      setOpen((current) => new Set([...current, label]))
+  })
+  const toggle = (label: string) =>
+    setOpen((current) => {
+      const next = new Set(current)
+      if (!next.delete(label)) next.add(label)
+      return next
+    })
+  return (
+    <For each={props.groups}>
+      {(group) => {
+        const listId = createUniqueId()
+        return (
+          <>
+            <button
+              type="button"
+              class="dinkster-nav-group"
+              aria-expanded={open().has(group.label)}
+              aria-controls={listId}
+              onClick={() => toggle(group.label)}
+            >
+              <ProductIcon icon={ChevronRight} />
+              {group.label}
+            </button>
+            <div
+              id={listId}
+              class="dinkster-nav-pages"
+              hidden={!open().has(group.label)}
+            >
+              <For each={group.items}>
+                {(item) => (
+                  <a
+                    class="dinkster-nav-page"
+                    href={item.href}
+                    aria-current={
+                      props.currentHref === item.href ? 'page' : undefined
+                    }
+                    onClick={(event) => props.onSelect(event, item.href)}
+                  >
+                    {item.label}
+                  </a>
+                )}
+              </For>
+            </div>
+          </>
+        )
+      }}
+    </For>
+  )
 }
 
 export function ProductShell(props: {
@@ -225,6 +302,9 @@ export function ProductShell(props: {
   currentHref: string
   onNavigate: (href: string) => void
   account?: JSX.Element
+  /** The form the page content uses when it differs from the shell's, such
+   * as site-form components shown inside an app-form frame. */
+  contentDensity?: 'app' | 'site' | undefined
   children: JSX.Element
 }) {
   const strings = useProductStrings()
@@ -233,6 +313,21 @@ export function ProductShell(props: {
   let navigationToggle!: HTMLButtonElement
   let sidebar!: HTMLElement
   let main!: HTMLElement
+  const select = (event: MouseEvent, href: string) => {
+    if (
+      event.button !== 0 ||
+      event.ctrlKey ||
+      event.metaKey ||
+      event.altKey ||
+      event.shiftKey
+    )
+      return
+    event.preventDefault()
+    const closing = open()
+    props.onNavigate(href)
+    setOpen(false)
+    if (closing) main.focus()
+  }
   createEffect(() => {
     if (!open()) return
     const dismiss = (event: PointerEvent) => {
@@ -301,38 +396,55 @@ export function ProductShell(props: {
               aria-label={strings.mainNavigation}
             >
               <For each={props.navigation}>
-                {(item) => (
-                  <a
-                    class="dinkster-nav-item"
-                    href={item.href}
-                    aria-current={
-                      props.currentHref === item.href ? 'page' : undefined
-                    }
-                    onClick={(event) => {
-                      if (
-                        event.button !== 0 ||
-                        event.ctrlKey ||
-                        event.metaKey ||
-                        event.altKey ||
-                        event.shiftKey
-                      )
-                        return
-                      event.preventDefault()
-                      const closing = open()
-                      props.onNavigate(item.href)
-                      setOpen(false)
-                      if (closing) main.focus()
-                    }}
-                  >
-                    <ProductIcon icon={item.icon} />
-                    {item.label}
-                  </a>
-                )}
+                {(item) => {
+                  const inside = () =>
+                    item.groups?.some((group) =>
+                      group.items.some(
+                        (page) => page.href === props.currentHref,
+                      ),
+                    ) ?? false
+                  return (
+                    <>
+                      <a
+                        class="dinkster-nav-item"
+                        href={item.href}
+                        aria-current={
+                          props.currentHref === item.href
+                            ? 'page'
+                            : inside()
+                              ? 'true'
+                              : undefined
+                        }
+                        onClick={(event) => select(event, item.href)}
+                      >
+                        <ProductIcon icon={item.icon} />
+                        {item.label}
+                      </a>
+                      <Show
+                        when={
+                          item.groups &&
+                          (props.currentHref === item.href || inside())
+                        }
+                      >
+                        <ProductNavigationGroups
+                          groups={item.groups!}
+                          currentHref={props.currentHref}
+                          onSelect={select}
+                        />
+                      </Show>
+                    </>
+                  )
+                }}
               </For>
             </nav>
           </aside>
         </Show>
-        <main class="dinkster-page" tabindex="-1" ref={main}>
+        <main
+          class="dinkster-page"
+          data-density={props.contentDensity}
+          tabindex="-1"
+          ref={main}
+        >
           {props.children}
         </main>
       </div>
@@ -381,28 +493,73 @@ export function ProductSection(props: {
   )
 }
 
-export function ProductList(props: { label: string; children: JSX.Element }) {
+export function ProductList(props: {
+  label: string
+  variant?: 'plain' | 'grouped'
+  children: JSX.Element
+}) {
   return (
-    <ul class="dinkster-list" aria-label={props.label}>
+    <ul class="dinkster-list" data-variant={props.variant} aria-label={props.label}>
       {props.children}
     </ul>
   )
 }
 
 export function ProductListRow(props: {
-  title: string
-  description?: string
+  title: JSX.Element
+  description?: JSX.Element
+  leading?: JSX.Element
+  trailing?: JSX.Element
   action?: JSX.Element
+  status?: JSX.Element
+  expanded?: boolean
+  onToggle?: (expanded: boolean) => void
+  onActivate?: () => void
+  ref?: (element: HTMLButtonElement) => void
+  tabIndex?: number
+  pressed?: boolean
+  children?: JSX.Element
+  testId?: string
+  dataAttributes?: Readonly<Record<`data-${string}`, string | undefined>>
 }) {
+  const detailsId = createUniqueId()
+  const expandable = () => props.expanded !== undefined
+  const copy = () => <>
+    <Show when={expandable()}><ProductIcon icon={ChevronRight} /></Show>
+    {props.leading}
+    <span class="dinkster-row-copy">
+      <span>{props.title}</span>
+      <Show when={props.description}>
+        {(description) => <span class="dinkster-metadata">{description()}</span>}
+      </Show>
+    </span>
+    <Show when={props.trailing}>{(trailing) => <span class="dinkster-row-trailing">{trailing()}</span>}</Show>
+  </>
   return (
-    <li class="dinkster-row">
-      <div class="dinkster-row-copy">
-        <span>{props.title}</span>
-        <Show when={props.description}>
-          <span class="dinkster-metadata">{props.description}</span>
+    <li {...props.dataAttributes} class="dinkster-row" data-testid={props.testId} data-expanded={props.expanded}>
+      <div class="dinkster-row-heading">
+        <Show when={props.onToggle || props.onActivate} fallback={<div class="dinkster-row-main">{copy()}</div>}>
+          <button
+            type="button"
+            class="dinkster-row-main"
+            ref={props.ref}
+            tabIndex={props.tabIndex}
+            aria-pressed={props.pressed}
+            aria-expanded={props.expanded}
+            aria-controls={expandable() ? detailsId : undefined}
+            onClick={() => props.onToggle ? props.onToggle(!props.expanded) : props.onActivate?.()}
+          >
+            {copy()}
+          </button>
         </Show>
+        <Show when={props.action}>{(action) => <div class="dinkster-row-action">{action()}</div>}</Show>
       </div>
-      {props.action}
+      <Show when={props.status}>{(status) => <div class="dinkster-row-status">{status()}</div>}</Show>
+      <Show when={expandable()}>
+        <div id={detailsId} class="dinkster-row-details" hidden={!props.expanded}>
+          <Show when={props.expanded}>{props.children}</Show>
+        </div>
+      </Show>
     </li>
   )
 }

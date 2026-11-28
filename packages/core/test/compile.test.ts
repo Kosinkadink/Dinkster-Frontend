@@ -9,13 +9,19 @@ import { describe, expect, it } from 'vitest'
 import { compile, scopeClosure, type CompileInput } from '../src/compile/compile.js'
 import { semanticHashOf, sha256Hex } from '../src/compile/hash.js'
 import type { ExecutionScope } from '../src/compile/artifact.js'
-import type { WorkflowDocument } from '../src/format/document.js'
+import { boundaryOf } from '../src/format/document.js'
+import type { BoundaryItem, Json, WorkflowDocument } from '../src/format/document.js'
+import type { Diagnostic } from '../src/diagnostics.js'
+import type { LookupAnswerState } from '../src/schema/elaborate.js'
 import { loadDocument } from '../src/format/migrate.js'
 import { asConnectionId, asNodeId } from '../src/ids.js'
 import { historicalSchemas as schemas } from './fixtures/historical-schemas.js'
 import { parseDinksterSchema, type DinksterWireSchema } from '../src/schema/dinkster-wire.js'
-import { DINKSTER_GRAPH_FEATURE_DECIMAL_INT } from '../src/compile/dinkster-graph.js'
+import { DINKSTER_GRAPH_FEATURE_ABSENT_INPUT, DINKSTER_GRAPH_FEATURE_DECIMAL_INT, DINKSTER_GRAPH_FEATURE_REGIONS } from '../src/compile/dinkster-graph.js'
 import { coreVirtualNodeKind } from '../src/virtual-node.js'
+import { coreCommandRegistry } from '../src/commands/core-commands.js'
+import { DocumentStore } from '../src/commands/store.js'
+import { companionSourcesOf } from '../src/companion.js'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const readJson = (rel: string): unknown => JSON.parse(readFileSync(join(root, rel), 'utf8'))
@@ -99,10 +105,12 @@ describe('golden pairs', () => {
   })
   it.each([25, 29.97, undefined])('stamps numeric-union widget value %s without changing concrete numerics', (value) => {
     const schema = parseDinksterSchema('Numeric', {
+      schemaVersion: 2,
+      nodeType: 'Numeric',
       outputNode: true,
-      interface: [
-        { role: 'input', id: 'frame_rate', type: { kind: 'union', types: ['FLOAT', 'INT'] }, required: true, default: 23.976, widget: { type: 'NUMBER', step: 0.01 } },
-        { role: 'input', id: 'count', type: { kind: 'concrete', types: ['INT'] }, required: true, widget: { type: 'NUMBER', min: 0 } },
+      body: [
+        { kind: 'input', id: 'frame_rate', type: { kind: 'union', types: ['FLOAT', 'INT'] }, required: true, default: 23.976, widget: { type: 'NUMBER', step: 0.01 } },
+        { kind: 'input', id: 'count', type: { kind: 'concrete', types: ['INT'] }, required: true, widget: { type: 'NUMBER', min: 0 } },
       ],
     }).schema!
     expect(schema).toBeDefined()
@@ -126,9 +134,41 @@ describe('golden pairs', () => {
     expect(document).toEqual(before)
   })
 
+  it('refuses a run on a failed rule without a fix, runs with a warning when it has one, and names the node and its one field', () => {
+    const schemaWith = (fix: unknown[]) => parseDinksterSchema('Ruled', {
+      schemaVersion: 2,
+      nodeType: 'Ruled',
+      outputNode: true,
+      body: [
+        { kind: 'input', id: 'w', type: { kind: 'concrete', types: ['INT'] }, required: true, default: 3, widget: { type: 'NUMBER', min: 0 } },
+        { kind: 'input', id: 'h', type: { kind: 'concrete', types: ['INT'] }, required: true, default: 3, widget: { type: 'NUMBER', min: 0 } },
+      ],
+      validate: [
+        { check: { formula: 'w <= 6' }, message: 'Width must be 6 or less', fix, ...(fix.length > 0 ? { fixLabel: 'Use 6' } : {}) },
+        { check: { formula: 'w + h <= 10' }, message: 'Too big', fix, ...(fix.length > 0 ? { fixLabel: 'Use 6' } : {}) },
+      ],
+    } as never).schema!
+    const base = loadWorkflow('minimal')
+    const document: WorkflowDocument = { ...base, graphs: { [base.root]: {
+      ...base.graphs[base.root]!, links: {}, nodes: { n0: { id: asNodeId('n0'), type: 'Ruled', values: { w: 7, h: 4 } } },
+    } } }
+    const rules = (diagnostics: readonly Diagnostic[]) => diagnostics.filter((item) => item.code === 'node.rule.failed')
+      .map((item) => [item.severity, item.refs, item.data])
+
+    const refused = compile(compileInput(document, { kind: 'full' }, () => schemaWith([])))
+    expect(refused.ok).toBe(false)
+    if (!refused.ok) expect(rules(refused.diagnostics)).toEqual([
+      ['error', [{ graphId: base.root, nodeId: 'n0', portId: 'w', valueKey: 'w', direction: 'input' }], { rule: 0, hasFix: false, fields: ['w'], nodeMessage: 'Width must be 6 or less' }],
+      ['error', [{ graphId: base.root, nodeId: 'n0' }], { rule: 1, hasFix: false, fields: ['w', 'h'], nodeMessage: 'Too big' }],
+    ])
+    const warned = compile(compileInput(document, { kind: 'full' }, () => schemaWith([{ step: 'Set', row: 'w', value: { value: 6 } }])))
+    expect(warned.ok).toBe(true)
+    if (warned.ok) expect(rules(warned.artifact.diagnostics).map(([severity]) => severity)).toEqual(['warning', 'warning'])
+  })
+
   it('requires explicit supported type stamps for nonconcrete additional literals', () => {
     const schema = parseDinksterSchema('Authored', {
-      outputNode: true, additionalInputs: { kind: 'wildcard' }, interface: [],
+      schemaVersion: 2, nodeType: 'Authored', outputNode: true, additionalInputs: { kind: 'wildcard' }, body: [],
     }).schema!
     const base = loadWorkflow('minimal')
     for (const [value, features, accepted] of [
@@ -150,9 +190,11 @@ describe('golden pairs', () => {
 
   it('compiles explicit extra membership without deriving ports from dormant values', () => {
     const schema = parseDinksterSchema('Authored', {
+      schemaVersion: 2,
+      nodeType: 'Authored',
       outputNode: true,
       additionalInputs: { kind: 'concrete', types: ['INT'] },
-      interface: [{ role: 'input', id: 'choice', type: { kind: 'concrete', types: ['COMBO'] }, widget: { type: 'COMBO', editableOptions: true, options: [] } }],
+      body: [{ kind: 'input', id: 'choice', type: { kind: 'concrete', types: ['COMBO'] }, widget: { type: 'COMBO', editableOptions: true, options: [] } }],
     }).schema!
     const base = loadWorkflow('minimal')
     const document = (additionalInputs: readonly string[]): WorkflowDocument => ({
@@ -398,13 +440,15 @@ describe('value handling', () => {
     expect(loaded.document).toBeDefined()
     for (const expanded of [false, true]) {
       const schema = parseDinksterSchema('Evolving', {
+        schemaVersion: 2,
+        nodeType: 'Evolving',
         outputNode: true,
-        interface: [
-          { role: 'input', id: 'mode', type: { kind: 'concrete', types: ['COMBO'] }, required: true,
+        body: [
+          { kind: 'input', id: 'mode', type: { kind: 'concrete', types: ['COMBO'] }, required: true,
             default: 'linear', widget: { type: 'COMBO', options: expanded ? ['linear', 'cubic', 'nearest'] : ['linear', 'nearest'] } },
-          { role: 'input', id: 'height', type: { kind: 'concrete', types: ['INT'] }, required: true, default: 512, widget: { type: 'NUMBER', min: 1 } },
-          ...(expanded ? [{ role: 'input' as const, id: 'batch', type: { kind: 'concrete' as const, types: ['INT'] }, required: true, default: 3, widget: { type: 'NUMBER', min: 1 } }] : []),
-          { role: 'input', id: 'width', type: { kind: 'concrete', types: ['INT'] }, required: true, default: 512, widget: { type: 'NUMBER', min: 1 } },
+          { kind: 'input', id: 'height', type: { kind: 'concrete', types: ['INT'] }, required: true, default: 512, widget: { type: 'NUMBER', min: 1 } },
+          ...(expanded ? [{ kind: 'input', id: 'batch', type: { kind: 'concrete', types: ['INT'] }, required: true, default: 3, widget: { type: 'NUMBER', min: 1 } }] : []),
+          { kind: 'input', id: 'width', type: { kind: 'concrete', types: ['INT'] }, required: true, default: 512, widget: { type: 'NUMBER', min: 1 } },
         ],
       }).schema!
       expect(schema).toBeDefined()
@@ -417,6 +461,30 @@ describe('value handling', () => {
       })
     }
     expect(loaded.document!.graphs[base.root]!.nodes.n0!.values).toEqual({ width: 37, height: 91, mode: 'nearest' })
+  })
+
+  it('leaves an empty save target out so its declared default applies, and sends Project default as stored', () => {
+    const schema: NodeSchema = {
+      type: 'Save', displayName: 'Save', category: 'test', source: 'v3', isOutputNode: true,
+      body: [{ kind: 'input', id: 'target', type: { kind: 'concrete', name: 'SAVE_TARGET' }, optional: true,
+        widget: { widgetType: 'SAVE_TARGET', options: {}, default: { prefix: 'ComfyUI' } } }],
+    }
+    const sent = (target: Json) => {
+      const loaded = loadDocument({
+        format: 'dinkster-workflow', formatVersion: 1, lineage: 'save-target', root: 'g0',
+        graphs: { g0: { id: 'g0', name: 'root', nodes: { n0: { id: 'n0', type: 'Save', values: { target } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
+        view: { graphs: { g0: { nodes: { n0: { position: { x: 0, y: 0 } } } } } },
+      })
+      expect(loaded.document, JSON.stringify(loaded)).toBeDefined()
+      const result = compile(compileInput(loaded.document!, { kind: 'full' }, () => schema))
+      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+      if (!result.ok) throw new Error('save target workflow must compile')
+      return result.artifact.prompt['n0']!.inputs['target']
+    }
+    expect(sent(null)).not.toBeNull()
+    expect(sent(null)).toEqual({ prefix: 'ComfyUI' })
+    expect(sent({ prefix: 'renders/portrait' })).toEqual({ prefix: 'renders/portrait' })
+    expect(sent({ mount: 'archive', prefix: 'renders/portrait' })).toEqual({ mount: 'archive', prefix: 'renders/portrait' })
   })
 
   it('unknown value keys warn and are dropped', () => {
@@ -440,6 +508,156 @@ describe('value handling', () => {
     const inputs = result.artifact.prompt['n0']!.inputs
     expect(inputs['batch_size']).toBeDefined()
     expect(inputs['color']).toBeDefined()
+  })
+
+  it('leaves an automatic field with nothing stored for the engine to work out', () => {
+    const resolve: CompileInput['resolve'] = (type) => {
+      const schema = backendResolve(type)
+      if (type !== 'EmptyImage' || schema === undefined) return schema
+      const body = schema.body.map((row) =>
+        row.kind !== 'input' || (row.id !== 'batch_size' && row.id !== 'color') ? row
+          // batch_size cannot be worked out: that warning is the canvas's, not the compile's.
+          : { ...row, automatic: { formula: row.id === 'color' ? 'width' : 'missing_name' } })
+      return { ...schema, body }
+    }
+    const doc = mutableWorkflow('exec-basic')
+    const nodes = ((doc['graphs'] as Mutable)['g0'] as Mutable)['nodes'] as Mutable
+    ;(nodes['n0'] as Mutable)['values'] = { width: 64, height: 64, color: 5 }
+    const result = compile(compileInput(doc as unknown as WorkflowDocument, { kind: 'full' }, resolve))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const inputs = result.artifact.prompt['n0']!.inputs
+    expect(inputs['batch_size']).toBeUndefined()
+    expect(inputs['color']).toBe(5)
+    expect(result.artifact.diagnostics.some((d) => d.code === 'compile.input.missing' || d.code === 'automatic.default')).toBe(false)
+  })
+
+  it('keeps the lookup call it made for each automatic field it leaves for the engine', () => {
+    const callsOf = (values: Record<string, unknown>, hidden = false) => {
+      const resolve: CompileInput['resolve'] = (type) => {
+        const schema = backendResolve(type)
+        if (type !== 'EmptyImage' || schema === undefined) return schema
+        const automatic: Record<string, unknown> = { batch_size: { lookup: 'sizes.batch', args: ['width'] }, color: { formula: 'width * 2' } }
+        return { ...schema, body: schema.body.map((row) => row.kind !== 'input' || automatic[row.id] === undefined ? row
+          : { ...row, automatic: automatic[row.id], ...(hidden ? { visible: { formula: 'width > 100' } } : {}) }) } as NodeSchema
+      }
+      const doc = mutableWorkflow('exec-basic')
+      ;((((doc['graphs'] as Mutable)['g0'] as Mutable)['nodes'] as Mutable)['n0'] as Mutable)['values'] = values
+      const result = compile({ ...compileInput(doc as unknown as WorkflowDocument, { kind: 'full' }, resolve), lookupAnswers: () => ({ state: 'ready', answer: 3 }) })
+      return result.ok ? result.artifact.automaticCalls : 'failed'
+    }
+    const kept = [{ runtimeNodeId: 'n0', inputId: 'batch_size', lookup: 'sizes.batch', args: [24] }]
+    // A formula makes no call; a stored value is not automatic; a field its visible hides is still worked out by the run.
+    expect(callsOf({ width: 24, height: 64 })).toEqual(kept)
+    expect(callsOf({ width: 24, height: 64, batch_size: 2 })).toBeUndefined()
+    expect(callsOf({ width: 24, height: 64 }, true)).toEqual(kept)
+  })
+
+  it('passes on what a tapped automatic field shows, warning on the field only when that is its default', () => {
+    const resolve: CompileInput['resolve'] = (type) => {
+      const schema = backendResolve(type)
+      if (type !== 'EmptyImage' || schema === undefined) return schema
+      const automatic: Record<string, unknown> = {
+        color: { formula: 'width * 2' },
+        batch_size: { lookup: 'sizes.batch', args: ['width'] },
+        height: { formula: 'missing_name' },
+      }
+      const body = schema.body.map((row) =>
+        row.kind !== 'input' || automatic[row.id] === undefined ? row : { ...row, automatic: automatic[row.id] })
+      return { ...schema, body } as NodeSchema
+    }
+    const tapped = (tap: string, lookupAnswers?: CompileInput['lookupAnswers']) => {
+      const doc = mutableWorkflow('exec-basic')
+      const graph = (doc['graphs'] as Mutable)['g0'] as Mutable
+      const nodes = graph['nodes'] as Mutable
+      ;(nodes['n0'] as Mutable)['values'] = { width: 24 }
+      nodes['n2'] = { id: 'n2', type: 'EmptyImage', title: 'Retime 2', values: { width: 8, height: 64, batch_size: 1, color: 0 } }
+      graph['links'] = {
+        l2: { id: 'l2', from: { node: 'n2', port: 'out0' }, to: { node: 'n1', port: 'images' } },
+        l3: { id: 'l3', from: { node: 'n0', tap }, to: { node: 'n2', port: 'width' } },
+      }
+      const result = compile({ ...compileInput(doc as unknown as WorkflowDocument, { kind: 'full' }, resolve), ...(lookupAnswers !== undefined ? { lookupAnswers } : {}) })
+      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+      if (!result.ok) return undefined
+      return {
+        width: result.artifact.prompt['n2']!.inputs['width'],
+        warnings: result.artifact.diagnostics.filter((d) => d.code === 'automatic.tapDefault').map((d) => [d.message, d.anchor?.port]),
+        taps: result.artifact.automaticTaps,
+      }
+    }
+    const answer = (state: LookupAnswerState): CompileInput['lookupAnswers'] => (lookup, args) =>
+      lookup === 'sizes.batch' && JSON.stringify(args) === '[24]' ? state : undefined
+    const batchDefault = [['Could not work out batch_size. Retime 2 gets the default, 1.', { node: 'n0', port: 'batch_size' }]]
+    // Every value passed on is kept with the run, keyed as the run records the field's own node.
+    const tapOf = (inputId: string, value: Json) => [{ runtimeNodeId: 'n0', inputId, value, receiverRuntimeId: 'n2', receiver: 'Retime 2' }]
+    expect(tapped('color')).toEqual({ width: 48, warnings: [], taps: tapOf('color', 48) })
+    // A kept answer is what the row shows, fresh or not.
+    expect(tapped('batch_size', answer({ state: 'ready', answer: 3 }))).toEqual({ width: 3, warnings: [], taps: tapOf('batch_size', 3) })
+    expect(tapped('batch_size', answer({ state: 'stale', answer: 4, reason: 'failed' }))).toEqual({ width: 4, warnings: [], taps: tapOf('batch_size', 4) })
+    // Loading, no editor answers at all, and a failed lookup pass on the default.
+    expect(tapped('batch_size', answer({ state: 'loading' }))).toEqual({ width: 1, warnings: batchDefault, taps: tapOf('batch_size', 1) })
+    expect(tapped('batch_size')).toEqual({ width: 1, warnings: batchDefault, taps: tapOf('batch_size', 1) })
+    expect(tapped('batch_size', answer({ state: 'unavailable', reason: 'failed' }))).toEqual({ width: 1, warnings: batchDefault, taps: tapOf('batch_size', 1) })
+    // A stored value is not automatic: nothing is kept.
+    expect(tapped('width')?.taps).toBeUndefined()
+    expect(tapped('height')?.warnings.map(([message]) => message)).toEqual([expect.stringMatching(/^Could not work out height\. Retime 2 gets the default, \d+\.$/)])
+  })
+
+  it('has a formula read for a field with no default what the run is sent for it', () => {
+    const field = (id: string, name: string, widget: Record<string, unknown>, optional = false) =>
+      ({ kind: 'input', id, type: { kind: 'concrete', name }, optional, widget })
+    const read = ['num', 'text', 'pick', 'opt', 'hid', 'hid_def', 'secret', 'boxed', 'boxed_secret', 'limited', 'many', 'authored']
+    const resolve: CompileInput['resolve'] = (type) => {
+      const schema = backendResolve(type)
+      if (type !== 'EmptyImage' || schema === undefined) return schema
+      const body = [
+        ...schema.body,
+        field('num', 'INT', { widgetType: 'INT', options: { min: 16, max: 64 } }),
+        field('text', 'STRING', { widgetType: 'STRING', options: {} }),
+        field('pick', 'COMBO', { widgetType: 'COMBO', options: { options: ['slow', 'fast'] } }),
+        field('opt', 'INT', { widgetType: 'INT', options: { min: 5 } }, true),
+        // Looked-up limits, authored options and members past an optional minimum change what compile sends.
+        // A row its visible hides is sent what it would be sent if shown; a field declared hidden only what it stores.
+        { ...field('hid', 'INT', { widgetType: 'INT', options: { min: 7 } }), visible: { formula: 'width > 100' } },
+        { ...field('hid_def', 'INT', { widgetType: 'INT', options: { min: 7 }, default: 9 }), visible: { formula: 'width > 100' } },
+        { ...field('secret', 'INT', { widgetType: 'INT', options: { min: 4 } }), hidden: true },
+        { kind: 'section', id: 'box', visible: { formula: 'width > 100' }, rows: [
+          field('boxed', 'INT', { widgetType: 'INT', options: { min: 6 } }),
+          { ...field('boxed_secret', 'INT', { widgetType: 'INT', options: { min: 5 } }), hidden: true },
+        ] },
+        field('limited', 'INT', { widgetType: 'INT', options: {}, looked: { min: { formula: 'width + 1' } } }),
+        field('authored', 'COMBO', { widgetType: 'COMBO', options: { options: ['declared'] }, editableOptions: true }),
+        {
+          kind: 'group', id: 'many', minMembers: 1, optionalAfterMinimum: true, grows: 'button',
+          keys: { kind: 'numbered', prefix: 'm', start: 0, pad: 0 },
+          member: [field('entry', 'INT', { widgetType: 'INT', options: { min: 3 } })],
+        },
+        ...read.map((id) => ({ ...field(`reads_${id}`, 'INT', { widgetType: 'INT', options: {}, default: 0 }), automatic: { lookup: `probe.${id}`, args: [id === 'many' ? 'many.entry' : id] } })),
+      ]
+      return { ...schema, body } as NodeSchema
+    }
+    const doc = mutableWorkflow('exec-basic')
+    const nodes = ((doc['graphs'] as Mutable)['g0'] as Mutable)['nodes'] as Mutable
+    ;(nodes['n0'] as Mutable)['values'] = { width: 64, height: 64, batch_size: 1, color: 0 }
+    ;(nodes['n0'] as Mutable)['dynamic'] = { many: { members: ['m0', 'm1'] }, authored: { options: ['first', 'second'] } }
+    const asked: Record<string, unknown> = {}
+    const lookupAnswers: CompileInput['lookupAnswers'] = (lookup, args) => {
+      asked[lookup.slice('probe.'.length)] = args[0]
+      return { state: 'ready', answer: 1 }
+    }
+    const result = compile({ ...compileInput(doc as unknown as WorkflowDocument, { kind: 'full' }, resolve), lookupAnswers })
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) return
+    const inputs = result.artifact.prompt['n0']!.inputs
+    // A required field reads its widget's start: the minimum, an empty text, the first option.
+    const sent = Object.fromEntries(['num', 'text', 'pick', 'opt', 'hid', 'hid_def', 'secret', 'boxed', 'boxed_secret', 'limited', 'authored', 'many.m0.entry', 'many.m1.entry'].map((id) => [id, inputs[id]]))
+    expect(sent).toEqual({ num: 16, text: '', pick: 'slow', opt: undefined, hid: 7, hid_def: 9, secret: undefined, boxed: 6, boxed_secret: undefined, limited: 65, authored: 'first', 'many.m0.entry': 3, 'many.m1.entry': undefined })
+    // The lookup is called with what the run is sent; a field sent nothing waits.
+    expect(asked).toEqual({ num: 16, text: '', pick: 'slow', hid: 7, hid_def: 9, boxed: 6, limited: 65, authored: 'first', many: [3, null] })
+    // Shown, the same rows are sent the same values.
+    ;(nodes['n0'] as Mutable)['values'] = { width: 200, height: 64, batch_size: 1, color: 0 }
+    const shown = compile({ ...compileInput(doc as unknown as WorkflowDocument, { kind: 'full' }, resolve), lookupAnswers })
+    expect(shown.ok && ['hid', 'hid_def', 'secret', 'boxed', 'boxed_secret'].map((id) => shown.artifact.prompt['n0']!.inputs[id])).toEqual([7, 9, undefined, 6, undefined])
   })
 })
 
@@ -473,17 +691,19 @@ describe('semantic hash', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Dynamic interfaces (dynamic interface implementation compile integration)
+// Dynamic interfaces (groups, choices and type choices in compile)
 //
-// The compiler resolves values/links by elaborated document identity
-// ({port, members} / elaborated key) and emits wire names (apiName) and
-// non-ghost output indexes. These tests pin that contract with synthetic
-// dynamic schemas (the object_info fixture is static-only).
+// The compiler resolves values and links by flattened id, submits each input
+// under it, sends choice keys as slotVariants and member order as
+// outputMembers, and wires outputs by non-ghost output index. These tests pin
+// that contract with synthetic schemas (the object_info fixture is
+// static-only).
 // ---------------------------------------------------------------------------
 
-import type { InputSpec, NodeSchema, OutputSpec, TypeExpr } from '../src/schema/model.js'
+import type { BodyRow, ChoiceSpec, GroupSpec, InputSpec, NodeSchema, OutputSpec, TypeExpr } from '../src/schema/model.js'
 
 const IMAGE: TypeExpr = { kind: 'concrete', name: 'IMAGE' }
+const INT: TypeExpr = { kind: 'concrete', name: 'INT' }
 const dynInput = (id: string, extra?: Partial<InputSpec>): InputSpec => ({
   kind: 'input',
   id,
@@ -491,21 +711,25 @@ const dynInput = (id: string, extra?: Partial<InputSpec>): InputSpec => ({
   optional: false,
   ...extra,
 })
+const PICK = { kind: 'union', names: ['INT', 'BOOLEAN'] } as const
+const BRANCHES = { branch: { members: ['on_false', 'on_true'] } }
 const dynOutput = (id: string): OutputSpec => ({ kind: 'output', id, type: IMAGE })
-const dynSchemaOf = (type: string, items: (InputSpec | OutputSpec)[]): NodeSchema => ({
+const dynSchemaOf = (type: string, items: BodyRow[]): NodeSchema => ({
   type,
   displayName: type,
   category: 'test',
   source: 'v3',
   isOutputNode: true, // keeps every test node in full scope without sinks
-  items,
+  body: items,
 })
 
-const wire15SchemaOf = (type: string, interfaceItems: readonly Record<string, unknown>[]): NodeSchema => {
-  const parsed = parseDinksterSchema(type, { schemaVersion: 1, interface: interfaceItems } as never)
-  if (!parsed.schema || parsed.diagnostics.length > 0) throw new Error(`bad test schema ${type}: ${JSON.stringify(parsed.diagnostics)}`)
-  return { ...parsed.schema, isOutputNode: true }
-}
+const numbered = (prefix: string): GroupSpec['keys'] => ({ kind: 'numbered', prefix, start: 0, pad: 0 })
+const group = (id: string, prefix: string, rows: Pick<GroupSpec, 'value' | 'member'>, extra: Partial<GroupSpec> = {}): GroupSpec => ({
+  kind: 'group', id, ...rows, keys: numbered(prefix), grows: 'link', minMembers: 0, maxMembers: 4, ...extra,
+})
+const choice = (id: string, options: ChoiceSpec['options'], extra: Partial<ChoiceSpec> = {}): ChoiceSpec => ({
+  kind: 'choice', id, options, shared: [], required: true, ...extra,
+})
 
 const dynSchemas: Record<string, NodeSchema> = {
   ImageSrc: dynSchemaOf('ImageSrc', [dynOutput('out')]),
@@ -534,81 +758,30 @@ const dynSchemas: Record<string, NodeSchema> = {
   AssetLiteral: dynSchemaOf('AssetLiteral', [dynInput('in', {
     widget: { widgetType: 'ASSET', options: {} },
   })]),
-  // Single-slot autogrow (connectable): wire names images.image0, image1...
+  // A group of pins: flattened ids images.image0, images.image1...
   Batcher: dynSchemaOf('Batcher', [
-    {
-      ...dynInput('images'),
-      dynamic: {
-        kind: 'autogrow',
-        template: [dynInput('image')],
-        naming: { kind: 'prefix', prefix: 'image', min: 1, max: 2 },
-      },
-    },
+    group('images', 'image', { value: dynInput('image') }, { minMembers: 1, maxMembers: 2 }),
     dynOutput('out'),
   ]),
-  // Widget-backed autogrow: member values live under member elab keys.
+  // A group of fields: member values live under their flattened ids.
   Weigher: dynSchemaOf('Weigher', [
-    {
-      ...dynInput('weights'),
-      dynamic: {
-        kind: 'autogrow',
-        template: [dynInput('w', { widget: { widgetType: 'FLOAT', options: {}, default: 0.5 } })],
-        naming: { kind: 'prefix', prefix: 'w', min: 0, max: 4 },
-      },
-    },
+    group('weights', 'w', { value: dynInput('w', { widget: { widgetType: 'FLOAT', options: {}, default: 0.5 } }) }, { grows: 'filled' }),
   ]),
   NamedRoute: dynSchemaOf('NamedRoute', [
-    {
-      ...dynInput('values'),
-      dynamic: {
-        kind: 'autogrow',
-        template: [dynInput('value', { optional: true })],
-        naming: { kind: 'prefix', prefix: 'value', min: 0, max: 4 },
-      },
-    },
-    dynInput('name', {
-      type: { kind: 'concrete', name: 'STRING' },
-      widget: { widgetType: 'COMBO', options: {}, optionSource: { inputFamily: 'values' } },
-    }),
+    group('values', 'value', { value: dynInput('value', { optional: true }) }),
     dynOutput('out'),
   ]),
-  // Autogrow OUTPUT family followed by a static output (index arithmetic).
+  // A group of outputs followed by a static output (index arithmetic).
   Splitter: dynSchemaOf('Splitter', [
-    {
-      ...dynOutput('outs'),
-      dynamic: {
-        kind: 'autogrow',
-        template: [dynInput('o')],
-        naming: { kind: 'prefix', prefix: 'o', min: 0, max: 4 },
-      },
-    } as OutputSpec,
+    group('outs', 'o', { value: dynOutput('o') }),
     dynOutput('last'),
-  ]),
-  // Output autogrow with a MINIMUM: a fresh node min-fills synthetic members.
-  SplitterMin: dynSchemaOf('SplitterMin', [
-    {
-      ...dynOutput('outs'),
-      dynamic: {
-        kind: 'autogrow',
-        template: [dynInput('o')],
-        naming: { kind: 'prefix', prefix: 'o', min: 1, max: 4 },
-      },
-    } as OutputSpec,
   ]),
   CountSplitter: dynSchemaOf('CountSplitter', [
     dynInput('count', {
       type: { kind: 'concrete', name: 'INT' },
       widget: { widgetType: 'INT', options: {}, default: 0 },
     }),
-    {
-      ...dynOutput('images'),
-      dynamic: {
-        kind: 'autogrow',
-        template: [dynInput('image')],
-        naming: { kind: 'prefix', prefix: 'image', min: 0, max: 4 },
-        count: { input: 'count', suffix: 'index' },
-      },
-    } as OutputSpec,
+    group('images', '', { value: dynOutput('image') }, { grows: { count: 'count' } }),
   ]),
   CountMultiSplitter: dynSchemaOf('CountMultiSplitter', [
     dynInput('count', {
@@ -616,49 +789,17 @@ const dynSchemas: Record<string, NodeSchema> = {
       widget: { widgetType: 'INT', options: {}, default: 0 },
     }),
     dynOutput('before'),
-    {
-      ...dynOutput('images'),
-      dynamic: {
-        kind: 'autogrow',
-        template: [dynInput('image')],
-        naming: { kind: 'prefix', prefix: 'image', min: 0, max: 4 },
-        count: { input: 'count', suffix: 'index' },
-      },
-    } as OutputSpec,
+    group('images', '', { value: dynOutput('image') }, { grows: { count: 'count' } }),
     dynOutput('after'),
-    {
-      ...dynOutput('masks'),
-      dynamic: {
-        kind: 'autogrow',
-        template: [dynInput('mask')],
-        naming: { kind: 'prefix', prefix: 'mask', min: 0, max: 4 },
-        count: { input: 'count', suffix: 'index' },
-      },
-    } as OutputSpec,
-  ]),
-  // Unknown dynamic kinds elaborate as inert placeholders (forward compat).
-  WeirdIn: dynSchemaOf('WeirdIn', [
-    { ...dynInput('myst'), dynamic: { kind: 'mystery' } as never },
-  ]),
-  WeirdOut: dynSchemaOf('WeirdOut', [
-    { ...dynOutput('myst'), dynamic: { kind: 'mystery' } as never } as OutputSpec,
-    dynOutput('last'),
+    group('masks', '', { value: dynOutput('mask') }, { grows: { count: 'count' } }),
   ]),
   // Schema-level id collisions: the compiler must reject, never overwrite.
   DupIn: dynSchemaOf('DupIn', [dynInput('x'), dynInput('x')]),
   DupOut: dynSchemaOf('DupOut', [dynOutput('y'), dynOutput('y')]),
-  // Static ids containing '#'/'%': elaborated spec.id is escaped, but the
-  // document keys values by the RAW schema id.
+  // Static ids containing '#'/'%': the document keys values by the raw id.
   Odd: dynSchemaOf('Odd', [
     dynInput('a#b', { widget: { widgetType: 'FLOAT', options: {}, default: 0 } }),
     dynInput('c%d', { widget: { widgetType: 'FLOAT', options: {}, default: 0 } }),
-  ]),
-  // One input's RAW id equals another's ESCAPED elaborated id ('a#b'
-  // elaborates to spec.id 'a%23b'). Value keys are RAW for statics, so both
-  // route unambiguously - this pins that no spec.id-keyed lookup shadows it.
-  OddClash: dynSchemaOf('OddClash', [
-    dynInput('a#b', { widget: { widgetType: 'FLOAT', options: {}, default: 0 } }),
-    dynInput('a%23b', { widget: { widgetType: 'FLOAT', options: {}, default: 0 } }),
   ]),
   ExactInteger: dynSchemaOf('ExactInteger', [
     dynInput('seed', {
@@ -684,162 +825,149 @@ const dynSchemas: Record<string, NodeSchema> = {
   DecimalIntegerFloatSink: dynSchemaOf('DecimalIntegerFloatSink', [
     dynInput('value', { type: { kind: 'concrete', name: 'FLOAT' } }),
   ]),
-  // DynamicCombo: selector value is dynamic state; branch values branch-local.
+  // A choice: its key is stored state; option rows flatten as mode.<row>.
   Modal: dynSchemaOf('Modal', [
-    {
-      ...dynInput('mode'),
-      dynamic: {
-        kind: 'dynamicCombo',
-        options: [
-          { key: 'simple', inputs: [dynInput('strength', { widget: { widgetType: 'FLOAT', options: {}, default: 1 } })] },
-          {
-            key: 'advanced',
-            inputs: [
-              dynInput('strength', { widget: { widgetType: 'FLOAT', options: {}, default: 1 } }),
-              dynInput('bias', { widget: { widgetType: 'FLOAT', options: {}, default: 0 } }),
-            ],
-          },
+    choice('mode', [
+      { key: 'simple', rows: [dynInput('strength', { widget: { widgetType: 'FLOAT', options: {}, default: 1 } })] },
+      {
+        key: 'advanced',
+        rows: [
+          dynInput('strength', { widget: { widgetType: 'FLOAT', options: {}, default: 1 } }),
+          dynInput('bias', { widget: { widgetType: 'FLOAT', options: {}, default: 0 } }),
         ],
       },
-    },
+    ]),
   ]),
   SpecializedSlot: dynSchemaOf('SpecializedSlot', [{
-    ...dynInput('slot', { optional: true }),
-    dynamic: {
-      kind: 'dynamicSlot', slotType: IMAGE, inputs: [],
-      variants: [
-        { key: 'selected', type: IMAGE, inputs: [dynInput('x', { widget: { widgetType: 'FLOAT', options: {}, default: 1 } })] },
-        { key: 'other', type: IMAGE, inputs: [dynInput('x', { widget: { widgetType: 'FLOAT', options: {}, default: 2 } })] },
-        { key: 'empty', type: IMAGE, inputs: [] },
-      ],
-    },
+    kind: 'typeChoice',
+    id: 'slot',
+    variants: [
+      { key: 'selected', type: IMAGE, rows: [dynInput('x', { widget: { widgetType: 'FLOAT', options: {}, default: 1 } })] },
+      { key: 'other', type: IMAGE, rows: [dynInput('x', { widget: { widgetType: 'FLOAT', options: {}, default: 2 } })] },
+      { key: 'empty', type: IMAGE, rows: [] },
+    ],
+    rows: [],
+    required: false,
   }]),
-  CropImage: dynSchemaOf('CropImage', [
-    {
-      ...dynInput('source'),
-      dynamic: {
-        kind: 'dynamicCombo',
-        options: [
-          { key: 'coordinates', inputs: [] },
-          {
-            key: 'region',
-            inputs: [{
-              ...dynInput('region'),
-              dynamic: {
-                kind: 'dynamicSlot',
-                materialization: 'wire15',
-                slotType: IMAGE,
-                inputs: [],
-                variants: [{ key: 'mask', type: IMAGE, inputs: [] }],
-              },
-            }],
-          },
-        ],
-      },
-    },
-    dynOutput('image'),
+  ItemGroup: dynSchemaOf('ItemGroup', [group('items', 'item', { value: dynInput('value', { optional: true }) })]),
+  TapGroup: dynSchemaOf('TapGroup', [group('items', 'item', { value: dynInput('value', { type: INT, optional: true, widget: { widgetType: 'INT', options: {} } }) })]),
+  TapChoice: dynSchemaOf('TapChoice', [choice('mode', [
+    { key: 'a', rows: [dynInput('amount', { type: INT, optional: true, widget: { widgetType: 'INT', options: {} } })] },
+    { key: 'b', rows: [] },
+  ])]),
+  TapSlot: dynSchemaOf('TapSlot', [{
+    kind: 'typeChoice', id: 'model', type: IMAGE, required: false,
+    rows: [dynInput('weight', { type: INT, optional: true, widget: { widgetType: 'INT', options: {} } })],
+  }]),
+  OrderedGroup: dynSchemaOf('OrderedGroup', [group('items', 'item', { value: dynInput('value', { optional: true }) }, { reorderable: true })]),
+  NamedGroup: dynSchemaOf('NamedGroup', [{
+    kind: 'group', id: 'args', value: dynInput('value'), keys: { kind: 'named', names: ['a', 'b'] }, grows: 'link', minMembers: 1,
+  }]),
+  RecordGroup: dynSchemaOf('RecordGroup', [
+    group('pairs', 'pair', { member: [dynInput('left', { optional: true }), dynInput('right', { optional: true })] }, { maxMembers: 3 }),
   ]),
-  Wire15Family: dynSchemaOf('Wire15Family', [{
-    ...dynInput('items', { optional: true }),
-    dynamic: {
-      kind: 'autogrow', materialization: 'wire15',
-      template: [dynInput('value', { optional: true })],
-      naming: { kind: 'prefix', prefix: 'item', min: 0, max: 4 },
-    },
-  }]),
-  Wire15Names: wire15SchemaOf('Wire15Names', [{
-    role: 'inputFamily', id: 'args', memberNames: ['a', 'b'], minMembers: 1,
-    template: [{ role: 'input', id: 'value', type: { kind: 'concrete', types: ['IMAGE'] }, required: false }],
-  }]),
-  Wire15RequiredMin: wire15SchemaOf('Wire15RequiredMin', [{
-    role: 'inputFamily', id: 'items', memberPrefix: 'item', minMembers: 2, maxMembers: 4,
-    template: [{ role: 'input', id: 'value', type: { kind: 'concrete', types: ['IMAGE'] }, required: true }],
-  }]),
-  Wire15Grouped: wire15SchemaOf('Wire15Grouped', [{
-    role: 'inputFamily', id: 'pairs', memberPrefix: 'pair', minMembers: 0, maxMembers: 3,
-    template: [
-      { role: 'input', id: 'left', type: { kind: 'concrete', types: ['IMAGE'] }, required: false },
-      { role: 'input', id: 'right', type: { kind: 'concrete', types: ['IMAGE'] }, required: false },
-    ],
-  }]),
-  Wire15ComboFamily: wire15SchemaOf('Wire15ComboFamily', [{
-    role: 'inputFamily', id: 'items', memberPrefix: 'item', minMembers: 0, maxMembers: 3,
-    template: [{
-      role: 'dynamicCombo', id: 'mode', options: [
-        { key: 'a', inputs: [{
-          role: 'input', id: 'amount', type: { kind: 'concrete', types: ['IMAGE'] }, required: false,
-        }] },
-        { key: 'b', inputs: [] },
-      ],
-    }],
-  }]),
-  Wire15Recursive: wire15SchemaOf('Wire15Recursive', [{
-    role: 'dynamicCombo', id: 'mode', options: [
-      { key: 'none', inputs: [] },
-      { key: 'batch', inputs: [
-        {
-          role: 'inputFamily', id: 'frames', memberPrefix: 'frame', minMembers: 0, maxMembers: 4,
-          template: [{ role: 'input', id: 'value', type: { kind: 'concrete', types: ['IMAGE'] }, required: false }],
-        },
-        { role: 'dynamicCombo', id: 'quality', options: [
-          { key: 'draft', inputs: [] },
-          { key: 'full', inputs: [{ role: 'input', id: 'steps', type: { kind: 'concrete', types: ['IMAGE'] }, required: false }] },
-        ] },
+  ChoiceGroup: dynSchemaOf('ChoiceGroup', [
+    group('items', 'item', { member: [choice('mode', [
+      { key: 'a', rows: [dynInput('amount', { optional: true })] },
+      { key: 'b', rows: [] },
+    ])] }, { maxMembers: 3 }),
+  ]),
+  NestedChoice: dynSchemaOf('NestedChoice', [
+    choice('mode', [
+      { key: 'none', rows: [] },
+      { key: 'batch', rows: [
+        group('frames', 'frame', { value: dynInput('value', { optional: true }) }),
+        choice('quality', [
+          { key: 'draft', rows: [] },
+          { key: 'full', rows: [dynInput('steps', { optional: true })] },
+        ]),
       ] },
-    ],
-  }]),
-  Wire15PunctuationCombo: wire15SchemaOf('Wire15PunctuationCombo', [{
-    role: 'dynamicCombo', id: 'mode', options: [
-      { key: 'Flux.2 [pro]', inputs: [
-        { role: 'input', id: 'scale', type: { kind: 'concrete', types: ['IMAGE'] }, required: false },
-      ] },
-      { key: 'Flux.2 [max]', inputs: [] },
-    ], default: 'Flux.2 [pro]',
-  }]),
-  Wire15NonFirstDefault: wire15SchemaOf('Wire15NonFirstDefault', [{
-    role: 'dynamicCombo', id: 'mode', options: [
-      { key: 'first', inputs: [
-        { role: 'input', id: 'scale', type: { kind: 'concrete', types: ['IMAGE'] }, required: false },
-      ] },
-      { key: 'descriptor default', inputs: [] },
-    ], default: 'descriptor default',
-  }]),
-  Wire15OpenSlot: wire15SchemaOf('Wire15OpenSlot', [{
-    role: 'dynamicSlot', id: 'model', slotType: { kind: 'concrete', types: ['IMAGE'] }, required: false,
-    inputs: [{ role: 'input', id: 'weight', type: { kind: 'concrete', types: ['IMAGE'] }, required: false }],
+    ]),
+  ]),
+  PunctuationChoice: dynSchemaOf('PunctuationChoice', [
+    choice('mode', [
+      { key: 'Flux.2 [pro]', rows: [dynInput('scale', { optional: true })] },
+      { key: 'Flux.2 [max]', rows: [] },
+    ], { default: 'Flux.2 [pro]' }),
+  ]),
+  NonFirstDefaultChoice: dynSchemaOf('NonFirstDefaultChoice', [
+    choice('mode', [
+      { key: 'first', rows: [dynInput('scale', { optional: true })] },
+      { key: 'descriptor default', rows: [] },
+    ], { default: 'descriptor default' }),
+  ]),
+  OpenSlot: dynSchemaOf('OpenSlot', [{
+    kind: 'typeChoice', id: 'model', type: IMAGE, rows: [dynInput('weight', { optional: true })], required: false,
   }]),
   LazySelector: {
     ...dynSchemaOf('LazySelector', [
-      dynInput('switch', { type: { kind: 'concrete', name: 'BOOLEAN' }, widget: { widgetType: 'BOOLEAN', options: {} } }),
-      dynInput('on_false'),
-      dynInput('on_true'),
+      dynInput('switch', { type: PICK, optional: true }),
+      { kind: 'group', id: 'branch', value: dynInput('value', { optional: true, lazy: true }), keys: { kind: 'named', names: ['on_false', 'on_true'] }, grows: 'button', minMembers: 1 },
       dynOutput('result'),
     ]),
-    selector: { input: 'switch', branches: { false: 'on_false', true: 'on_true' } },
+    selector: { input: 'switch', group: 'branch' },
   },
-  LazySelectorOdd: {
-    ...dynSchemaOf('LazySelectorOdd', [
-      dynInput('switch#id', { type: { kind: 'concrete', name: 'BOOLEAN' }, widget: { widgetType: 'BOOLEAN', options: {} } }),
-      dynInput('on_false'),
-      dynInput('on_true'),
+  Primitive: {
+    ...dynSchemaOf('Primitive', [
+      dynInput('value', { type: INT, widget: { widgetType: 'INT', options: {}, default: 0, controller: 'after_generate' } }),
+      { kind: 'output', id: 'INT', type: INT, knownValue: { input: 'value' } },
+    ]),
+    isOutputNode: false,
+  },
+  VarPrimitive: {
+    ...dynSchemaOf('VarPrimitive', [
+      dynInput('value', { type: { kind: 'variable', templateId: 'T' } }),
+      { kind: 'output', id: 'out', type: { kind: 'variable', templateId: 'T' }, knownValue: { input: 'value' } },
+    ]),
+    isOutputNode: false,
+  },
+  Choice: {
+    ...dynSchemaOf('Choice', [
+      dynInput('value', { type: { kind: 'concrete', name: 'COMBO' }, widget: { widgetType: 'COMBO', options: { options: ['euler', 'dpm'] } } }),
+      { kind: 'output', id: 'COMBO', type: { kind: 'concrete', name: 'COMBO' }, knownValue: { input: 'value' } },
+    ]),
+    isOutputNode: false,
+  },
+  SamplerSink: dynSchemaOf('SamplerSink', [dynInput('sampler', { type: { kind: 'concrete', name: 'COMBO' }, widget: { widgetType: 'COMBO', options: { options: ['euler', 'dpm'] } } })]),
+  IntSrc: { ...dynSchemaOf('IntSrc', [{ kind: 'output', id: 'out', type: INT }]), isOutputNode: false },
+  AnyValue: dynSchemaOf('AnyValue', [dynInput('value', { type: { kind: 'variable', templateId: 'T' }, optional: true })]),
+  IntSink: dynSchemaOf('IntSink', [dynInput('steps', { type: INT, widget: { widgetType: 'INT', options: {}, default: 20 } })]),
+  Switch: {
+    ...dynSchemaOf('Switch', [
+      dynInput('pick', { type: PICK, optional: true }),
+      { kind: 'group', id: 'branch', value: dynInput('value', { optional: true, lazy: true }), keys: { kind: 'named', names: ['a', 'b', 'c'] }, grows: 'button', minMembers: 1 },
       dynOutput('result'),
     ]),
-    selector: { input: 'switch#id', branches: { false: 'on_false', true: 'on_true' } },
+    selector: { input: 'pick', group: 'branch' },
   },
-  CreateList14: dynSchemaOf('CreateList14', [{
-    ...dynInput('items', { optional: true }),
-    dynamic: {
-      kind: 'autogrow', template: [dynInput('value', { optional: true })],
-      naming: { kind: 'prefix', prefix: 'items', min: 1, max: 3 },
-    },
-  }]),
-  CreateList15: wire15SchemaOf('CreateList15', [{
-    role: 'inputFamily', id: 'items', memberPrefix: 'items', minMembers: 1, maxMembers: 3, required: false,
-    template: [{ role: 'input', id: 'value', type: { kind: 'concrete', types: ['IMAGE'] }, required: false }],
-  }]),
+  NamedSwitch: {
+    ...dynSchemaOf('NamedSwitch', [
+      dynInput('pick', { type: { kind: 'union', names: ['INT', 'BOOLEAN', 'STRING', 'COMBO'] }, optional: true }),
+      dynInput('names', { type: { kind: 'list', element: { kind: 'concrete', name: 'STRING' } }, optional: true, hidden: true }),
+      { kind: 'group', id: 'branch', value: dynInput('value', { optional: true, lazy: true }), keys: { kind: 'named', names: ['a', 'b', 'c'] }, grows: 'button', minMembers: 1 },
+      dynOutput('result'),
+    ]),
+    selector: { input: 'pick', group: 'branch', names: 'names' },
+  },
+  TextPrimitive: {
+    ...dynSchemaOf('TextPrimitive', [
+      dynInput('value', { type: { kind: 'concrete', name: 'STRING' }, widget: { widgetType: 'STRING', options: {}, default: '' } }),
+      { kind: 'output', id: 'STRING', type: { kind: 'concrete', name: 'STRING' }, knownValue: { input: 'value' } },
+    ]),
+    isOutputNode: false,
+  },
+  TextSrc: { ...dynSchemaOf('TextSrc', [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'STRING' } }]), isOutputNode: false },
+  ModeSwitch: {
+    ...dynSchemaOf('ModeSwitch', [
+      dynInput('pick', { type: PICK, optional: true, widget: { widgetType: 'COMBO', options: {}, controller: 'after_generate', controllerInitial: 'fixed' } }),
+      { kind: 'group', id: 'branch', value: dynInput('value', { optional: true, lazy: true }), keys: { kind: 'named', names: ['a', 'b'] }, grows: 'button', minMembers: 1 },
+      dynOutput('result'),
+    ]),
+    selector: { input: 'pick', group: 'branch' },
+  },
   'comfy.ResizeImageMaskNode': parseDinksterSchema(
     'comfy.ResizeImageMaskNode',
-    { ...readJson('fixtures/dinkster-resize-image-mask-wire16.json') as DinksterWireSchema, schemaVersion: 1 },
+    { ...readJson('fixtures/dinkster-resize-image-mask-wire16.json') as DinksterWireSchema, schemaVersion: 2 },
   ).schema!,
 }
 const dynResolve = (type: string) => dynSchemas[type]
@@ -848,30 +976,29 @@ type DynNode = {
   type: string
   values?: Record<string, unknown>
   dynamic?: Record<string, unknown>
+  controllers?: Record<string, string>
   mode?: 'active' | 'muted' | 'bypassed'
+  title?: string
 }
 type DynEnd =
-  | [node: string, port: string, members?: string[]]
+  | [node: string, port: string]
   | { reroute: string }
   | { node: string; tap: string }
-  | { valueSource: string }
 const dynDoc = (parts: {
   nodes: Record<string, DynNode>
   links?: [from: DynEnd, to: DynEnd][]
   reroutes?: string[]
-  valueSources?: Record<string, unknown>
   nets?: [name: string, source: [node: string, port: string], sinks: [node: string, port: string][]][]
   boundary?: { inputs?: unknown[]; outputs?: unknown[] }
   subgraphs?: Record<string, {
     nodes: Record<string, DynNode>
     links?: [from: DynEnd, to: DynEnd][]
     reroutes?: string[]
-    valueSources?: Record<string, unknown>
     boundary: { inputs?: unknown[]; outputs?: unknown[] }
   }>
 }): WorkflowDocument => {
   const end = (e: DynEnd) => Array.isArray(e)
-    ? { node: e[0], port: e[1], ...(e[2] ? { members: e[2] } : {}) }
+    ? { node: e[0], port: e[1] }
     : e
   const defOf = (
     id: string,
@@ -879,14 +1006,13 @@ const dynDoc = (parts: {
     links: [DynEnd, DynEnd][],
     boundary?: { inputs?: unknown[]; outputs?: unknown[] },
     reroutes: readonly string[] = [],
-    valueSources: Record<string, unknown> = {},
   ): unknown => ({
     id,
     name: id,
     nodes: Object.fromEntries(
       Object.entries(nodes).map(([nid, n]) => [
         nid,
-        { id: nid, type: n.type, values: n.values ?? {}, ...(n.dynamic ? { dynamic: n.dynamic } : {}), ...(n.mode ? { mode: n.mode } : {}) },
+        { id: nid, type: n.type, values: n.values ?? {}, ...(n.dynamic ? { dynamic: n.dynamic } : {}), ...(n.controllers ? { controllers: n.controllers } : {}), ...(n.mode ? { mode: n.mode } : {}), ...(n.title ? { title: n.title } : {}) },
       ]),
     ),
     links: Object.fromEntries(links.map((l, i) => [`l${i}`, { id: `l${i}`, from: end(l[0]), to: end(l[1]) }])),
@@ -894,19 +1020,14 @@ const dynDoc = (parts: {
       name, source: end(source), sinks: sinks.map((sink) => end(sink)),
     }])) : {},
     reroutes: Object.fromEntries(reroutes.map((reroute) => [reroute, { id: reroute }])),
-    valueSources: Object.fromEntries(Object.entries(valueSources).map(([sourceId, value]) => [sourceId, {
-      id: sourceId,
-      value,
-      spec: { widgetType: 'IMAGE' },
-    }])),
     nextOrdinal: 100,
-    ...(boundary ? { boundary: { inputs: boundary.inputs ?? [], outputs: boundary.outputs ?? [] } } : {}),
+    ...(boundary ? { boundary: boundaryOf((boundary.inputs ?? []) as BoundaryItem[], (boundary.outputs ?? []) as BoundaryItem[]) } : {}),
   })
   const graphs: Record<string, unknown> = {
-    g0: defOf('g0', parts.nodes, parts.links ?? [], undefined, parts.reroutes, parts.valueSources),
+    g0: defOf('g0', parts.nodes, parts.links ?? [], undefined, parts.reroutes),
   }
   for (const [id, sub] of Object.entries(parts.subgraphs ?? {})) {
-    graphs[id] = defOf(id, sub.nodes, sub.links ?? [], sub.boundary, sub.reroutes, sub.valueSources)
+    graphs[id] = defOf(id, sub.nodes, sub.links ?? [], sub.boundary, sub.reroutes)
   }
   return {
     format: 'dinkster-workflow',
@@ -921,12 +1042,270 @@ const dynDoc = (parts: {
 const dynCompile = (doc: WorkflowDocument, scope: ExecutionScope = { kind: 'full' }) =>
   compile({ ...compileInput(doc, scope), resolve: dynResolve })
 
+it('submits the saved empty-record selector instead of its display-only placeholder', () => {
+  const record = { kind: 'record', types: ['settings'], fields: [] } as const
+  const wire = { schemaVersion: 2, nodeType: 'change', body: [
+    { kind: 'input', id: 'record', type: { ...record, templateId: 'Record' }, required: true },
+    { kind: 'input', id: 'field', type: { kind: 'concrete', types: ['COMBO'] }, pin: false,
+      default: '[]', widget: { type: 'COMBO' } },
+    { kind: 'input', id: 'value', type: { kind: 'record_field', input: 'record', index: 'field' } },
+    { kind: 'output', id: 'record', type: { kind: 'variable', templateId: 'Record' } },
+  ] } as never
+  const parsed = parseDinksterSchema('change', wire)
+  expect(parsed.diagnostics).toEqual([])
+  const source = parseDinksterSchema('source', { body: [{ kind: 'output', id: 'record', type: record }] } as never).schema!
+  for (const values of [{}, { field: '[]' }]) {
+    const document = dynDoc({ nodes: { source: { type: 'source' }, change: { type: 'change', values } },
+      links: [[['source', 'record'], ['change', 'record']]] })
+    const result = compile({ ...compileInput(document, { kind: 'full' }, (type) => type === 'source' ? source : parsed.schema),
+      graphFeatures: ['regions', 'typedLiteral'] })
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) return
+    expect(result.artifact.prompt.change?.inputs).toEqual({ record: ['source', 0], field: '[]' })
+  }
+})
+
+it('compiles a record selected from generic list and tuple nodes through a subgraph', () => {
+  const variable = { kind: 'variable', templateId: 'T' } as const
+  const integer = { kind: 'concrete', types: ['INT'] } as const
+  const text = { kind: 'concrete', types: ['STRING'] } as const
+  const record = { kind: 'record', types: ['settings'], fields: [
+    { id: 'seed', name: 'seed', type: integer },
+    { id: 'prompt', name: 'prompt', type: text },
+  ] } as const
+  const bodies = {
+    source: [{ kind: 'output', id: 'record', type: record }],
+    collect: [{ kind: 'input', id: 'value', type: variable, required: true },
+      { kind: 'output', id: 'value', type: { kind: 'list', element: variable } }],
+    pair: [{ kind: 'input', id: 'value', type: { kind: 'list', element: variable }, required: true },
+      { kind: 'output', id: 'value', type: { kind: 'tuple', elements: [text, variable] } }],
+    pick: [{ kind: 'input', id: 'value', type: variable, required: true },
+      { kind: 'input', id: 'index', type: integer, required: true, default: 0 },
+      { kind: 'output', id: 'value', type: { kind: 'tuple_element', input: 'value', index: 'index' } }],
+    sink: [{ kind: 'input', id: 'record', type: record, required: true }],
+  } as const
+  const schemas = new Map(Object.entries(bodies).map(([type, body]) => [type,
+    parseDinksterSchema(type, { schemaVersion: 2, nodeType: type, outputNode: type === 'sink', body }).schema!]))
+  const document = dynDoc({
+    nodes: { source: { type: 'source' }, sub: { type: '#container' }, sink: { type: 'sink' } },
+    links: [[['source', 'record'], ['sub', 'record']], [['sub', 'result'], ['sink', 'record']]],
+    subgraphs: { container: {
+      nodes: { collect: { type: 'collect' }, pair: { type: 'pair' }, pick: { type: 'pick', values: { index: 1 } } },
+      links: [[['collect', 'value'], ['pair', 'value']], [['pair', 'value'], ['pick', 'value']]],
+      boundary: {
+        inputs: [{ id: 'record', binds: { kind: 'port', node: 'collect', port: 'value' } }],
+        outputs: [{ id: 'result', binds: { kind: 'port', node: 'pick', port: 'value' } }],
+      },
+    } },
+  })
+  const result = compile({ ...compileInput(document, { kind: 'full' }, (type) => schemas.get(type)),
+    graphFeatures: ['regions', 'typedLiteral'] })
+  expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+  if (!result.ok) return
+  expect(result.artifact.diagnostics.filter((diagnostic) => diagnostic.severity === 'error')).toEqual([])
+  expect(result.artifact.prompt.sink?.inputs).toEqual({ record: ['sub.pick', 0] })
+  expect(result.artifact.prompt['sub.pick']?.inputs).toEqual({ value: ['sub.pair', 0], index: 1 })
+})
+
+describe('small flow nodes', () => {
+  const flowSchemas = new Map(Object.entries(readJson('test/fixtures/flow_schemas.json') as Record<string, DinksterWireSchema>)
+    .map(([type, wire]) => [type, parseDinksterSchema(type, wire).schema!]))
+  const resolve = (type: string) => flowSchemas.get(type) ?? backendResolve(type)
+  const run = (document: WorkflowDocument, target: string) => compile({
+    ...compileInput(document, { kind: 'partial', targets: [{ instancePath: [], node: asNodeId(target) }] }),
+    resolve,
+    graphFeatures: ['regions', 'typedLiteral'],
+  })
+
+  it('submits Unpack output members from the stored count without inventing document state', () => {
+    for (const count of [0, 3, 512]) {
+      const document = dynDoc({ nodes: { unpack: { type: 'dinkster.utilities.unpack', values: { count } } } })
+      const before = JSON.stringify(document)
+      const result = run(document, 'unpack')
+      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+      if (!result.ok) continue
+      const members = Array.from({ length: count }, (_, index) => String(index))
+      expect(result.artifact.dinksterGraph?.nodes.unpack).toEqual({
+        nodeType: 'dinkster.utilities.unpack', inputs: { count }, outputMembers: { items: members },
+      })
+      expect(JSON.stringify(document)).toBe(before)
+    }
+  })
+
+  it('delivers absence from a retained Unpack output, restores it on growth, and rejects malformed outputs', () => {
+    for (const port of ['items.2', 'items.02', 'items.512', 'items.2.unknown']) {
+      const document = dynDoc({
+        nodes: { unpack: { type: 'dinkster.utilities.unpack', values: { count: 2 } },
+          sink: { type: 'dinkster.utilities.has_value' } },
+        links: [[['unpack', port], ['sink', 'value']]],
+      })
+      const result = compile({ ...compileInput(document), resolve,
+        graphFeatures: ['regions', 'typedLiteral', DINKSTER_GRAPH_FEATURE_ABSENT_INPUT] })
+      if (port !== 'items.2') {
+        expect(result.ok).toBe(false)
+        if (!result.ok) expect(result.diagnostics.some((d) => d.code === 'compile.port.unknownOutput')).toBe(true)
+        continue
+      }
+      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+      if (!result.ok) continue
+      expect(result.artifact.dinksterGraph?.nodes.sink).toMatchObject({ inputs: { value: { $absent: expect.anything() } } })
+      expect(result.artifact.dinksterGraph?.nodes.unpack).toMatchObject({ outputMembers: { items: ['0', '1'] } })
+      const grown = { ...document, graphs: { ...document.graphs, g0: { ...document.graphs.g0!,
+        nodes: { ...document.graphs.g0!.nodes, unpack: { ...document.graphs.g0!.nodes.unpack!, values: { count: 3 } } } } } }
+      const restored = compile({ ...compileInput(grown), resolve, graphFeatures: ['regions', 'typedLiteral', DINKSTER_GRAPH_FEATURE_ABSENT_INPUT] })
+      expect(restored.ok, JSON.stringify(!restored.ok && restored.diagnostics)).toBe(true)
+      if (restored.ok) expect(restored.artifact.dinksterGraph?.nodes.sink).toMatchObject({ inputs: { value: { $link: { node: 'unpack', output: 'items.2' } } } })
+    }
+    const forwarded = dynDoc({
+      nodes: { box: { type: '#inner' }, sink: { type: 'dinkster.utilities.has_value' } },
+      links: [[['box', 'third'], ['sink', 'value']]],
+      subgraphs: { inner: { nodes: { unpack: { type: 'dinkster.utilities.unpack', values: { count: 2 } } },
+        boundary: { outputs: [{ id: 'third', binds: { kind: 'port', node: 'unpack', port: 'items.2' } }] } } },
+    })
+    const throughBoundary = compile({ ...compileInput(forwarded), resolve,
+      graphFeatures: ['regions', 'typedLiteral', DINKSTER_GRAPH_FEATURE_ABSENT_INPUT] })
+    expect(throughBoundary.ok, JSON.stringify(!throughBoundary.ok && throughBoundary.diagnostics)).toBe(true)
+    if (throughBoundary.ok) expect(throughBoundary.artifact.dinksterGraph?.nodes.sink)
+      .toMatchObject({ inputs: { value: { $absent: expect.anything() } } })
+  })
+
+  it.each([
+    ['dinkster.utilities.or_else', 'values.1', { values: { members: ['1', '2'] } }],
+    ['dinkster.utilities.has_value', 'value', {}],
+    ['dinkster.utilities.only_if', 'value', {}],
+  ] as const)('treats a muted producer as no wire for %s', (type, port, dynamic) => {
+    const document = (linked: boolean) => dynDoc({
+      nodes: { source: { type: 'EmptyImage', mode: 'muted' }, flow: { type, dynamic } },
+      links: linked ? [[['source', 'out0'], ['flow', port]]] : [],
+    })
+    const linked = run(document(true), 'flow')
+    const unplugged = run(document(false), 'flow')
+    expect(linked.ok, JSON.stringify(!linked.ok && linked.diagnostics)).toBe(true)
+    expect(unplugged.ok, JSON.stringify(!unplugged.ok && unplugged.diagnostics)).toBe(true)
+    if (!linked.ok || !unplugged.ok) return
+    expect(linked.artifact.prompt).toEqual(unplugged.artifact.prompt)
+    expect(linked.artifact.prompt.flow!.inputs).not.toHaveProperty(port)
+    expect(linked.artifact.prompt.source).toBeUndefined()
+  })
+
+  it('changes Or else priority through the row move command without changing wire identities', () => {
+    const document = dynDoc({
+      nodes: {
+        first: { type: 'EmptyImage' }, next: { type: 'EmptyImage' },
+        flow: { type: 'dinkster.utilities.or_else', dynamic: { values: { members: ['1', '2', '3'], seq: 3 } } },
+      },
+      links: [[['first', 'out0'], ['flow', 'values.1']], [['next', 'out0'], ['flow', 'values.3']]],
+    })
+    const store = new DocumentStore(document, coreCommandRegistry(), 200, undefined,
+      () => ({ kind: 'initial', schemaResolverFor: () => resolve }))
+    const before = run(store.doc, 'flow')
+    expect(before.ok).toBe(true)
+    if (!before.ok) return
+    expect(before.artifact.prompt.flow!.outputMembers).toEqual({ values: ['1', '2', '3'] })
+    expect(store.dispatch({ command: 'dynamic.moveMember', params: {
+      graphId: 'g0', nodeId: 'flow', construct: 'values', member: '3', index: 0,
+    } }).ok).toBe(true)
+    const after = run(store.doc, 'flow')
+    expect(after.ok, JSON.stringify(!after.ok && after.diagnostics)).toBe(true)
+    if (!after.ok) return
+    expect(after.artifact.prompt.flow!.outputMembers).toEqual({ values: ['3', '1', '2'] })
+    expect(after.artifact.prompt.flow!.inputs).toEqual({ 'values.1': ['first', 0], 'values.3': ['next', 0] })
+    expect(store.doc.graphs.g0!.links).toEqual(document.graphs.g0!.links)
+    store.undo()
+    expect(run(store.doc, 'flow')).toEqual(before)
+  })
+
+  it.each([
+    ['dinkster.utilities.or_else', 'value', { values: { members: ['1', '2'] } }, { 'values.1': 0, 'values.2': 9 }],
+    ['dinkster.utilities.has_value', 'has_value', {}, { value: 0 }],
+    ['dinkster.utilities.only_if', 'value', {}, { condition: false, value: 7 }],
+  ] as const)('keeps %s output runtime-only even with stored inputs', (type, output, dynamic, values) => {
+    const boolean = type === 'dinkster.utilities.has_value'
+    const port = boolean ? 'condition' : 'value'
+    const document = dynDoc({
+      nodes: { flow: { type, dynamic, values }, sink: { type: 'dinkster.utilities.only_if' } },
+      links: [[['flow', output], ['sink', port]]],
+    })
+    expect(companionSourcesOf(document.graphs.g0!, undefined, undefined, resolve).get('sink')?.get(port))
+      .toEqual({ kind: 'producer', node: 'flow', output })
+  })
+})
+
 describe('dynamic interfaces', () => {
-  it('keeps input-family labels out of execution while submitting the stable member id', () => {
+  it('keeps blocked-field wires and promoted execution identity when representation choices are saved and reopened', () => {
+    const source = dynSchemaOf('ValueSource', [
+      dynInput('value', { type: INT, widget: { widgetType: 'INT', options: {} } }),
+      { kind: 'output', id: 'value', type: INT },
+    ])
+    const target = dynSchemaOf('BlockedFields', [
+      dynInput('locked', { type: INT, readOnly: true, widget: { widgetType: 'INT', options: {} } }),
+      dynInput('disabled', { type: INT, disabled: true, widget: { widgetType: 'INT', options: {} } }),
+      dynInput('gain', { type: { kind: 'concrete', name: 'FLOAT' }, readOnly: true,
+        widget: { widgetType: 'FLOAT', options: { min: 0, max: 1 } } }),
+      dynInput('text', { type: { kind: 'concrete', name: 'STRING' }, disabled: true,
+        widget: { widgetType: 'STRING', options: {} } }),
+    ])
+    const resolve = (type: string) => type === source.type ? source : type === target.type ? target : undefined
+    const initial = dynDoc({ nodes: {
+      source: { type: source.type, values: { value: 24 } },
+      first: { type: target.type, values: { locked: 12, disabled: 12, gain: 0.65, text: 'first' } },
+      sibling: { type: target.type, values: { locked: 7, disabled: 9, gain: 0.35, text: 'sibling' } },
+      promoted: { type: '#sub', values: { amount: 0.65, caption: 'entered first' } },
+      other: { type: '#sub', values: { amount: 0.35, caption: 'entered sibling' } },
+    }, links: [[['source', 'value'], ['first', 'locked']], [['source', 'value'], ['first', 'disabled']]],
+      subgraphs: { sub: {
+        nodes: { inner: { type: target.type, values: { locked: 3, disabled: 5, gain: 0.1, text: 'definition' } } },
+        boundary: { inputs: [
+          { id: 'amount', promoted: true, wireHidden: true, binds: { kind: 'port', node: 'inner', port: 'gain' } },
+          { id: 'caption', promoted: true, wireHidden: true, binds: { kind: 'port', node: 'inner', port: 'text' } },
+        ] },
+      } },
+    })
+    const artifactOf = (document: WorkflowDocument) => {
+      const result = compile({ ...compileInput(document, { kind: 'full' }, resolve), graphFeatures: ['regions'] })
+      if (!result.ok) throw new Error(JSON.stringify(result.diagnostics))
+      return result.artifact
+    }
+    const before = artifactOf(initial)
+    expect(before.dinksterGraph?.nodes.first).toEqual({ nodeType: target.type, inputs: {
+      locked: { $link: { node: 'source', output: 'value' } },
+      disabled: { $link: { node: 'source', output: 'value' } }, gain: 0.65, text: 'first',
+    } })
+    expect(before.dinksterGraph?.nodes['promoted.inner']).toEqual({ nodeType: target.type, inputs: {
+      locked: 3, disabled: 5, gain: 0.65, text: 'entered first',
+    } })
+    expect(before.dinksterGraph?.nodes['other.inner']).toEqual({ nodeType: target.type, inputs: {
+      locked: 3, disabled: 5, gain: 0.35, text: 'entered sibling',
+    } })
+    const store = new DocumentStore(initial, coreCommandRegistry())
+    for (const [inputId, representation] of [['gain', 'slider'], ['text', 'multiline']] as const) {
+      expect(store.dispatch({ command: 'view.setWidgetRepresentation', params: {
+        graphId: 'g0', nodeId: 'first', inputId, representation,
+      } }).ok).toBe(true)
+    }
+    for (const [inputId, representation] of [['amount', 'slider'], ['caption', 'multiline']] as const) {
+      expect(store.dispatch({ command: 'view.setWidgetRepresentation', params: {
+        graphId: 'g0', nodeId: 'promoted', inputId, representation,
+      } }).ok).toBe(true)
+    }
+    const reopened = loadDocument(JSON.parse(JSON.stringify(store.doc))).document!
+    expect(reopened).toBeDefined()
+    expect(reopened.view.graphs.g0!.nodes.first!.views).toEqual({ gain: 'slider', text: 'multiline' })
+    expect(reopened.view.graphs.g0!.nodes.sibling?.views).toBeUndefined()
+    expect(reopened.view.graphs.g0!.nodes.promoted!.views).toEqual({ amount: 'slider', caption: 'multiline' })
+    expect(reopened.view.graphs.g0!.nodes.other?.views).toBeUndefined()
+    expect(reopened.graphs).toEqual(initial.graphs)
+    const after = artifactOf(reopened)
+    expect(after.dinksterGraph).toEqual(before.dinksterGraph)
+    expect(after.prompt).toEqual(before.prompt)
+    expect(after.semanticHash).toBe(before.semanticHash)
+  })
+
+  it('keeps member labels out of execution while submitting the member key', () => {
     const document = dynDoc({ nodes: { route: {
       type: 'NamedRoute',
-      values: { name: 'm7', 'values.value#m7': 4 },
-      dynamic: { values: { members: ['m7'], memberLabels: { m7: 'Background' } } },
+      values: { 'values.value7': 4 },
+      dynamic: { values: { members: ['value7'], memberLabels: { value7: 'Background' } } },
     } } })
     const labeled = dynCompile(document)
     const unlabeled = dynCompile({
@@ -937,7 +1316,7 @@ describe('dynamic interfaces', () => {
           ...document.graphs.g0!,
           nodes: {
             ...document.graphs.g0!.nodes,
-            route: { ...document.graphs.g0!.nodes.route!, dynamic: { values: { members: ['m7'] } } },
+            route: { ...document.graphs.g0!.nodes.route!, dynamic: { values: { members: ['value7'] } } },
           },
         },
       },
@@ -946,7 +1325,7 @@ describe('dynamic interfaces', () => {
     expect(labeled.ok, JSON.stringify(!labeled.ok && labeled.diagnostics)).toBe(true)
     expect(unlabeled.ok, JSON.stringify(!unlabeled.ok && unlabeled.diagnostics)).toBe(true)
     if (!labeled.ok || !unlabeled.ok) return
-    expect(labeled.artifact.prompt.route?.inputs).toEqual({ name: 'm7', 'values.value0': 4 })
+    expect(labeled.artifact.prompt.route?.inputs).toEqual({ 'values.value7': 4 })
     expect(labeled.artifact.prompt).toEqual(unlabeled.artifact.prompt)
     expect(labeled.artifact.semanticHash).toBe(unlabeled.artifact.semanticHash)
     expect(JSON.stringify(labeled.artifact.prompt)).not.toContain('Background')
@@ -994,6 +1373,41 @@ describe('dynamic interfaces', () => {
     }
   })
 
+  it('compiles saved mount names and project defaults with a concrete mount type', () => {
+    const mountSchema = dynSchemaOf('MountSink', [dynInput('mount', {
+      type: { kind: 'union', names: ['MOUNT', 'STRING'] },
+      optional: true,
+      widget: { widgetType: 'MOUNT', options: {}, default: null },
+    })])
+    const resolve = (type: string) => type === 'MountSink' ? mountSchema : dynResolve(type)
+    for (const values of [{ mount: 'archive' }, { mount: null }, {}]) {
+      const stored = dynDoc({ nodes: { save: { type: 'MountSink', values } } })
+      const document = loadDocument(JSON.parse(JSON.stringify(stored))).document!
+      const result = compile({ ...compileInput(document), resolve, graphFeatures: ['regions', 'typedLiteral'] })
+      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+      if (!result.ok) continue
+      expect(result.artifact.prompt.save?.inputs.mount).toEqual({ $typed: { type: 'MOUNT', value: values.mount ?? null } })
+      expect(result.artifact.snapshot).toEqual(document)
+    }
+    const named = dynDoc({ nodes: { save: { type: 'MountSink', values: { mount: 'archive' } } } })
+    const legacy = dynCompile(named)
+    expect(legacy.ok).toBe(true)
+    if (legacy.ok) expect(legacy.artifact.prompt.save?.inputs.mount).toBe('archive')
+    const unsupported = compile({ ...compileInput(named), resolve })
+    expect(unsupported.ok).toBe(false)
+    if (!unsupported.ok) expect(unsupported.diagnostics.map((diagnostic) => diagnostic.code)).toContain('compile.value.mountUnionUnsupported')
+    const wired = compile({
+      ...compileInput(dynDoc({
+        nodes: { source: { type: 'MountSrc' }, save: { type: 'MountSink', values: { mount: 'archive' } } },
+        links: [[['source', 'mount'], ['save', 'mount']]],
+      })),
+      resolve,
+      graphFeatures: ['regions', 'typedLiteral'],
+    })
+    expect(wired.ok, JSON.stringify(!wired.ok && wired.diagnostics)).toBe(true)
+    if (wired.ok) expect(wired.artifact.prompt.save?.inputs.mount).toEqual(['source', 0])
+  })
+
   it('compiles a STRING producer into a mount widget as an ordinary link without changing dormant values', () => {
     const result = dynCompile(dynDoc({
       nodes: {
@@ -1017,12 +1431,12 @@ describe('dynamic interfaces', () => {
         decisionSource: { type: 'BooleanSrc' },
         falseSource: { type: 'NonOutputImageSrc' },
         trueSource: { type: 'NonOutputImageSrc' },
-        selector: { type: 'LazySelector', values: { switch: false } },
+        selector: { type: 'LazySelector', values: { switch: false }, dynamic: BRANCHES },
       },
       links: [
         [['decisionSource', 'out'], ['selector', 'switch']],
-        [['falseSource', 'out'], ['selector', 'on_false']],
-        [['trueSource', 'out'], ['selector', 'on_true']],
+        [['falseSource', 'out'], ['selector', 'branch.on_false']],
+        [['trueSource', 'out'], ['selector', 'branch.on_true']],
       ],
     })
     const result = dynCompile(doc)
@@ -1036,10 +1450,11 @@ describe('dynamic interfaces', () => {
       selector: {
         class_type: 'LazySelector',
         outputIds: ['result'],
+        outputMembers: { branch: ['on_false', 'on_true'] },
         inputs: {
           switch: ['decisionSource', 0],
-          on_false: ['falseSource', 0],
-          on_true: ['trueSource', 0],
+          'branch.on_false': ['falseSource', 0],
+          'branch.on_true': ['trueSource', 0],
         },
       },
     })
@@ -1053,18 +1468,18 @@ describe('dynamic interfaces', () => {
       nodes: {
         falseSource: { type: 'ImageSrc' },
         trueSource: { type: 'ImageSrc' },
-        selector: { type: 'LazySelector', values: { switch: true } },
+        selector: { type: 'LazySelector', values: { switch: true }, dynamic: BRANCHES },
       },
       links: [
-        [['falseSource', 'out'], ['selector', 'on_false']],
-        [['trueSource', 'out'], ['selector', 'on_true']],
+        [['falseSource', 'out'], ['selector', 'branch.on_false']],
+        [['trueSource', 'out'], ['selector', 'branch.on_true']],
       ],
     }))
-    expect(valued.ok).toBe(true)
+    expect(valued.ok, JSON.stringify(!valued.ok && valued.diagnostics)).toBe(true)
     if (valued.ok) {
       expect(valued.artifact.prompt.selector?.inputs.switch).toBe(true)
-      expect(valued.artifact.prompt.selector?.inputs.on_false).toEqual(['falseSource', 0])
-      expect(valued.artifact.prompt.selector?.inputs.on_true).toEqual(['trueSource', 0])
+      expect(valued.artifact.prompt.selector?.inputs['branch.on_false']).toEqual(['falseSource', 0])
+      expect(valued.artifact.prompt.selector?.inputs['branch.on_true']).toEqual(['trueSource', 0])
       expect(Object.keys(valued.artifact.prompt).sort()).toEqual(['falseSource', 'selector', 'trueSource'])
     }
   })
@@ -1074,11 +1489,11 @@ describe('dynamic interfaces', () => {
       nodes: {
         falseSource: { type: 'ImageSrc' },
         trueSource: { type: 'ImageSrc' },
-        selector: { type: 'LazySelector', values: { switch: true } },
+        selector: { type: 'LazySelector', values: { switch: true }, dynamic: BRANCHES },
       },
       links: [
-        [['falseSource', 'out'], ['selector', 'on_false']],
-        [['trueSource', 'out'], ['selector', 'on_true']],
+        [['falseSource', 'out'], ['selector', 'branch.on_false']],
+        [['trueSource', 'out'], ['selector', 'branch.on_true']],
       ],
     })
     const scope: ExecutionScope = {
@@ -1090,8 +1505,8 @@ describe('dynamic interfaces', () => {
     if (!exact.ok) return
     expect(exact.artifact.prompt.selector?.inputs).toMatchObject({
       switch: true,
-      on_false: ['falseSource', 0],
-      on_true: ['trueSource', 0],
+      'branch.on_false': ['falseSource', 0],
+      'branch.on_true': ['trueSource', 0],
     })
     expect(Object.keys(exact.artifact.prompt).sort()).toEqual(['falseSource', 'selector', 'trueSource'])
     const exactBytes = JSON.stringify(exact.artifact.prompt)
@@ -1111,22 +1526,22 @@ describe('dynamic interfaces', () => {
   it.each([
     [true, 'selectedSource', 'inactiveSource', ['selected-route']],
     [false, 'inactiveSource', 'selectedSource', []],
-  ] as const)('composes lazy choice %s with bypass on either branch, net, reroute, and recursive wire-15 destination', (choice, liveSource, dimmedSource, reroutes) => {
+  ] as const)('composes lazy choice %s with bypass on either branch, net, reroute, and a group member destination', (choice, liveSource, dimmedSource, reroutes) => {
     const doc = dynDoc({
       nodes: {
         inactiveSource: { type: 'ImageSrc' },
         selectedSource: { type: 'ImageSrc' },
         bypass: { type: 'Passthrough', mode: 'bypassed' },
-        selector: { type: 'LazySelector', values: { switch: choice } },
-        target: { type: 'Wire15Family' },
+        selector: { type: 'LazySelector', values: { switch: choice }, dynamic: BRANCHES },
+        target: { type: 'ItemGroup', dynamic: { items: { members: ['item0'] } } },
       },
       reroutes: ['selected-route'],
       nets: [['inactive-feed', ['inactiveSource', 'out'], [['bypass', 'in']]]],
       links: [
-        [['bypass', 'out'], ['selector', 'on_false']],
+        [['bypass', 'out'], ['selector', 'branch.on_false']],
         [['selectedSource', 'out'], { reroute: 'selected-route' }],
-        [{ reroute: 'selected-route' }, ['selector', 'on_true']],
-        [['selector', 'result'], ['target', 'items.result']],
+        [{ reroute: 'selected-route' }, ['selector', 'branch.on_true']],
+        [['selector', 'result'], ['target', 'items.item0']],
       ],
     })
     const scope: ExecutionScope = {
@@ -1147,11 +1562,11 @@ describe('dynamic interfaces', () => {
           nodes: {
             falseSource: { type: 'ImageSrc' },
             trueSource: { type: 'ImageSrc' },
-            selector: { type: 'LazySelector', values: { switch: true } },
+            selector: { type: 'LazySelector', values: { switch: true }, dynamic: BRANCHES },
           },
           links: [
-            [['falseSource', 'out'], ['selector', 'on_false']],
-            [['trueSource', 'out'], ['selector', 'on_true']],
+            [['falseSource', 'out'], ['selector', 'branch.on_false']],
+            [['trueSource', 'out'], ['selector', 'branch.on_true']],
           ],
           boundary: { inputs: [], outputs: [] },
         },
@@ -1167,22 +1582,22 @@ describe('dynamic interfaces', () => {
     expect([...closure.inactiveExclusive.get('left.selector') ?? []]).toEqual(['left.falseSource'])
   })
 
-  it('uses occurrence-promoted booleans and keeps promoted null neutral', () => {
+  it('uses occurrence-promoted picks and keeps a promoted pick outside the branches neutral', () => {
     const doc = dynDoc({
       nodes: {
         decided: { type: '#branch', values: { decision: false } },
-        neutral: { type: '#branch', values: { decision: null } },
+        neutral: { type: '#branch', values: { decision: 2 } },
       },
       subgraphs: {
         branch: {
           nodes: {
             falseSource: { type: 'ImageSrc' },
             trueSource: { type: 'ImageSrc' },
-            selector: { type: 'LazySelector', values: { switch: true } },
+            selector: { type: 'LazySelector', values: { switch: true }, dynamic: BRANCHES },
           },
           links: [
-            [['falseSource', 'out'], ['selector', 'on_false']],
-            [['trueSource', 'out'], ['selector', 'on_true']],
+            [['falseSource', 'out'], ['selector', 'branch.on_false']],
+            [['trueSource', 'out'], ['selector', 'branch.on_true']],
           ],
           boundary: {
             inputs: [{ id: 'decision', binds: { kind: 'port', node: 'selector', port: 'switch' } }],
@@ -1210,14 +1625,14 @@ describe('dynamic interfaces', () => {
         outerOff: { type: 'ImageSrc' },
         innerOn: { type: 'ImageSrc' },
         innerOff: { type: 'ImageSrc' },
-        inner: { type: 'LazySelector', values: { switch: false } },
-        outer: { type: 'LazySelector', values: { switch: true } },
+        inner: { type: 'LazySelector', values: { switch: false }, dynamic: BRANCHES },
+        outer: { type: 'LazySelector', values: { switch: true }, dynamic: BRANCHES },
       },
       links: [
-        [['innerOn', 'out'], ['inner', 'on_false']],
-        [['innerOff', 'out'], ['inner', 'on_true']],
-        [['outerOff', 'out'], ['outer', 'on_false']],
-        [['inner', 'result'], ['outer', 'on_true']],
+        [['innerOn', 'out'], ['inner', 'branch.on_false']],
+        [['innerOff', 'out'], ['inner', 'branch.on_true']],
+        [['outerOff', 'out'], ['outer', 'branch.on_false']],
+        [['inner', 'result'], ['outer', 'branch.on_true']],
       ],
     })
     const scope: ExecutionScope = { kind: 'partial', targets: [{ instancePath: [], node: asNodeId('outer') }] }
@@ -1228,18 +1643,18 @@ describe('dynamic interfaces', () => {
   })
 
   it.each([
-    ['missing', {}],
-    ['non-boolean', { switch: 'true' }],
+    ['out-of-range', { switch: 2 }],
+    ['fractional', { switch: 0.5 }],
   ])('keeps %s lazy-switch state neutral', (_name, values) => {
     const doc = dynDoc({
       nodes: {
         falseSource: { type: 'ImageSrc' },
         trueSource: { type: 'ImageSrc' },
-        selector: { type: 'LazySelector', values },
+        selector: { type: 'LazySelector', values, dynamic: BRANCHES },
       },
       links: [
-        [['falseSource', 'out'], ['selector', 'on_false']],
-        [['trueSource', 'out'], ['selector', 'on_true']],
+        [['falseSource', 'out'], ['selector', 'branch.on_false']],
+        [['trueSource', 'out'], ['selector', 'branch.on_true']],
       ],
     })
     const scope: ExecutionScope = {
@@ -1251,18 +1666,50 @@ describe('dynamic interfaces', () => {
     expect(closure.inactiveExclusive.size).toBe(0)
   })
 
-  it('rewires a wire-15 destination after its producer becomes bypassed', () => {
+  it.each([
+    ['a stored key by id, not position', 'a', 'sourceA', ['sourceB', 'sourceC']],
+    ['a removed key as the first member', 'gone', 'sourceC', ['sourceA', 'sourceB']],
+    ['no pick as the first member', undefined, 'sourceC', ['sourceA', 'sourceB']],
+    ['a position in stored order', 2, 'sourceB', ['sourceA', 'sourceC']],
+  ] as const)('projects %s among three branches', (_name, pick, live, dimmed) => {
+    const doc = dynDoc({
+      nodes: {
+        sourceA: { type: 'ImageSrc' },
+        sourceB: { type: 'ImageSrc' },
+        sourceC: { type: 'ImageSrc' },
+        selector: {
+          type: 'Switch',
+          values: pick === undefined ? {} : { pick },
+          dynamic: { branch: { members: ['c', 'a', 'b'] } },
+        },
+      },
+      links: [
+        [['sourceA', 'out'], ['selector', 'branch.a']],
+        [['sourceB', 'out'], ['selector', 'branch.b']],
+        [['sourceC', 'out'], ['selector', 'branch.c']],
+      ],
+    })
+    const scope: ExecutionScope = {
+      kind: 'partial',
+      targets: [{ instancePath: [], node: asNodeId('selector') }],
+    }
+    const closure = scopeClosure({ ...compileInput(doc, scope), resolve: dynResolve })!
+    expect([...closure.included].sort()).toEqual([live, 'selector'].sort())
+    expect([...closure.inactiveExclusive.get('selector') ?? []].sort()).toEqual(dimmed)
+  })
+
+  it('rewires a group member destination after its producer becomes bypassed', () => {
     const clean = dynDoc({
       nodes: {
         source: { type: 'ImageSrc' },
         modeNode: { type: 'Passthrough' },
-        target: { type: 'Wire15Family' },
+        target: { type: 'ItemGroup', dynamic: { items: { members: ['item0'] } } },
       },
-      links: [[['source', 'out'], ['modeNode', 'in']], [['modeNode', 'out'], ['target', 'items.stable']]],
+      links: [[['source', 'out'], ['modeNode', 'in']], [['modeNode', 'out'], ['target', 'items.item0']]],
     })
     const before = dynCompile(clean)
     expect(before.ok, JSON.stringify(!before.ok && before.diagnostics)).toBe(true)
-    if (before.ok) expect(before.artifact.prompt['target']!.inputs).toEqual({ 'items.stable': ['modeNode', 0] })
+    if (before.ok) expect(before.artifact.prompt['target']!.inputs).toEqual({ 'items.item0': ['modeNode', 0] })
     const changed = structuredClone(clean) as unknown as Mutable
     const graphs = changed['graphs'] as Mutable
     const root = graphs['g0'] as Mutable
@@ -1271,147 +1718,206 @@ describe('dynamic interfaces', () => {
     const after = dynCompile(changed as unknown as WorkflowDocument)
     expect(after.ok, JSON.stringify(!after.ok && after.diagnostics)).toBe(true)
     if (after.ok) {
-      expect(after.artifact.prompt['target']!.inputs).toEqual({ 'items.stable': ['source', 0] })
+      expect(after.artifact.prompt['target']!.inputs).toEqual({ 'items.item0': ['source', 0] })
       expect(Object.keys(after.artifact.prompt)).not.toContain('modeNode')
     }
   })
 
-  it('lowers recursive wire-15 family values at stable materialized paths', () => {
+  it('lowers group member values at their flattened ids', () => {
     const result = dynCompile(dynDoc({
-      nodes: { target: { type: 'Wire15Family', values: { 'items.stable': 7 }, dynamic: { items: { members: ['stable'] } } } },
+      nodes: { target: { type: 'ItemGroup', values: { 'items.item0': 7 }, dynamic: { items: { members: ['item0'] } } } },
     }))
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
     if (!result.ok) return
-    expect(result.artifact.prompt['target']!.inputs).toEqual({ 'items.stable': 7 })
+    expect(result.artifact.prompt['target']!.inputs).toEqual({ 'items.item0': 7 })
+    expect(result.artifact.prompt['target']!.outputMembers).toEqual({ items: ['item0'] })
   })
 
-  it('lowers names-form members by semantic suffix and enforces minimum membership', () => {
+  it("sends a field's output from a member, an option and a type-led pin, and leaves the input out once the field is gone", () => {
+    const tapInto = (source: DynNode, tap: string, extra: Record<string, DynNode> = {}) => dynCompile(dynDoc({
+      nodes: { source, sink: { type: 'IntSink' }, ...extra },
+      links: [[{ node: 'source', tap }, ['sink', 'steps']], ...(extra['image'] ? [[['image', 'out'], ['source', 'model']] as [DynEnd, DynEnd]] : [])],
+    }))
+    const sent = (result: ReturnType<typeof dynCompile>) => {
+      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+      return result.ok ? result.artifact.prompt['sink']!.inputs : undefined
+    }
+    const member = { type: 'TapGroup', values: { 'items.item0': 4, 'items.item1': 9 }, dynamic: { items: { members: ['item0', 'item1'], seq: 2 } } }
+    expect(sent(tapInto(member, 'items.item1'))).toEqual({ steps: 9 })
+    expect(sent(tapInto({ type: 'TapChoice', values: { 'mode.amount': 5 }, dynamic: { mode: { selected: 'a' } } }, 'mode.amount'))).toEqual({ steps: 5 })
+    expect(sent(tapInto({ type: 'TapSlot', values: { 'model.weight': 6 } }, 'model.weight', { image: { type: 'ImageSrc' } }))).toEqual({ steps: 6 })
+
+    // The member removed, the other option chosen, the pin unplugged: the
+    // wire gives nothing. A run cannot send nothing yet, so the input is left
+    // out with a warning and the receiving field sends its own value. The
+    // receiving node is not skipped.
+    const leftOut = (result: ReturnType<typeof dynCompile>, tap: string) => {
+      expect(sent(result)).toEqual({ steps: 20 })
+      if (result.ok) expect(result.artifact.diagnostics.map((d) => [d.code, d.message])).toContainEqual(['compile.link.dropped',
+        `The wire from 'source.${tap}' into 'sink.steps' gives nothing: that field is no longer part of its node. Until a run can send nothing, the input is left out: a field sends its own value, and a required input without one refuses the run.`])
+    }
+    leftOut(tapInto({ type: 'TapGroup', values: { 'items.item0': 4 }, dynamic: { items: { members: ['item0'], seq: 2 } } }, 'items.item1'), 'items.item1')
+    leftOut(tapInto({ type: 'TapChoice', values: { 'mode.amount': 5 }, dynamic: { mode: { selected: 'b' } } }, 'mode.amount'), 'mode.amount')
+    leftOut(tapInto({ type: 'TapSlot', values: { 'model.weight': 6 } }, 'model.weight'), 'model.weight')
+
+    // A server that takes the $absent marker gets it in place of the value,
+    // for a field with its own value, so its on_absent policy decides.
+    const gone = dynDoc({
+      nodes: { source: { type: 'TapChoice', values: { 'mode.amount': 5 }, dynamic: { mode: { selected: 'b' } } }, sink: { type: 'IntSink' } },
+      links: [[{ node: 'source', tap: 'mode.amount' }, ['sink', 'steps']]],
+    })
+    const marked = compile({ ...compileInput(gone), resolve: dynResolve, graphFeatures: [DINKSTER_GRAPH_FEATURE_ABSENT_INPUT] })
+    expect(marked.ok, JSON.stringify(!marked.ok && marked.diagnostics)).toBe(true)
+    if (marked.ok) {
+      expect(marked.artifact.prompt['sink']!.inputs).toEqual({ steps: { $absent: { reason: "field 'source.mode.amount' is no longer part of its node" } } })
+      expect(marked.artifact.diagnostics.map((d) => d.code)).not.toContain('compile.link.dropped')
+    }
+
+    // A field the node never declares is still an error.
+    const unknown = tapInto(member, 'itemz.item0')
+    expect(unknown.ok).toBe(false)
+    if (!unknown.ok) expect(unknown.diagnostics.map((d) => d.code)).toContain('compile.tap.missingInput')
+  })
+
+  it('sends the member order a move leaves, with each value and wire still on its member', () => {
+    const store = new DocumentStore(dynDoc({
+      nodes: {
+        source: { type: 'ImageSrc' },
+        target: { type: 'OrderedGroup', values: { 'items.item0': 1, 'items.item2': 3 }, dynamic: { items: { members: ['item0', 'item1', 'item2'], seq: 3 } } },
+      },
+      links: [[['source', 'out'], ['target', 'items.item1']]],
+    }), coreCommandRegistry(), 200, undefined, () => ({ kind: 'initial', schemaResolverFor: () => dynResolve }))
+    expect(store.dispatch({ command: 'dynamic.moveMember', params: { graphId: 'g0', nodeId: 'target', construct: 'items', member: 'item2', index: 0 } }).ok).toBe(true)
+    const result = dynCompile(store.doc)
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) return
+    expect(result.artifact.prompt['target']!.outputMembers).toEqual({ items: ['item2', 'item0', 'item1'] })
+    expect(result.artifact.prompt['target']!.inputs).toEqual({ 'items.item0': 1, 'items.item1': ['source', 0], 'items.item2': 3 })
+  })
+
+  it('lowers named members by their names and enforces minimum membership', () => {
     const lowered = dynCompile(dynDoc({
-      nodes: { target: { type: 'Wire15Names', values: { 'args.b': 9 }, dynamic: { args: { members: ['b'] } } } },
+      nodes: { target: { type: 'NamedGroup', values: { 'args.b': 9 }, dynamic: { args: { members: ['b'] } } } },
     }))
     expect(lowered.ok, JSON.stringify(!lowered.ok && lowered.diagnostics)).toBe(true)
     if (lowered.ok) expect(lowered.artifact.prompt['target']!.inputs).toEqual({ 'args.b': 9 })
 
-    const missing = dynCompile(dynDoc({ nodes: { target: { type: 'Wire15Names' } } }))
+    const missing = dynCompile(dynDoc({ nodes: { target: { type: 'NamedGroup' } } }))
     expect(missing.ok).toBe(false)
     if (!missing.ok) expect(missing.diagnostics.map((diagnostic) => diagnostic.code)).toContain('elab.autogrow.underMin')
   })
 
-  it('appends grouped-template leaf ids without submitting member vocabulary keys', () => {
+  it('submits record member rows at <group>.<key>.<row>', () => {
     const result = dynCompile(dynDoc({ nodes: { target: {
-      type: 'Wire15Grouped',
-      values: { 'pairs.stable.left': 1, 'pairs.stable.right': 2 },
-      dynamic: { pairs: { members: ['stable'] } },
+      type: 'RecordGroup',
+      values: { 'pairs.pair0.left': 1, 'pairs.pair0.right': 2 },
+      dynamic: { pairs: { members: ['pair0'] } },
     } } }))
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
     if (!result.ok) return
     expect(result.artifact.prompt['target']!.inputs).toEqual({
-      'pairs.stable.left': 1,
-      'pairs.stable.right': 2,
+      'pairs.pair0.left': 1,
+      'pairs.pair0.right': 2,
     })
   })
 
-  it('carries member-addressed wire-15 choices under materialized paths', () => {
+  it('carries the choices of group members as slotVariants under their flattened ids', () => {
     const result = dynCompile(dynDoc({ nodes: { target: {
-      type: 'Wire15ComboFamily',
+      type: 'ChoiceGroup',
+      values: { 'items.item0.mode.amount': 5 },
       dynamic: {
-        items: { members: ['left', 'right'] },
-        'items.left.mode': { selected: 'a' },
-        'items.right.mode': { selected: 'b' },
+        items: { members: ['item0', 'item1'] },
+        'items.item0.mode': { selected: 'a' },
+        'items.item1.mode': { selected: 'b' },
       },
     } } }))
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
     if (!result.ok) return
     expect(result.artifact.prompt.target).toEqual({
-      class_type: 'Wire15ComboFamily',
+      class_type: 'ChoiceGroup',
       outputIds: [],
-      inputs: {
-        'items.left.mode': 'a',
-        'items.right.mode': 'b',
-      },
+      inputs: { 'items.item0.mode.amount': 5 },
+      outputMembers: { items: ['item0', 'item1'] },
       slotVariants: {
-        'items.left.mode': 'a',
-        'items.right.mode': 'b',
+        'items.item0.mode': 'a',
+        'items.item1.mode': 'b',
       },
     })
   })
 
-  it('lowers nested combo selectors and only the active recursive paths', () => {
+  it('lowers nested choices and only the rows of chosen options', () => {
     const result = dynCompile(dynDoc({ nodes: { target: {
-      type: 'Wire15Recursive',
-      values: { 'mode.frames.stable': 1, 'mode.quality.steps': 2, 'mode.inactive': 3 },
+      type: 'NestedChoice',
+      values: { 'mode.frames.frame0': 1, 'mode.quality.steps': 2 },
       dynamic: {
         mode: { selected: 'batch' },
-        'mode.frames': { members: ['stable'] },
+        'mode.frames': { members: ['frame0'] },
         'mode.quality': { selected: 'full' },
       },
     } } }))
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
     if (!result.ok) return
     expect(result.artifact.prompt['target']).toEqual({
-      class_type: 'Wire15Recursive',
+      class_type: 'NestedChoice',
       outputIds: [],
       inputs: {
-        mode: 'batch',
-        'mode.frames.stable': 1,
-        'mode.quality': 'full',
+        'mode.frames.frame0': 1,
         'mode.quality.steps': 2,
       },
+      outputMembers: { 'mode.frames': ['frame0'] },
       slotVariants: { mode: 'batch', 'mode.quality': 'full' },
     })
   })
 
-  it('rejects a missing nested wire-15 choice instead of deriving the first option', () => {
+  it('rejects a required nested choice with nothing stored instead of deriving the first option', () => {
     const result = dynCompile(dynDoc({ nodes: { target: {
-      type: 'Wire15Recursive',
+      type: 'NestedChoice',
       dynamic: { mode: { selected: 'batch' }, 'mode.frames': { members: [] } },
     } } }))
     expect(result.ok).toBe(false)
     if (result.ok) return
     expect(result.diagnostics).toContainEqual(expect.objectContaining({
-      code: 'compile.combo.missingChoice',
-      message: expect.stringContaining("DynamicCombo 'mode.quality' has no stored choice"),
+      severity: 'error',
+      message: expect.stringContaining("required choice 'mode.quality' has no stored option"),
     }))
   })
 
-  it('lowers the Flux.2 [pro] wire-15 combo selection and active branch verbatim', () => {
+  it('carries the Flux.2 [pro] option key verbatim and lowers its rows', () => {
     const result = dynCompile(dynDoc({ nodes: { target: {
-      type: 'Wire15PunctuationCombo',
+      type: 'PunctuationChoice',
       values: { 'mode.scale': 2 },
       dynamic: { mode: { selected: 'Flux.2 [pro]' } },
     } } }))
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
     if (!result.ok) return
-    expect(result.artifact.prompt['target']!.inputs).toEqual({
-      mode: 'Flux.2 [pro]',
-      'mode.scale': 2,
-    })
+    expect(result.artifact.prompt['target']!.inputs).toEqual({ 'mode.scale': 2 })
+    expect(result.artifact.prompt['target']!.slotVariants).toEqual({ mode: 'Flux.2 [pro]' })
   })
 
-  it('submits the default when a stored wire-15 choice has been removed', () => {
+  it('submits the start option when a stored choice names an option the pack no longer has', () => {
     const result = dynCompile(dynDoc({ nodes: { target: {
-      type: 'Wire15Recursive',
+      type: 'NestedChoice',
       dynamic: { mode: { selected: 'gone' } },
     } } }))
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
     if (!result.ok) return
     expect(result.artifact.prompt.target).toEqual({
-      class_type: 'Wire15Recursive', inputs: { mode: 'none' }, slotVariants: { mode: 'none' }, outputIds: [],
+      class_type: 'NestedChoice', inputs: {}, slotVariants: { mode: 'none' }, outputIds: [],
     })
   })
 
-  it('submits an explicitly stored first wire-15 option rather than a descriptor default', () => {
+  it('submits an explicitly stored first option rather than the declared default', () => {
     const result = dynCompile(dynDoc({ nodes: { target: {
-      type: 'Wire15NonFirstDefault',
+      type: 'NonFirstDefaultChoice',
       values: { 'mode.scale': 3 },
       dynamic: { mode: { selected: 'first' } },
     } } }))
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
     if (!result.ok) return
     expect(result.artifact.prompt['target']).toEqual({
-      class_type: 'Wire15NonFirstDefault',
+      class_type: 'NonFirstDefaultChoice',
       outputIds: [],
-      inputs: { mode: 'first', 'mode.scale': 3 },
+      inputs: { 'mode.scale': 3 },
       slotVariants: { mode: 'first' },
     })
   })
@@ -1431,7 +1937,7 @@ describe('dynamic interfaces', () => {
             },
             dynamic: { resize_type: { selected: 'scale dimensions' } },
           },
-          excluded: { type: 'Wire15PunctuationCombo' },
+          excluded: { type: 'PunctuationChoice' },
         },
         links: [[['source', 'image'], ['target', 'input']]],
       }),
@@ -1445,7 +1951,6 @@ describe('dynamic interfaces', () => {
       inputs: {
         input: ['source', 0],
         scale_method: 'bicubic',
-        resize_type: 'scale dimensions',
         'resize_type.width': 640,
         'resize_type.height': 480,
         'resize_type.crop': 'disabled',
@@ -1457,81 +1962,66 @@ describe('dynamic interfaces', () => {
 
   it('lowers open-slot values, links, and dependents only while the slot is active', () => {
     const valued = dynCompile(dynDoc({ nodes: { target: {
-      type: 'Wire15OpenSlot', values: { model: 'value', 'model.weight': 0.5 },
+      type: 'OpenSlot', values: { model: 'value', 'model.weight': 0.5 },
     } } }))
     expect(valued.ok, JSON.stringify(!valued.ok && valued.diagnostics)).toBe(true)
     if (valued.ok) expect(valued.artifact.prompt['target']!.inputs).toEqual({ model: 'value', 'model.weight': 0.5 })
 
     const linked = dynCompile(dynDoc({
-      nodes: { source: { type: 'ImageSrc' }, target: { type: 'Wire15OpenSlot', values: { 'model.weight': 0.75 } } },
+      nodes: { source: { type: 'ImageSrc' }, target: { type: 'OpenSlot', values: { 'model.weight': 0.75 } } },
       links: [[['source', 'out'], ['target', 'model']]],
     }))
     expect(linked.ok, JSON.stringify(!linked.ok && linked.diagnostics)).toBe(true)
     if (linked.ok) expect(linked.artifact.prompt['target']!.inputs).toEqual({ model: ['source', 0], 'model.weight': 0.75 })
 
-    const inactive = dynCompile(dynDoc({ nodes: { target: { type: 'Wire15OpenSlot', values: { 'model.weight': 0.5 } } } }))
-    expect(inactive.ok).toBe(false)
-    if (!inactive.ok) expect(inactive.diagnostics.map((diagnostic) => diagnostic.code)).toContain('compile.value.unknownInput')
+    // A dependent's value is kept while the slot is inactive, never compiled and never warned about.
+    const inactive = dynCompile(dynDoc({ nodes: { target: { type: 'OpenSlot', values: { 'model.weight': 0.5 } } } }))
+    expect(inactive.ok, JSON.stringify(!inactive.ok && inactive.diagnostics)).toBe(true)
+    if (inactive.ok) {
+      expect(inactive.artifact.prompt['target']!.inputs).toEqual({})
+      expect(inactive.artifact.diagnostics.map((diagnostic) => diagnostic.code)).not.toContain('compile.value.unknownInput')
+    }
 
-    const absent = dynCompile(dynDoc({ nodes: { target: { type: 'Wire15OpenSlot' } } }))
+    const absent = dynCompile(dynDoc({ nodes: { target: { type: 'OpenSlot' } } }))
     expect(absent.ok).toBe(true)
     if (absent.ok) expect(absent.artifact.prompt['target']!.inputs).toEqual({})
   })
 
-  it('keeps muted wire-15 link evidence structural but omits its dead delivery', () => {
-    const live = dynCompile(dynDoc({
-      nodes: { source: { type: 'ImageSrc' }, target: { type: 'Wire15Family' } },
-      links: [[['source', 'out'], ['target', 'items.linked']]],
-    }))
-    expect(live.ok, JSON.stringify(!live.ok && live.diagnostics)).toBe(true)
-    if (live.ok) expect(live.artifact.prompt['target']!.inputs).toEqual({ 'items.linked': ['source', 0] })
-
-    const dead = dynCompile(dynDoc({
-      nodes: { source: { type: 'ImageSrc', mode: 'muted' }, target: { type: 'Wire15Family' } },
-      links: [[['source', 'out'], ['target', 'items.dead']]],
-    }))
-    expect(dead.ok, JSON.stringify(!dead.ok && dead.diagnostics)).toBe(true)
-    if (dead.ok) {
-      expect(dead.artifact.prompt['target']!.inputs).toEqual({})
-      expect(dead.artifact.diagnostics.map((diagnostic) => diagnostic.code)).toContain('compile.link.dropped')
-    }
-  })
-
-  it('shares reroute, net, and bypass delivery semantics with wire-15 evidence', () => {
+  it('delivers into a group member through a reroute, a net, and a bypassed node', () => {
     const rerouted = dynCompile(dynDoc({
-      nodes: { source: { type: 'ImageSrc' }, target: { type: 'Wire15Family' } },
+      nodes: { source: { type: 'ImageSrc' }, target: { type: 'ItemGroup', dynamic: { items: { members: ['item0'] } } } },
       reroutes: ['r'],
-      links: [[['source', 'out'], { reroute: 'r' }], [{ reroute: 'r' }, ['target', 'items.rerouted']]],
+      links: [[['source', 'out'], { reroute: 'r' }], [{ reroute: 'r' }, ['target', 'items.item0']]],
     }))
     expect(rerouted.ok, JSON.stringify(!rerouted.ok && rerouted.diagnostics)).toBe(true)
-    if (rerouted.ok) expect(rerouted.artifact.prompt['target']!.inputs).toEqual({ 'items.rerouted': ['source', 0] })
+    if (rerouted.ok) expect(rerouted.artifact.prompt['target']!.inputs).toEqual({ 'items.item0': ['source', 0] })
 
     const net = dynCompile(dynDoc({
-      nodes: { source: { type: 'ImageSrc' }, target: { type: 'Wire15Family' } },
-      nets: [['images', ['source', 'out'], [['target', 'items.net']]]],
+      nodes: { source: { type: 'ImageSrc' }, target: { type: 'ItemGroup', dynamic: { items: { members: ['item0'] } } } },
+      nets: [['images', ['source', 'out'], [['target', 'items.item0']]]],
     }))
     expect(net.ok, JSON.stringify(!net.ok && net.diagnostics)).toBe(true)
-    if (net.ok) expect(net.artifact.prompt['target']!.inputs).toEqual({ 'items.net': ['source', 0] })
+    if (net.ok) expect(net.artifact.prompt['target']!.inputs).toEqual({ 'items.item0': ['source', 0] })
 
     const bypassed = dynCompile(dynDoc({
       nodes: {
         source: { type: 'ImageSrc' },
         pass: { type: 'Passthrough', mode: 'bypassed' },
-        target: { type: 'Wire15Family' },
+        target: { type: 'ItemGroup', dynamic: { items: { members: ['item0'] } } },
       },
-      links: [[['source', 'out'], ['pass', 'in']], [['pass', 'out'], ['target', 'items.bypassed']]],
+      links: [[['source', 'out'], ['pass', 'in']], [['pass', 'out'], ['target', 'items.item0']]],
     }))
     expect(bypassed.ok, JSON.stringify(!bypassed.ok && bypassed.diagnostics)).toBe(true)
-    if (bypassed.ok) expect(bypassed.artifact.prompt['target']!.inputs).toEqual({ 'items.bypassed': ['source', 0] })
+    if (bypassed.ok) expect(bypassed.artifact.prompt['target']!.inputs).toEqual({ 'items.item0': ['source', 0] })
   })
 
-  it('projects wire-15 live-link materialization per subgraph occurrence', () => {
+  it('activates an open type choice per subgraph occurrence from its live link', () => {
     const result = dynCompile(dynDoc({
       nodes: { source: { type: 'ImageSrc' }, linked: { type: '#sub' }, absent: { type: '#sub' } },
       links: [[['source', 'out'], ['linked', 'model']]],
       subgraphs: {
         sub: {
-          nodes: { inner: { type: 'Wire15OpenSlot' } },
+          nodes: { inner: { type: 'OpenSlot' } },
           boundary: { inputs: [{ id: 'model', binds: { kind: 'port', node: 'inner', port: 'model' } }] },
         },
       },
@@ -1542,10 +2032,9 @@ describe('dynamic interfaces', () => {
     expect(result.artifact.prompt['absent.inner']!.inputs).toEqual({})
   })
 
-  it('lowers a linked selected DynamicSlot variant input construct-locally with a slotVariants entry', () => {
-    // Settled contract (Dinkster c2ac572, wire v6): dependents submit under
-    // '<slotId>.<local>' and the stored choice travels once per node as
-    // slotVariants - the backend elaborates the interface from that choice.
+  it('lowers a linked input of the chosen variant at its flattened id with a slotVariants entry', () => {
+    // Rows of the chosen variant submit under '<slotId>.<row>' and the stored
+    // key travels once per node as slotVariants.
     const result = dynCompile(dynDoc({
       nodes: {
         slotSource: { type: 'ImageSrc' },
@@ -1554,7 +2043,7 @@ describe('dynamic interfaces', () => {
       },
       links: [
         [['slotSource', 'out'], ['target', 'slot']],
-        [['valueSource', 'out'], ['target', 'slot.[selected].x']],
+        [['valueSource', 'out'], ['target', 'slot.x']],
       ],
     }))
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
@@ -1567,14 +2056,14 @@ describe('dynamic interfaces', () => {
     })
   })
 
-  it('lowers a stored value on a selected DynamicSlot variant input', () => {
+  it('lowers a stored value on an input of the chosen variant', () => {
     const result = dynCompile(dynDoc({
       nodes: {
         source: { type: 'ImageSrc' },
         target: {
           type: 'SpecializedSlot',
           dynamic: { slot: { selected: 'selected' } },
-          values: { 'slot.[selected].x': 3 },
+          values: { 'slot.x': 3 },
         },
       },
       links: [[['source', 'out'], ['target', 'slot']]],
@@ -1589,7 +2078,26 @@ describe('dynamic interfaces', () => {
     })
   })
 
-  it('emits slotVariants for a connected zero-dependent variant (choice travels even with no dependents)', () => {
+  it('omits a disconnected stored type choice from a run but still refuses a required pin', () => {
+    const doc = dynDoc({ nodes: {
+      target: { type: 'SpecializedSlot', dynamic: { slot: { selected: 'selected' } }, values: { 'slot.x': 7 } },
+    } })
+    const optional = dynCompile(doc)
+    expect(optional.ok, JSON.stringify(!optional.ok && optional.diagnostics)).toBe(true)
+    if (optional.ok) expect(optional.artifact.prompt['target']).toEqual({
+      class_type: 'SpecializedSlot', inputs: {}, outputIds: [],
+    })
+    const schema = dynSchemas['SpecializedSlot']!
+    const required = compile({ ...compileInput(doc), resolve: (type) => type === schema.type ? {
+      ...schema, body: schema.body.map((row) => row.kind === 'typeChoice' ? { ...row, required: true } : row),
+    } : dynSchemas[type] })
+    expect(required.ok ? required.artifact.diagnostics : required.diagnostics).toContainEqual(expect.objectContaining({
+      code: 'compile.input.missing', blocksExecution: true,
+      anchor: expect.objectContaining({ port: expect.objectContaining({ port: 'slot' }) }),
+    }))
+  })
+
+  it('emits slotVariants for a connected variant with no rows (the key travels even with no dependents)', () => {
     // Settled contract (c2ac572): the elaborated schema's slotChoices join
     // the backend schema signature, so switching variants is a cache miss
     // even when the variant contributes no dependent inputs. The choice must
@@ -1612,9 +2120,9 @@ describe('dynamic interfaces', () => {
     })
   })
 
-  it('rejects a connected DynamicSlot storing an unknown variant key', () => {
-    // Unknown/stale keys are deterministic elaboration-failed errors on the
-    // backend; surface them early and anchored instead of submitting.
+  it('rejects a connected type choice whose stored variant the pack no longer has', () => {
+    // A removed variant is no pick, so a connected type choice still needs
+    // one before a run, as with no stored key.
     const result = dynCompile(dynDoc({
       nodes: {
         source: { type: 'ImageSrc' },
@@ -1624,11 +2132,11 @@ describe('dynamic interfaces', () => {
     }))
     expect(result.ok).toBe(false)
     if (result.ok) return
-    const d = result.diagnostics.find((c) => c.code === 'compile.slot.missingVariant')
-    expect(d?.message).toBe("SpecializedSlot.slot: unknown slot variant 'gone'")
+    expect(result.diagnostics.find((c) => c.code === 'elab.slot.removedVariant')?.severity).toBe('warning')
+    expect(result.diagnostics.some((d) => d.code === 'compile.slot.missingVariant')).toBe(true)
   })
 
-  it('rejects a connected variant-bearing DynamicSlot without a stored choice', () => {
+  it('rejects a connected type choice with variants and no stored key', () => {
     // The backend elaborates the interface FROM the stored choice; a
     // connected slot with none (or an unknown key) is a deterministic
     // elaboration failure there, surfaced early here.
@@ -1644,7 +2152,7 @@ describe('dynamic interfaces', () => {
     expect(result.diagnostics.some((d) => d.code === 'compile.slot.missingVariant')).toBe(true)
   })
 
-  it('scopes DynamicSlot variant validation to the partial closure', () => {
+  it('scopes type choice variant validation to the partial closure', () => {
     const doc = dynDoc({
       nodes: {
         selectedSource: { type: 'ImageSrc' },
@@ -1723,26 +2231,17 @@ describe('dynamic interfaces', () => {
     }
   })
 
-  it('keeps a disconnected DynamicSlot choice inert: no slotVariants, no error', () => {
-    const result = dynCompile(dynDoc({
-      nodes: { target: { type: 'SpecializedSlot', dynamic: { slot: { selected: 'selected' } } } },
-    }))
-    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
-    if (!result.ok) return
-    expect(result.artifact.prompt['target']).toEqual({ class_type: 'SpecializedSlot', inputs: {}, outputIds: [] })
-  })
-
-  it('autogrow members: links resolve by member identity, prompt keys are positional wire names', () => {
+  it('group members: links and prompt keys use the flattened id', () => {
     const result = dynCompile(
       dynDoc({
         nodes: {
           a: { type: 'ImageSrc' },
           b: { type: 'ImageSrc' },
-          g: { type: 'Batcher', dynamic: { images: { members: ['m0', 'm1'] } } },
+          g: { type: 'Batcher', dynamic: { images: { members: ['image0', 'image1'] } } },
         },
         links: [
-          [['a', 'out'], ['g', 'images.image', ['m0']]],
-          [['b', 'out'], ['g', 'images.image', ['m1']]],
+          [['a', 'out'], ['g', 'images.image0']],
+          [['b', 'out'], ['g', 'images.image1']],
         ],
       }),
     )
@@ -1753,57 +2252,58 @@ describe('dynamic interfaces', () => {
       'images.image1': ['b', 0],
     })
     expect(result.artifact.provenance.inputSources?.['g']).toEqual({
-      'images.image0': { node: 'g', port: 'images.image', members: ['m0'] },
-      'images.image1': { node: 'g', port: 'images.image', members: ['m1'] },
+      'images.image0': { node: 'g', port: 'images.image0' },
+      'images.image1': { node: 'g', port: 'images.image1' },
     })
   })
 
-  it('member values compile under wire names; unset persisted members take the template default; ghosts never compile', () => {
+  it('member values compile under flattened ids; unset stored members take the member default; ghosts never compile', () => {
     const result = dynCompile(
       dynDoc({
         nodes: {
           g: {
             type: 'Weigher',
-            values: { 'weights.w#m0': 2 },
-            dynamic: { weights: { members: ['m0', 'm1'] } },
+            values: { 'weights.w0': 2 },
+            dynamic: { weights: { members: ['w0', 'w1'] } },
           },
         },
       }),
     )
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
     if (!result.ok) return
-    // Exactly the two persisted members: the trailing ghost has no apiName.
+    // Exactly the two stored members: the spare ghost has no apiName.
     expect(result.artifact.prompt['g']!.inputs).toEqual({ 'weights.w0': 2, 'weights.w1': 0.5 })
     expect(result.artifact.diagnostics).toEqual([])
   })
 
-  it('member reordering follows identity, not position', () => {
+  it('member order travels in outputMembers; values stay with their keys', () => {
     const result = dynCompile(
       dynDoc({
         nodes: {
           g: {
             type: 'Weigher',
-            values: { 'weights.w#m0': 1, 'weights.w#m1': 2 },
-            dynamic: { weights: { members: ['m1', 'm0'] } }, // m1 now first
+            values: { 'weights.w0': 1, 'weights.w1': 2 },
+            dynamic: { weights: { members: ['w1', 'w0'] } }, // w1 now first
           },
         },
       }),
     )
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    expect(result.artifact.prompt['g']!.inputs).toEqual({ 'weights.w0': 2, 'weights.w1': 1 })
+    expect(result.artifact.prompt['g']!.inputs).toEqual({ 'weights.w0': 1, 'weights.w1': 2 })
+    expect(result.artifact.prompt['g']!.outputMembers).toEqual({ weights: ['w1', 'w0'] })
   })
 
-  it('dynamic output families: link indexes count non-ghost elaborated outputs', () => {
+  it('output groups: link indexes count non-ghost elaborated outputs', () => {
     const result = dynCompile(
       dynDoc({
         nodes: {
-          s: { type: 'Splitter', dynamic: { outs: { members: ['a', 'b'] } } },
+          s: { type: 'Splitter', dynamic: { outs: { members: ['o0', 'o1'] } } },
           k0: { type: 'Sink' },
           k1: { type: 'Sink' },
         },
         links: [
-          [['s', 'outs.o', ['b']], ['k0', 'in']],
+          [['s', 'outs.o1'], ['k0', 'in']],
           [['s', 'last'], ['k1', 'in']],
         ],
       }),
@@ -1813,21 +2313,21 @@ describe('dynamic interfaces', () => {
     expect(result.artifact.prompt['s']).toEqual({
       class_type: 'Splitter',
       inputs: {},
-      outputIds: ['outs.o#a', 'outs.o#b', 'last'],
-      outputMembers: { outs: ['a', 'b'] },
+      outputIds: ['outs.o0', 'outs.o1', 'last'],
+      outputMembers: { outs: ['o0', 'o1'] },
     })
     expect(result.artifact.prompt['k0']!.inputs).toEqual({ in: ['s', 1] })
-    // 'last' sits after members a(0), b(1); the ghost is skipped in wiring.
+    // 'last' sits after members o0(0), o1(1); the ghost is skipped in wiring.
     expect(result.artifact.prompt['k1']!.inputs).toEqual({ in: ['s', 2] })
   })
 
-  it('count-bound output families compile canonical members and link member 1', () => {
+  it('count groups of outputs compile their positional members and link member 1', () => {
     const result = dynCompile(dynDoc({
       nodes: {
         s: { type: 'CountSplitter', values: { count: 3 } },
         k: { type: 'Sink' },
       },
-      links: [[['s', 'images', ['1']], ['k', 'in']]],
+      links: [[['s', 'images.1'], ['k', 'in']]],
     }))
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
     if (!result.ok) return
@@ -1843,24 +2343,7 @@ describe('dynamic interfaces', () => {
     if (restored.ok) expect(restored.artifact.prompt).toEqual(result.artifact.prompt)
   })
 
-  it('rejects a linked output count even when the node retains a stored literal', () => {
-    const result = dynCompile(dynDoc({
-      nodes: {
-        source: { type: 'ImageSrc' },
-        splitter: { type: 'CountSplitter', values: { count: 2 } },
-      },
-      links: [[['source', 'out'], ['splitter', 'count']]],
-    }))
-    expect(result.ok).toBe(false)
-    if (!result.ok) {
-      expect(result.diagnostics).toContainEqual(expect.objectContaining({
-        code: 'elab.outputFamily.linkedCount',
-        severity: 'error',
-      }))
-    }
-  })
-
-  it('keeps static output positions around families that share one count input', () => {
+  it('keeps static output positions around count groups that share one count input', () => {
     const result = dynCompile(dynDoc({
       nodes: {
         source: { type: 'CountMultiSplitter', values: { count: 2 } },
@@ -1871,33 +2354,28 @@ describe('dynamic interfaces', () => {
       },
       links: [
         [['source', 'before'], ['before', 'in']],
-        [['source', 'images', ['1']], ['image', 'in']],
+        [['source', 'images.1'], ['image', 'in']],
         [['source', 'after'], ['after', 'in']],
-        [['source', 'masks', ['0']], ['mask', 'in']],
+        [['source', 'masks.0'], ['mask', 'in']],
       ],
     }))
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
     if (!result.ok) return
-    expect(result.artifact.prompt.source?.outputMembers).toEqual({
-      images: ['0', '1'],
-      masks: ['0', '1'],
-    })
+    expect(result.artifact.prompt.source?.outputIds).toEqual(['before', 'images.0', 'images.1', 'after', 'masks.0', 'masks.1'])
+    expect(result.artifact.prompt.source?.outputMembers).toEqual({ images: ['0', '1'], masks: ['0', '1'] })
     expect(result.artifact.prompt.before?.inputs.in).toEqual(['source', 0])
     expect(result.artifact.prompt.image?.inputs.in).toEqual(['source', 2])
     expect(result.artifact.prompt.after?.inputs.in).toEqual(['source', 3])
     expect(result.artifact.prompt.mask?.inputs.in).toEqual(['source', 4])
   })
 
-  it('combo: selector compiles from dynamic state, active branch values keep branch-local identity, dormant values never warn', () => {
+  it('choice: the stored key travels in slotVariants, chosen option values submit, values of other options never warn', () => {
     const result = dynCompile(
       dynDoc({
         nodes: {
           m: {
             type: 'Modal',
-            values: {
-              'mode.[advanced].strength': 0.7,
-              'mode.[simple].strength': 0.3, // dormant: preserved, not compiled, no warning
-            },
+            values: { 'mode.strength': 0.7 },
             dynamic: { mode: { selected: 'advanced' } },
           },
         },
@@ -1906,14 +2384,25 @@ describe('dynamic interfaces', () => {
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
     if (!result.ok) return
     expect(result.artifact.prompt['m']!.inputs).toEqual({
-      mode: 'advanced',
       'mode.strength': 0.7,
-      'mode.bias': 0, // branch widget default
+      'mode.bias': 0, // option widget default
     })
+    expect(result.artifact.prompt['m']!.slotVariants).toEqual({ mode: 'advanced' })
     expect(result.artifact.diagnostics).toEqual([])
+
+    const simple = dynCompile(dynDoc({ nodes: { m: {
+      type: 'Modal',
+      values: { 'mode.strength': 0.3, 'mode.bias': 5 }, // bias: kept, not compiled, no warning
+      dynamic: { mode: { selected: 'simple' } },
+    } } }))
+    expect(simple.ok, JSON.stringify(!simple.ok && simple.diagnostics)).toBe(true)
+    if (!simple.ok) return
+    expect(simple.artifact.prompt['m']!.inputs).toEqual({ 'mode.strength': 0.3 })
+    expect(simple.artifact.prompt['m']!.slotVariants).toEqual({ mode: 'simple' })
+    expect(simple.artifact.diagnostics).toEqual([])
   })
 
-  it('boundary items bind individual family members through subgraphs', () => {
+  it('boundary items bind individual group members through subgraphs', () => {
     const result = dynCompile(
       dynDoc({
         nodes: {
@@ -1923,9 +2412,9 @@ describe('dynamic interfaces', () => {
         links: [[['a', 'out'], ['s0', 'first']]],
         subgraphs: {
           sub: {
-            nodes: { b: { type: 'Batcher', dynamic: { images: { members: ['m0'] } } } },
+            nodes: { b: { type: 'Batcher', dynamic: { images: { members: ['image0'] } } } },
             boundary: {
-              inputs: [{ id: 'first', binds: { kind: 'port', node: 'b', port: 'images.image', members: ['m0'] } }],
+              inputs: [{ id: 'first', binds: { kind: 'port', node: 'b', port: 'images.image0' } }],
             },
           },
         },
@@ -1943,13 +2432,14 @@ describe('dynamic interfaces', () => {
 
 describe('dynamic wireability and interface integrity', () => {
 
-  it('duplicate elaborated input ids/wire names are compile errors, not overwrites', () => {
+  it('duplicate elaborated input ids are compile errors, not overwrites', () => {
     const result = dynCompile(dynDoc({ nodes: { d: { type: 'DupIn' } } }))
     expect(result.ok).toBe(false)
     if (result.ok) return
-    const codes = result.diagnostics.map((d) => d.code)
-    expect(codes).toContain('compile.interface.duplicatePort')
-    expect(codes).toContain('compile.interface.duplicateApiName')
+    expect(result.diagnostics).toContainEqual(expect.objectContaining({
+      severity: 'error',
+      code: 'elab.projectedNamespaceCollision',
+    }))
   })
 
   it('static input ids containing #/% compile stored raw-keyed values', () => {
@@ -1988,6 +2478,136 @@ describe('muted endpoints skip port validation', () => {
     )
   })
 
+})
+
+describe("a muted node's outputs give nothing", () => {
+  const target = { type: 'ItemGroup', dynamic: { items: { members: ['item0'] } } }
+  const marked = (doc: WorkflowDocument, features: string[] = []) => {
+    const result = compile({ ...compileInput(doc), resolve: dynResolve, graphFeatures: [DINKSTER_GRAPH_FEATURE_ABSENT_INPUT, ...features] })
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) return undefined
+    expect(result.artifact.diagnostics.map((d) => d.code)).not.toContain('compile.link.dropped')
+    return result.artifact.prompt
+  }
+  const absent = (reason: string) => ({ 'items.item0': { $absent: { reason } } })
+  const inner = (mode?: 'muted') => ({
+    nodes: { loader: { type: 'ImageSrc', title: 'Inner loader', ...(mode ? { mode } : {}) } },
+    boundary: { outputs: [{ id: 'image', binds: { kind: 'port', node: 'loader', port: 'out' } }] },
+  })
+
+  it('sends $absent naming the muted node, directly, through a reroute, a net and a subgraph boundary', () => {
+    const source = { type: 'ImageSrc', title: 'Loader', mode: 'muted' as const }
+    expect(marked(dynDoc({ nodes: { source, target }, links: [[['source', 'out'], ['target', 'items.item0']]] }))?.['target']!.inputs)
+      .toEqual(absent("'Loader' is muted"))
+    expect(marked(dynDoc({ nodes: { source: { type: 'ImageSrc', mode: 'muted' }, target }, links: [[['source', 'out'], ['target', 'items.item0']]] }))?.['target']!.inputs)
+      .toEqual(absent("'ImageSrc' is muted"))
+    expect(marked(dynDoc({
+      nodes: { source, target },
+      reroutes: ['r'],
+      links: [[['source', 'out'], { reroute: 'r' }], [{ reroute: 'r' }, ['target', 'items.item0']]],
+    }))?.['target']!.inputs).toEqual(absent("'Loader' is muted"))
+    expect(marked(dynDoc({ nodes: { source, target }, nets: [['images', ['source', 'out'], [['target', 'items.item0']]]] }))?.['target']!.inputs)
+      .toEqual(absent("'Loader' is muted"))
+
+    const throughBoundary = marked(dynDoc({
+      nodes: { sub: { type: '#sub' }, target },
+      links: [[['sub', 'image'], ['target', 'items.item0']]],
+      subgraphs: { sub: inner('muted') },
+    }))
+    expect(throughBoundary?.['target']!.inputs).toEqual(absent("'Inner loader' is muted"))
+    expect(Object.keys(throughBoundary ?? {})).toEqual(['target'])
+
+    const mutedSubgraph = marked(dynDoc({
+      nodes: { sub: { type: '#sub', title: 'Image stage', mode: 'muted' }, target },
+      links: [[['sub', 'image'], ['target', 'items.item0']]],
+      subgraphs: { sub: inner() },
+    }))
+    expect(mutedSubgraph?.['target']!.inputs).toEqual(absent("'Image stage' is muted"))
+    expect(Object.keys(mutedSubgraph ?? {})).toEqual(['target'])
+
+    // A bypassed node hands on what it receives, here nothing; the reason names the muted node.
+    expect(marked(dynDoc({
+      nodes: { source, pass: { type: 'Passthrough', title: 'Pass', mode: 'bypassed' }, target },
+      links: [[['source', 'out'], ['pass', 'in']], [['pass', 'out'], ['target', 'items.item0']]],
+    }))?.['target']!.inputs).toEqual(absent("'Loader' is muted"))
+
+    // An input whose type is a variable takes the marker too: it is not a literal needing a type.
+    const anyValue = dynDoc({ nodes: { source, has: { type: 'AnyValue' } }, links: [[['source', 'out'], ['has', 'value']]] })
+    expect(marked(anyValue, [DINKSTER_GRAPH_FEATURE_REGIONS])?.['has']!.inputs)
+      .toEqual({ value: { $absent: { reason: "'Loader' is muted" } } })
+  })
+
+  it("sends $absent for a field's output on a muted node", () => {
+    const prompt = marked(dynDoc({
+      nodes: {
+        source: { type: 'TapChoice', title: 'Amounts', mode: 'muted', values: { 'mode.amount': 5 }, dynamic: { mode: { selected: 'a' } } },
+        sink: { type: 'TapGroup', dynamic: { items: { members: ['item0'] } } },
+      },
+      links: [[{ node: 'source', tap: 'mode.amount' }, ['sink', 'items.item0']]],
+    }))
+    expect(prompt?.['sink']!.inputs).toEqual(absent("'Amounts' is muted"))
+  })
+
+  it('leaves the input out with a warning on a server without $absent', () => {
+    const plain = dynCompile(dynDoc({
+      nodes: { source: { type: 'ImageSrc', mode: 'muted' }, target },
+      links: [[['source', 'out'], ['target', 'items.item0']]],
+    }))
+    expect(plain.ok && plain.artifact.prompt['target']!.inputs).toEqual({})
+    expect(plain.ok && plain.artifact.diagnostics.map((d) => d.code)).toContain('compile.link.dropped')
+  })
+
+  it('skips a node whose required input receives nothing, and what needs it, with a warning on the first', () => {
+    // k needs the muted image; after needs k's output; maybe takes it only if present.
+    const nodes = {
+      source: { type: 'ImageSrc', title: 'Loader', mode: 'muted' as const },
+      k: { type: 'Passthrough', title: 'Blur' },
+      after: { type: 'Sink', title: 'Save' },
+      maybe: target,
+      other: { type: 'ImageSrc' },
+    }
+    const links: [DynEnd, DynEnd][] = [
+      [['source', 'out'], ['k', 'in']], [['k', 'out'], ['after', 'in']], [['k', 'out'], ['maybe', 'items.item0']],
+    ]
+    const result = compile({ ...compileInput(dynDoc({ nodes, links })), resolve: dynResolve, graphFeatures: [DINKSTER_GRAPH_FEATURE_ABSENT_INPUT] })
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) return
+    expect(result.artifact.prompt['k']!.inputs).toEqual({ in: { $absent: { reason: "'Loader' is muted" } } })
+    expect(result.artifact.diagnostics.filter((d) => d.code === 'compile.input.skipped').map((d) => [d.anchor?.occurrence?.node, d.anchor?.port?.port, d.severity, d.message])).toEqual([
+      ['k', 'in', 'warning', "Receives nothing because 'Loader' is muted, so this node is skipped in the run."],
+    ])
+    expect(result.artifact.diagnostics.map((d) => d.code)).not.toContain('compile.link.dropped')
+
+    // When every node the run asks for would be skipped, the run is not sent:
+    // after is skipped only because k is, so the refusal names no warning of its own.
+    const only = compile({
+      ...compileInput(dynDoc({ nodes, links }), { kind: 'partial', targets: [{ instancePath: [], node: asNodeId('after') }] }),
+      resolve: dynResolve,
+      graphFeatures: [DINKSTER_GRAPH_FEATURE_ABSENT_INPUT],
+    })
+    expect(only.ok).toBe(false)
+    if (!only.ok) expect(only.diagnostics.map((d) => d.code)).toEqual(expect.arrayContaining(['compile.input.skipped', 'compile.run.allSkipped']))
+    // What such a run would include is still known, so the editor can offer it and say why it is refused.
+    const closure = scopeClosure({
+      ...compileInput(dynDoc({ nodes, links }), { kind: 'partial', targets: [{ instancePath: [], node: asNodeId('after') }] }),
+      resolve: dynResolve,
+      graphFeatures: [DINKSTER_GRAPH_FEATURE_ABSENT_INPUT],
+    })
+    expect([...closure?.included ?? []].sort()).toEqual(['after', 'k'])
+  })
+
+  it('keeps a wire into a muted node as before', () => {
+    const into = compile({
+      ...compileInput(dynDoc({
+        nodes: { source: { type: 'ImageSrc' }, pass: { type: 'Passthrough', mode: 'muted' } },
+        links: [[['source', 'out'], ['pass', 'in']]],
+      })),
+      resolve: dynResolve,
+      graphFeatures: [DINKSTER_GRAPH_FEATURE_ABSENT_INPUT],
+    })
+    expect(into.ok && Object.keys(into.artifact.prompt)).toEqual(['source'])
+    expect(into.ok && into.artifact.diagnostics.map((d) => d.code)).toContain('compile.link.dropped')
+  })
 })
 
 describe('unresolved nodes outside the executed scope', () => {
@@ -2061,4 +2681,347 @@ describe('unresolved nodes outside the executed scope', () => {
     expect(unknownDiags(result.diagnostics).some((diagnostic) => diagnostic.severity === 'error')).toBe(true)
   })
 
+})
+
+describe('Primitive and Switch as ordinary nodes', () => {
+  const soften = {
+    nodes: {
+      prim: { type: 'Primitive', values: { value: 4 } },
+      sink: { type: 'IntSink', values: { steps: 3 } },
+    },
+    links: [[['prim', 'INT'], ['sink', 'steps']]] as [DynEnd, DynEnd][],
+    boundary: { inputs: [{ id: 'amount', binds: { kind: 'port', node: 'prim', port: 'value' } }] },
+  }
+
+  it('bakes a known value into every field it feeds and does not run the Primitive', () => {
+    const doc = dynDoc({
+      nodes: {
+        prim: { type: 'Primitive', values: { value: 11 } },
+        a: { type: 'IntSink', values: { steps: 3 } },
+        b: { type: 'IntSink', values: { steps: 5 } },
+      },
+      links: [[['prim', 'INT'], ['a', 'steps']], [['prim', 'INT'], ['b', 'steps']]],
+    })
+    const result = dynCompile(doc)
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) return
+    expect(Object.keys(result.artifact.prompt).sort()).toEqual(['a', 'b'])
+    expect(result.artifact.prompt['a']!.inputs).toEqual({ steps: 11 })
+    expect(result.artifact.prompt['b']!.inputs).toEqual({ steps: 11 })
+    expect(doc.graphs.g0!.nodes['a']!.values).toEqual({ steps: 3 })
+  })
+
+  it('bakes a known choice into the choice field it feeds', () => {
+    const result = dynCompile(dynDoc({
+      nodes: {
+        choice: { type: 'Choice', values: { value: 'dpm' } },
+        sink: { type: 'SamplerSink', values: { sampler: 'euler' } },
+      },
+      links: [[['choice', 'COMBO'], ['sink', 'sampler']]],
+    }))
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) return
+    expect(Object.keys(result.artifact.prompt)).toEqual(['sink'])
+    expect(result.artifact.prompt['sink']!.inputs).toEqual({ sampler: 'dpm' })
+  })
+
+  it('runs a Primitive typed by a type variable instead of baking its value', () => {
+    const result = dynCompile(dynDoc({
+      nodes: {
+        prim: { type: 'VarPrimitive', values: { value: { $typed: { type: 'INT', value: 7 } } } },
+        sink: { type: 'IntSink', values: { steps: 3 } },
+      },
+      links: [[['prim', 'out'], ['sink', 'steps']]],
+    }))
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) return
+    expect(Object.keys(result.artifact.prompt).sort()).toEqual(['prim', 'sink'])
+    expect(result.artifact.prompt['sink']!.inputs).toEqual({ steps: ['prim', 0] })
+  })
+
+  it('advances the Primitive control only for consumers that run', () => {
+    const doc = dynDoc({
+      nodes: {
+        prim: { type: 'Primitive', values: { value: 11 } },
+        a: { type: 'IntSink', values: { steps: 3 } },
+        b: { type: 'IntSink', values: { steps: 5 } },
+      },
+      links: [[['prim', 'INT'], ['a', 'steps']], [['prim', 'INT'], ['b', 'steps']]],
+    })
+    const result = dynCompile(doc, { kind: 'partial', targets: [{ instancePath: [], node: asNodeId('a') }] })
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) return
+    const controllers = result.artifact.provenance.controllerInputs ?? []
+    expect(controllers.map((controller) => [controller.runtimeId, controller.sources.map((source) => 'valueKey' in source && source.occurrence.node)])).toEqual([
+      ['a', ['prim']],
+    ])
+  })
+
+  it('gives each subgraph node its own promoted Primitive value', () => {
+    const result = dynCompile(dynDoc({
+      nodes: {
+        first: { type: '#soften', values: { amount: 11 } },
+        second: { type: '#soften', values: { amount: 37 } },
+      },
+      subgraphs: { soften },
+    }))
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) return
+    expect(Object.keys(result.artifact.prompt).sort()).toEqual(['first.sink', 'second.sink'])
+    expect(result.artifact.prompt['first.sink']!.inputs).toEqual({ steps: 11 })
+    expect(result.artifact.prompt['second.sink']!.inputs).toEqual({ steps: 37 })
+  })
+
+  it('passes the producer of a wired Primitive on, inside and across a subgraph boundary', () => {
+    const result = dynCompile(dynDoc({
+      nodes: {
+        counter: { type: 'IntSrc' },
+        prim: { type: 'Primitive', values: { value: 11 } },
+        sink: { type: 'IntSink', values: { steps: 3 } },
+        outer: { type: 'IntSrc' },
+        inst: { type: '#soften', values: { amount: 37 } },
+      },
+      links: [
+        [['counter', 'out'], ['prim', 'value']],
+        [['prim', 'INT'], ['sink', 'steps']],
+        [['outer', 'out'], ['inst', 'amount']],
+      ],
+      subgraphs: { soften },
+    }))
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) return
+    expect(Object.keys(result.artifact.prompt).sort()).toEqual(['counter', 'inst.sink', 'outer', 'sink'])
+    expect(result.artifact.prompt['sink']!.inputs).toEqual({ steps: ['counter', 0] })
+    expect(result.artifact.prompt['inst.sink']!.inputs).toEqual({ steps: ['outer', 0] })
+  })
+
+  it('prunes by a pick that a known Primitive feeds, counting positions in stored order', () => {
+    const doc = dynDoc({
+      nodes: {
+        prim: { type: 'Primitive', values: { value: 2 } },
+        sourceA: { type: 'ImageSrc' },
+        sourceB: { type: 'ImageSrc' },
+        sourceC: { type: 'ImageSrc' },
+        selector: { type: 'Switch', values: { pick: 'a' }, dynamic: { branch: { members: ['c', 'a', 'b'] } } },
+      },
+      links: [
+        [['prim', 'INT'], ['selector', 'pick']],
+        [['sourceA', 'out'], ['selector', 'branch.a']],
+        [['sourceB', 'out'], ['selector', 'branch.b']],
+        [['sourceC', 'out'], ['selector', 'branch.c']],
+      ],
+    })
+    const scope: ExecutionScope = { kind: 'partial', targets: [{ instancePath: [], node: asNodeId('selector') }] }
+    const result = compile({ ...compileInput(doc, scope), resolve: dynResolve, graphFeatures: ['typedLiteral'] })
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    const closure = scopeClosure({ ...compileInput(doc, scope), resolve: dynResolve, graphFeatures: ['typedLiteral'] })!
+    expect([...closure.included].sort()).toEqual(['selector', 'sourceB'])
+    if (result.ok) expect(result.artifact.prompt['selector']!.inputs['pick']).toEqual({ $typed: { type: 'INT', value: 2 } })
+  })
+
+  // Member a is named "c" and member c "Quick": a name wins over a key.
+  const namedSwitchDoc = (pickSource: DynNode) => dynDoc({
+    nodes: {
+      source: pickSource,
+      sourceA: { type: 'ImageSrc' },
+      sourceB: { type: 'ImageSrc' },
+      sourceC: { type: 'ImageSrc' },
+      selector: { type: 'NamedSwitch', values: { pick: 'b' }, dynamic: { branch: { members: ['a', 'b', 'c'], memberLabels: { a: 'c', c: 'Quick' } } } },
+    },
+    links: [
+      [['source', pickSource.type === 'TextPrimitive' ? 'STRING' : 'out'], ['selector', 'pick']],
+      [['sourceA', 'out'], ['selector', 'branch.a']],
+      [['sourceB', 'out'], ['selector', 'branch.b']],
+      [['sourceC', 'out'], ['selector', 'branch.c']],
+    ],
+  })
+  const namedCompile = (doc: WorkflowDocument) => {
+    const scope: ExecutionScope = { kind: 'partial', targets: [{ instancePath: [], node: asNodeId('selector') }] }
+    const input = { ...compileInput(doc, scope), resolve: dynResolve, graphFeatures: ['typedLiteral'] as const }
+    return { result: compile(input), closure: scopeClosure(input) }
+  }
+
+  it('resolves known text on a Switch by branch name, then key, and sends the member key without names', () => {
+    for (const [text, key, kept] of [['c', 'a', 'sourceA'], ['Quick', 'c', 'sourceC'], ['b', 'b', 'sourceB']] as const) {
+      const { result, closure } = namedCompile(namedSwitchDoc({ type: 'TextPrimitive', values: { value: text } }))
+      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+      if (!result.ok) return
+      expect(result.artifact.prompt['selector']!.inputs['pick']).toEqual({ $typed: { type: 'STRING', value: key } })
+      expect(result.artifact.prompt['selector']!.inputs).not.toHaveProperty('names')
+      expect([...closure!.included].sort()).toEqual(['selector', kept].sort())
+    }
+  })
+
+  it('refuses known text that names no branch on the Switch pick', () => {
+    const { result } = namedCompile(namedSwitchDoc({ type: 'TextPrimitive', values: { value: 'quick' } }))
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.diagnostics.filter((d) => d.severity === 'error').map((d) => [d.code, d.message])).toEqual([
+      ['compile.switch.noBranchNamed', 'Switch received "quick". The branches are c, b and Quick.'],
+    ])
+  })
+
+  it('sends the branch names only when the pick is a wire whose text is not known before the run', () => {
+    const text = namedCompile(namedSwitchDoc({ type: 'TextSrc' })).result
+    expect(text.ok, JSON.stringify(!text.ok && text.diagnostics)).toBe(true)
+    if (text.ok) expect(text.artifact.prompt['selector']!.inputs['names']).toEqual(['c', 'b', 'Quick'])
+    const position = namedCompile(namedSwitchDoc({ type: 'IntSrc' })).result
+    expect(position.ok, JSON.stringify(!position.ok && position.diagnostics)).toBe(true)
+    if (position.ok) expect(position.artifact.prompt['selector']!.inputs).not.toHaveProperty('names')
+    const stored = dynCompile(dynDoc({ nodes: { selector: { type: 'NamedSwitch', values: { pick: 'b' }, dynamic: { branch: { members: ['a', 'b'] } } } } }))
+    expect(stored.ok, JSON.stringify(!stored.ok && stored.diagnostics)).toBe(true)
+    if (stored.ok) expect(stored.artifact.prompt['selector']!.inputs).toEqual({ pick: 'b' })
+  })
+
+  const routeBody = (extra: { nodes?: Record<string, DynNode>; links?: [DynEnd, DynEnd][]; controllers?: Record<string, string>; boundary?: { inputs?: unknown[] } } = {}) => ({
+    nodes: {
+      sourceA: { type: 'ImageSrc' },
+      sourceB: { type: 'ImageSrc' },
+      ...extra.nodes,
+      selector: { type: 'ModeSwitch', values: { pick: 'a' }, controllers: extra.controllers ?? { pick: 'randomize' }, dynamic: { branch: { members: ['a', 'b'] } } },
+    },
+    links: [
+      [['sourceA', 'out'], ['selector', 'branch.a']],
+      [['sourceB', 'out'], ['selector', 'branch.b']],
+      ...(extra.links ?? []),
+    ] as [DynEnd, DynEnd][],
+    boundary: extra.boundary ?? {},
+  })
+  const randomDoc = (route = routeBody(), outer: Record<string, DynNode> = { first: { type: '#route' }, second: { type: '#route' } }) =>
+    dynDoc({ nodes: outer, subgraphs: { route } })
+  const rollCompile = (doc: WorkflowDocument, rolls: number[], scope: ExecutionScope = { kind: 'full' }) =>
+    compile({ ...compileInput(doc, scope), resolve: dynResolve, graphFeatures: ['typedLiteral'], pickCandidate: () => rolls.shift()! })
+
+  it('rolls a random pick once per occurrence, records it and replays the record', () => {
+    const rolled = rollCompile(randomDoc(), [0, 1])
+    expect(rolled.ok, JSON.stringify(!rolled.ok && rolled.diagnostics)).toBe(true)
+    if (!rolled.ok) return
+    expect(rolled.artifact.prompt['first.selector']!.inputs['pick']).toBe('a')
+    expect(rolled.artifact.prompt['second.selector']!.inputs['pick']).toBe('b')
+    const choices = rolled.artifact.choices ?? []
+    expect(choices).toEqual([
+      { graph: 'route', selector: 'first.selector', policy: 'random', candidate: 'a' },
+      { graph: 'route', selector: 'second.selector', policy: 'random', candidate: 'b' },
+    ])
+    expect((rolled.artifact.provenance.controllerInputs ?? []).filter((controller) => controller.terminal.valueKey === 'pick')).toEqual([])
+    const replayed = compile({
+      ...compileInput(randomDoc(), { kind: 'full' }),
+      resolve: dynResolve,
+      candidateOverride: ({ graph, selector }) => choices.find((choice) => choice.graph === graph && choice.selector === selector)?.candidate,
+      pickCandidate: () => 0,
+    })
+    expect(replayed.ok && replayed.artifact.prompt['second.selector']!.inputs['pick']).toBe('b')
+    const closure = scopeClosure({ ...compileInput(randomDoc(), { kind: 'partial', targets: [{ instancePath: [asNodeId('first')], node: asNodeId('selector') }] }), resolve: dynResolve })!
+    expect([...closure.included].sort()).toEqual(['first.selector', 'first.sourceA', 'first.sourceB'])
+  })
+
+  it('rolls only Switches that run, and needs no chooser when none does', () => {
+    const doc = randomDoc(routeBody(), { first: { type: '#route' }, other: { type: 'ImageSrc' } })
+    const result = compile({ ...compileInput(doc, { kind: 'partial', targets: [{ instancePath: [], node: asNodeId('other') }] }), resolve: dynResolve })
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (result.ok) expect(result.artifact.choices).toBeUndefined()
+  })
+
+  it.each([
+    ['a wired pick', routeBody({ nodes: { index: { type: 'IntSrc' } }, links: [[['index', 'out'], ['selector', 'pick']]] }), ['first.index', 0]],
+    ['a pick a known Primitive feeds', routeBody({ nodes: { prim: { type: 'Primitive', values: { value: 1 } } }, links: [[['prim', 'INT'], ['selector', 'pick']]] }), { $typed: { type: 'INT', value: 1 } }],
+    ['the Fixed mode the pick declares when none is stored', routeBody({ controllers: {} }), 'a'],
+  ] as const)('does not roll %s', (_name, route, pick) => {
+    const result = rollCompile(randomDoc(route, { first: { type: '#route' } }), [1])
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) return
+    expect(result.artifact.prompt['first.selector']!.inputs['pick']).toEqual(pick)
+    expect(result.artifact.choices).toBeUndefined()
+  })
+
+  it('takes Random mode from the subgraph node that promotes the pick', () => {
+    const route = routeBody({ boundary: { inputs: [{ id: 'which', promoted: true, binds: { kind: 'port', node: 'selector', port: 'pick' } }] } })
+    const result = rollCompile(randomDoc(route, {
+      fixed: { type: '#route', values: { which: 'b' }, controllers: { which: 'fixed' } },
+      random: { type: '#route', values: { which: 'a' }, controllers: { which: 'randomize' } },
+    }), [1])
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) return
+    expect(result.artifact.prompt['fixed.selector']!.inputs['pick']).toBe('b')
+    expect(result.artifact.prompt['random.selector']!.inputs['pick']).toBe('b')
+    expect(result.artifact.choices).toEqual([{ graph: 'route', selector: 'random.selector', policy: 'random', candidate: 'b' }])
+  })
+
+  it('passes nothing on through the Primitive from a muted node, not the Primitive\'s own value', () => {
+    const doc = (sink: { type: string; values?: Record<string, unknown>; dynamic?: Record<string, unknown> }, port: string) => dynDoc({
+      nodes: { counter: { type: 'IntSrc', title: 'Counter', mode: 'muted' }, prim: { type: 'Primitive', values: { value: 11 } }, sink },
+      links: [[['counter', 'out'], ['prim', 'value']], [['prim', 'INT'], ['sink', port]]],
+    })
+    const marked = compile({
+      ...compileInput(doc({ type: 'TapGroup', dynamic: { items: { members: ['item0'] } } }, 'items.item0')),
+      resolve: dynResolve,
+      graphFeatures: [DINKSTER_GRAPH_FEATURE_ABSENT_INPUT],
+    })
+    expect(marked.ok, JSON.stringify(!marked.ok && marked.diagnostics)).toBe(true)
+    if (marked.ok) expect(marked.artifact.prompt['sink']!.inputs).toEqual({ 'items.item0': { $absent: { reason: "'Counter' is muted" } } })
+
+    // Without the marker the input is left out with a warning, and the field sends its own value.
+    const plain = dynCompile(doc({ type: 'IntSink', values: { steps: 3 } }, 'steps'))
+    expect(plain.ok, JSON.stringify(!plain.ok && plain.diagnostics)).toBe(true)
+    if (plain.ok) {
+      expect(plain.artifact.prompt['sink']!.inputs).toEqual({ steps: 3 })
+      expect(plain.artifact.diagnostics.map((d) => d.code)).toContain('compile.link.dropped')
+    }
+  })
+})
+
+describe('a type variable fed two different types', () => {
+  const T = { kind: 'variable', templateId: 'T' } as const
+  const LATENT = { kind: 'concrete', name: 'LATENT' } as const
+  const local: Record<string, NodeSchema> = {
+    ImageSrc: dynSchemas['ImageSrc']!,
+    LatentSrc: { ...dynSchemaOf('LatentSrc', [{ kind: 'output', id: 'out', type: LATENT }]), isOutputNode: false },
+    IntSrc: dynSchemas['IntSrc']!,
+    Primitive: dynSchemas['Primitive']!,
+    Pair: dynSchemaOf('Pair', [dynInput('first', { type: T }), dynInput('second', { type: T }), { kind: 'output', id: 'out', type: T }]),
+    AnySwitch: {
+      ...dynSchemaOf('AnySwitch', [
+        dynInput('pick', { type: PICK, optional: true }),
+        { kind: 'group', id: 'branch', value: dynInput('value', { type: T, optional: true, lazy: true }), keys: { kind: 'named', names: ['a', 'b'] }, grows: 'button', minMembers: 1 },
+        { kind: 'output', id: 'result', type: T },
+      ]),
+      selector: { input: 'pick', group: 'branch' },
+    },
+  }
+  const run = (doc: WorkflowDocument, target: string) => compile({
+    ...compileInput(doc, { kind: 'partial', targets: [{ instancePath: [], node: asNodeId(target) }] }),
+    resolve: (type) => local[type],
+    graphFeatures: ['regions', 'typedLiteral'],
+  })
+  const refusals = (result: ReturnType<typeof compile>) =>
+    result.ok ? [] : result.diagnostics.filter((d) => d.code === 'compile.typeVariableConflict').map((d) => [d.message, d.anchor?.occurrence?.node])
+
+  it('refuses the queue for a node whose inputs bring two types', () => {
+    const result = run(dynDoc({
+      nodes: { img: { type: 'ImageSrc' }, lat: { type: 'LatentSrc' }, pair: { type: 'Pair' } },
+      links: [[['img', 'out'], ['pair', 'first']], [['lat', 'out'], ['pair', 'second']]],
+    }), 'pair')
+    expect(refusals(result)).toEqual([['Pair: The inputs must be the same type, but the input first is an image and the input second is latent data.', 'pair']])
+  })
+
+  it.each([
+    ['a run-time pick', 'IntSrc', false],
+    ['a known pick', 'Primitive', true],
+  ])('refuses a Switch with branches of two types only for %s', (_, pickType, ok) => {
+    const result = run(dynDoc({
+      nodes: {
+        img: { type: 'ImageSrc' },
+        lat: { type: 'LatentSrc' },
+        pick: { type: pickType, values: { value: 1 } },
+        sw: { type: 'AnySwitch', dynamic: { branch: { members: ['a', 'b'] } } },
+      },
+      links: [
+        [['pick', pickType === 'IntSrc' ? 'out' : 'INT'], ['sw', 'pick']],
+        [['img', 'out'], ['sw', 'branch.a']],
+        [['lat', 'out'], ['sw', 'branch.b']],
+      ],
+    }), 'sw')
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(ok)
+    if (!ok) expect(refusals(result)).toEqual([['AnySwitch: The inputs must be the same type, but the input a is an image and the input b is latent data.', 'sw']])
+  })
 })

@@ -1,9 +1,10 @@
 import {
   documentResolver,
+  diag,
   diagnosticBlocksExecution,
-  elabKeyOf,
   inputsOf,
   outputsOf,
+  parseOccurrenceKey,
   subgraphDefIdOf,
   type Diagnostic,
   type DiagnosticOrigin,
@@ -13,24 +14,69 @@ import {
   type Severity,
   type WorkflowDocument,
 } from '@dinkster/core'
-import type { PortProblemMap } from '@dinkster/canvas'
+import { outputRowKey, type ProblemKind, type RowProblemMap } from '@dinkster/canvas'
+import type { ExecutionState } from '@dinkster/client'
 
 export interface ProblemSchemaRegistry {
   readonly resolve: (type: string) => NodeSchema | undefined
 }
 
-export type NodeProblemKind = 'error' | 'blocking-warning' | 'warning'
+export type NodeProblemKind = ProblemKind
 
-export interface NodeProblemModel {
+/** One cause of a problem on a node: one line in its box and one count on its tab. */
+export interface NodeProblemLine {
   readonly kind: NodeProblemKind
-  readonly diagnostics: readonly Diagnostic[]
+  readonly diagnostic: Diagnostic
+  /**
+   * The row the problem belongs to: its stored value key, the input's port id
+   * when the input has no field, or outputRowKey for an output. Absent for a
+   * problem about the node as a whole.
+   */
+  readonly row?: string
 }
 
-export type NodeProblemMap = Readonly<Record<string, readonly NodeProblemModel[]>>
+/** Problem lines per node, strongest first; the host orders rows top to bottom. */
+export type NodeProblemMap = Readonly<Record<string, readonly NodeProblemLine[]>>
 
 export interface ProblemProjection {
   readonly nodes: NodeProblemMap
-  readonly ports: PortProblemMap
+  readonly rows: RowProblemMap
+}
+
+/** Run problems share occurrence attribution without making a warning a failed run. */
+export function executionProblemDiagnostics(execution: ExecutionState): readonly Diagnostic[] {
+  return [...execution.errors, ...(execution.warnings ?? []).flatMap((entry) => {
+    if (entry.runtimeNodeId === undefined || entry.code === undefined) return []
+    const source = execution.artifact?.provenance.toSource[entry.runtimeNodeId]
+    return [diag('warning', 'runtime', `runtime.${entry.code}`, entry.message, {
+      anchor: { execution: execution.ref, ...(source === undefined ? {} : { occurrence: parseOccurrenceKey(source) }) },
+      data: { runtimeId: entry.runtimeNodeId },
+    })]
+  })]
+}
+
+/** Editing and Run checks share a cause, not necessarily a diagnostic code or display sentence. */
+export function uniqueProblemDiagnostics(diagnostics: readonly Diagnostic[], document?: WorkflowDocument): readonly Diagnostic[] {
+  const seen = new Set<string>()
+  return diagnostics.filter((diagnostic) => {
+    const typeConflict = diagnostic.code === 'solve.varConflict' || diagnostic.code === 'compile.typeVariableConflict'
+    const rule = diagnostic.code === 'node.rule.failed' ? diagnostic.data?.['rule'] : undefined
+    if (!typeConflict && rule === undefined) return true
+    const occurrence = diagnostic.anchor?.occurrence
+    const ref = diagnostic.refs?.find((entry) => entry.nodeId !== undefined)
+    const resolved = occurrence === undefined || document === undefined ? undefined : resolveNodeOccurrence(document, occurrence)
+    const node = occurrence?.node ?? ref?.nodeId
+    const graph = resolved?.graphId ?? ref?.graphId
+    if (node === undefined || graph === undefined) return true
+    const key = JSON.stringify([graph, occurrence?.instancePath ?? [], node, diagnostic.severity,
+      ...(typeConflict
+        ? ['type-conflict', diagnostic.anchor?.port?.port ?? ref?.portId,
+          diagnostic.data?.['nodeMessage'] ?? diagnostic.message]
+        : ['rule', rule])])
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 }
 
 /** Preserve every active diagnostic source before graph projection. */
@@ -40,7 +86,19 @@ export function composeCanvasProblemDiagnostics(args: {
   readonly artifact?: readonly Diagnostic[]
   readonly execution?: readonly Diagnostic[]
 }): readonly Diagnostic[] {
-  return [...args.owned, ...args.scene, ...(args.artifact ?? []), ...(args.execution ?? [])]
+  const others = [...args.owned, ...(args.artifact ?? []), ...(args.execution ?? [])]
+  return [...args.owned, ...withoutPassedOnDefaults(args.scene, others), ...(args.artifact ?? []), ...(args.execution ?? [])]
+}
+
+/**
+ * The editor's own warnings without a field's "Using the default" when
+ * `others` say that default was passed on to another node: the field is
+ * listed once, by the warning that names that node.
+ */
+export function withoutPassedOnDefaults(own: readonly Diagnostic[], others: readonly Diagnostic[]): readonly Diagnostic[] {
+  const field = (d: Diagnostic): string => JSON.stringify([d.anchor?.port?.node, d.data?.['input']])
+  const passedOn = new Set(others.filter((d) => d.code === 'automatic.tapDefault').map(field))
+  return passedOn.size === 0 ? own : own.filter((d) => d.code !== 'automatic.default' || !passedOn.has(field(d)))
 }
 
 interface DiagnosticNodeTarget {
@@ -89,16 +147,18 @@ function diagnosticNodeTargets(
   document: WorkflowDocument | undefined,
 ): readonly DiagnosticNodeTarget[] {
   const targets: DiagnosticNodeTarget[] = []
+  const occurrence = diagnostic.anchor?.occurrence
+  const resolved = occurrence === undefined || document === undefined ? undefined : resolveNodeOccurrence(document, occurrence)
   for (const ref of diagnostic.refs ?? []) {
     if (ref.nodeId !== undefined) targets.push({
       nodeId: ref.nodeId,
       ...(ref.graphId === undefined ? {} : { graphId: ref.graphId }),
+      ...(occurrence?.node === ref.nodeId && (document === undefined || resolved?.graphId === ref.graphId)
+        ? { instancePath: occurrence.instancePath } : {}),
       source: 'ref',
     })
   }
-  const occurrence = diagnostic.anchor?.occurrence
   if (occurrence !== undefined) {
-    const resolved = document === undefined ? undefined : resolveNodeOccurrence(document, occurrence)
     targets.push({
       nodeId: occurrence.node,
       ...(resolved === undefined ? {} : { graphId: resolved.graphId }),
@@ -111,29 +171,77 @@ function diagnosticNodeTargets(
   return targets
 }
 
+/** A problem that stops a run is an error; every other problem is a warning. */
+export const problemKindOf = (diagnostic: Diagnostic): NodeProblemKind =>
+  diagnosticBlocksExecution(diagnostic) ? 'error' : 'warning'
+
+/** Which side of a node a port id names, when the view knows it. */
+export type PortSideOf = (nodeId: string, port: string) => 'input' | 'output' | undefined
+
+/** The row of one node a diagnostic is about, if any. */
+function diagnosticRow(diagnostic: Diagnostic, nodeId: string, portSideOf: PortSideOf | undefined): string | undefined {
+  const field = diagnostic.refs?.find((ref) => ref.nodeId === nodeId && ref.direction !== 'output' && ref.valueKey !== undefined)
+  if (field !== undefined) return field.valueKey
+  const port = diagnostic.anchor?.port
+  if (port !== undefined && port.node === nodeId) {
+    // A field can have a companion output but no input pin. Its declared
+    // input identity takes precedence over the visible pin's direction.
+    if (diagnostic.data?.['input'] === port.port) return port.port
+    return portSideOf?.(nodeId, port.port) === 'output' ? outputRowKey(port.port) : port.port
+  }
+  for (const ref of diagnostic.refs ?? []) {
+    if (ref.nodeId !== nodeId) continue
+    if (ref.direction === 'output') {
+      if (ref.portId !== undefined) return outputRowKey(ref.portId)
+      continue
+    }
+    const row = ref.valueKey ?? ref.portId
+    if (row !== undefined) return row
+  }
+  return undefined
+}
+
+/** A stale selection explains the same row/source mismatch more precisely. Keep both solver findings, but show one cause. */
+function withoutSupersededTypeProblems(diagnostics: readonly Diagnostic[]): readonly Diagnostic[] {
+  const key = (diagnostic: Diagnostic): string | undefined => {
+    const data = diagnostic.data
+    if (diagnostic.severity !== 'warning' || typeof data?.['nodeMessage'] !== 'string' ||
+      typeof data['sourceNode'] !== 'string' || typeof data['sourcePort'] !== 'string') return undefined
+    return JSON.stringify([diagnostic.refs, diagnostic.anchor?.port, diagnostic.anchor?.occurrence, data['sourceNode'], data['sourcePort']])
+  }
+  const selected = new Set(diagnostics.filter((diagnostic) => diagnostic.code === 'solve.slot.staleSpecialization')
+    .map(key).filter((value) => value !== undefined))
+  return diagnostics.filter((diagnostic) => {
+    const cause = diagnostic.code === 'solve.linkMismatch' ? key(diagnostic) : undefined
+    return cause === undefined || !selected.has(cause)
+  })
+}
+
 /**
- * Project current document diagnostics onto nodes in one visible graph.
- * Info is omitted. Errors, explicit blocking warnings, and advisory warnings
- * get separate groups so advisory notices never look execution-blocking.
- * Refs are preferred; occurrence anchors cover compiler diagnostics.
+ * Project current document diagnostics onto nodes in one visible graph: one
+ * line per cause, so a cause reported by several sources counts once. Info is
+ * omitted. Refs are preferred; occurrence anchors cover compiler diagnostics.
  */
 export function deriveProblemProjection(args: {
   readonly diagnostics: readonly Diagnostic[]
   readonly document?: WorkflowDocument
   readonly graphId: string
   readonly instancePath: readonly string[] | undefined
+  /** Tells an anchored output port from an input; anchors default to inputs. */
+  readonly portSideOf?: PortSideOf
 }): ProblemProjection {
-  const grouped: Record<string, Record<NodeProblemKind, Diagnostic[]>> = {}
-  const ports: Record<string, Record<string, NodeProblemKind>> = {}
-  const rank: Readonly<Record<NodeProblemKind, number>> = { warning: 0, 'blocking-warning': 1, error: 2 }
-  for (const diagnostic of args.diagnostics) {
+  const lines: Record<string, NodeProblemLine[]> = {}
+  const seen = new Set<string>()
+  for (const diagnostic of uniqueProblemDiagnostics(withoutSupersededTypeProblems(args.diagnostics), args.document)) {
     if (diagnostic.severity === 'info') continue
     const nodeIds = new Set<string>()
     for (const target of diagnosticNodeTargets(diagnostic, args.document)) {
       if (target.source === 'ref') {
         // Node ids are graph-local. A graph-less ref remains useful to
         // problemDisplay, but cannot soundly select a node in this view.
-        if (target.graphId === args.graphId) nodeIds.add(target.nodeId)
+        if (target.graphId === args.graphId && (target.instancePath === undefined ||
+          (args.instancePath !== undefined && target.instancePath.length === args.instancePath.length &&
+            target.instancePath.every((id, index) => id === args.instancePath![index])))) nodeIds.add(target.nodeId)
       } else if (target.source === 'occurrence' && args.instancePath !== undefined &&
         (args.document === undefined || target.graphId === args.graphId) &&
         target.instancePath?.length === args.instancePath.length &&
@@ -146,40 +254,31 @@ export function deriveProblemProjection(args: {
         nodeIds.add(target.nodeId)
       }
     }
-    const kind: NodeProblemKind = diagnostic.severity === 'error'
-      ? 'error'
-      : diagnosticBlocksExecution(diagnostic)
-        ? 'blocking-warning'
-        : 'warning'
-    for (const nodeId of nodeIds) (grouped[nodeId] ??= { error: [], 'blocking-warning': [], warning: [] })[kind].push(diagnostic)
-
-    const port = diagnostic.anchor?.port
-    if (port !== undefined && args.instancePath !== undefined) {
-      const occurrence = diagnostic.anchor?.occurrence
-      const resolved = occurrence === undefined || args.document === undefined
-        ? undefined
-        : resolveNodeOccurrence(args.document, occurrence)
-      const exactOccurrence = occurrence !== undefined && resolved !== undefined &&
-        resolved.graphId === args.graphId && occurrence.node === port.node &&
-        occurrence.instancePath.length === args.instancePath.length &&
-        occurrence.instancePath.every((id, index) => id === args.instancePath![index])
-      const qualifiedPortOnly = occurrence === undefined &&
-        args.document?.graphs[args.graphId]?.nodes[port.node] !== undefined
-      if (exactOccurrence || qualifiedPortOnly) {
-        const portId = elabKeyOf({ port: port.port, ...(port.members === undefined ? {} : { members: port.members }) })
-        const nodePorts = (ports[port.node] ??= {})
-        const current = nodePorts[portId]
-        if (current === undefined || rank[kind] > rank[current]) nodePorts[portId] = kind
-      }
+    const kind = problemKindOf(diagnostic)
+    for (const nodeId of nodeIds) {
+      const row = diagnosticRow(diagnostic, nodeId, args.portSideOf)
+      // A failed node rule reaches the view from the editor and from compile,
+      // whose copy prefixes the node's name; the rule's index names the cause.
+      const rule = diagnostic.code === 'node.rule.failed' ? diagnostic.data?.['rule'] : undefined
+      const key = JSON.stringify(rule === undefined
+        ? [nodeId, row ?? null, diagnostic.code, diagnostic.message]
+        : [nodeId, diagnostic.code, rule])
+      if (seen.has(key)) continue
+      seen.add(key)
+      ;(lines[nodeId] ??= []).push({ kind, diagnostic, ...(row === undefined ? {} : { row }) })
     }
   }
-  const out: Record<string, NodeProblemModel[]> = {}
-  for (const [nodeId, groups] of Object.entries(grouped)) {
-    out[nodeId] = (['error', 'blocking-warning', 'warning'] as const)
-      .filter((kind) => groups[kind].length > 0)
-      .map((kind) => ({ kind, diagnostics: groups[kind] }))
+  const nodes: Record<string, readonly NodeProblemLine[]> = {}
+  const rows: Record<string, Record<string, NodeProblemKind>> = {}
+  for (const [nodeId, nodeLines] of Object.entries(lines)) {
+    nodes[nodeId] = [...nodeLines.filter((line) => line.kind === 'error'), ...nodeLines.filter((line) => line.kind === 'warning')]
+    for (const line of nodeLines) {
+      if (line.row === undefined) continue
+      const nodeRows = (rows[nodeId] ??= {})
+      if (nodeRows[line.row] !== 'error') nodeRows[line.row] = line.kind
+    }
   }
-  return { nodes: out, ports }
+  return { nodes, rows }
 }
 
 /** Backward-compatible node-only view of the shared problem projection. */
@@ -246,6 +345,7 @@ export function problemDisplay(
   document: WorkflowDocument | undefined,
   registry: ProblemSchemaRegistry | undefined,
 ): string {
+  if (typeof diagnostic.data?.['nodeMessage'] === 'string') return diagnostic.message
   if (document === undefined || registry === undefined || diagnostic.refs?.length === 0 || diagnostic.refs === undefined) {
     return diagnostic.message
   }
@@ -269,7 +369,7 @@ export interface ProblemGroup {
   readonly diagnostics: readonly Diagnostic[]
 }
 
-export const problemSections = ['execution', 'workflow', 'upgrade', 'packs', 'collaboration'] as const
+export const problemSections = ['execution', 'workflow', 'packs', 'collaboration'] as const
 export type ProblemSection = typeof problemSections[number]
 
 export const problemSectionForOrigin = {
@@ -278,12 +378,19 @@ export const problemSectionForOrigin = {
   compile: 'workflow',
   invariant: 'workflow',
   environment: 'workflow',
-  import: 'upgrade',
+  import: 'workflow',
   schema: 'packs',
   extension: 'packs',
   command: 'packs',
   collab: 'collaboration',
 } as const satisfies Readonly<Record<DiagnosticOrigin, ProblemSection>>
+
+/**
+ * The section a problem is listed under. The type check reports with the
+ * schema origin, but its problems are fixed by changing this workflow's wires.
+ */
+const problemSectionOf = (diagnostic: Diagnostic): ProblemSection =>
+  diagnostic.code.startsWith('solve.') ? 'workflow' : problemSectionForOrigin[diagnostic.origin]
 
 /** Group by the action a user can take, keeping source order within each section. */
 export function groupProblemDiagnostics(
@@ -291,8 +398,9 @@ export function groupProblemDiagnostics(
   document?: WorkflowDocument,
 ): readonly ProblemGroup[] {
   const groups: ProblemGroup[] = []
+  const shown = uniqueProblemDiagnostics(withoutSupersededTypeProblems(diagnostics), document)
   for (const section of problemSections) {
-    const entries = diagnostics.filter((diagnostic) => problemSectionForOrigin[diagnostic.origin] === section)
+    const entries = shown.filter((diagnostic) => problemSectionOf(diagnostic) === section)
     if (entries.length === 0) continue
     groups.push({
       key: JSON.stringify([section, document?.lineage ?? null]),

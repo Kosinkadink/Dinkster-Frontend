@@ -107,7 +107,7 @@ export function validateExpressionText(
 
 type EvalValue = ExpressionScalar | readonly ExpressionScalar[]
 
-function bitLength(value: bigint): number {
+export function bitLength(value: bigint): number {
   const magnitude = value < 0n ? -value : value
   return magnitude === 0n ? 0 : magnitude.toString(2).length
 }
@@ -186,7 +186,7 @@ function ldexp(mantissa: number, exponent: number): number {
  * cancel (10**400 / 10**400) divide exactly like the backend instead of
  * overflowing during separate float conversions.
  */
-function intTrueDivide(numerator: bigint, denominator: bigint): number {
+export function intTrueDivide(numerator: bigint, denominator: bigint): number {
   const negative = numerator < 0n !== denominator < 0n
   const a = numerator < 0n ? -numerator : numerator
   const b = denominator < 0n ? -denominator : denominator
@@ -231,7 +231,7 @@ function pyDivide(left: ExpressionScalar, right: ExpressionScalar): number {
 }
 
 /** CPython float_divmod: fmod-derived remainder, then floor with a tie nudge. */
-function floatFloorDiv(a: number, b: number): number {
+export function floatFloorDiv(a: number, b: number): number {
   if (b === 0) fail('float floor division by zero')
   let mod = a % b
   let div = (a - mod) / b
@@ -249,7 +249,7 @@ function floatFloorDiv(a: number, b: number): number {
   return copySignZero(a / b)
 }
 
-function floatMod(a: number, b: number): number {
+export function floatMod(a: number, b: number): number {
   if (b === 0) fail('float modulo by zero')
   let mod = a % b
   if (mod !== 0) {
@@ -344,7 +344,7 @@ function pyBitwise(
  * Python-exact mixed comparison: an int compares to a float by value, never
  * by converting the int through a lossy double.
  */
-function compareScalars(rawLeft: ExpressionScalar, rawRight: ExpressionScalar): -1 | 0 | 1 {
+export function compareScalars(rawLeft: ExpressionScalar, rawRight: ExpressionScalar): -1 | 0 | 1 {
   const left = typeof rawLeft === 'boolean' ? toBigInt(rawLeft) : rawLeft
   const right = typeof rawRight === 'boolean' ? toBigInt(rawRight) : rawRight
   if (typeof left === 'bigint' && typeof right === 'bigint') {
@@ -384,7 +384,7 @@ const COMPARE_OPERATORS: Record<string, (a: ExpressionScalar, b: ExpressionScala
 // Rounding with CPython semantics
 
 /** round(float) with no ndigits: nearest integer, ties to even. */
-function roundHalfEvenToInt(x: number): bigint {
+export function roundHalfEvenToInt(x: number): bigint {
   if (Math.abs(x) >= 4503599627370496) return BigInt(x) // 2**52: already integral
   const floor = Math.floor(x)
   const diff = x - floor
@@ -394,7 +394,7 @@ function roundHalfEvenToInt(x: number): bigint {
 }
 
 /** Exact mantissa/exponent decomposition: x = mantissa * 2**exponent. */
-function decompose(x: number): { mantissa: bigint; exponent: number } {
+export function decompose(x: number): { mantissa: bigint; exponent: number } {
   const view = new DataView(new ArrayBuffer(8))
   view.setFloat64(0, x)
   const high = view.getUint32(0)
@@ -408,7 +408,7 @@ function decompose(x: number): { mantissa: bigint; exponent: number } {
 }
 
 /** Round-half-even of numerator/denominator (denominator > 0). */
-function divideHalfEven(numerator: bigint, denominator: bigint): bigint {
+export function divideHalfEven(numerator: bigint, denominator: bigint): bigint {
   let quotient = numerator / denominator
   let remainder = numerator % denominator
   if (remainder < 0n) {
@@ -425,7 +425,7 @@ function divideHalfEven(numerator: bigint, denominator: bigint): bigint {
  * round(float, ndigits): correctly rounded decimal rounding, half-even,
  * matching CPython's dtoa-based double_round via exact bigint arithmetic.
  */
-function roundFloatToDigits(x: number, ndigits: bigint): number {
+export function roundFloatToDigits(x: number, ndigits: bigint): number {
   if (x === 0) return x
   // CPython short-circuits: far past the representable decimal range the
   // value is unchanged (large ndigits) or rounds to signed zero (small).
@@ -449,7 +449,7 @@ function roundFloatToDigits(x: number, ndigits: bigint): number {
 }
 
 /** round(int, ndigits<0): nearest multiple of 10**-ndigits, ties to even. */
-function roundIntToDigits(value: bigint, ndigits: bigint): bigint {
+export function roundIntToDigits(value: bigint, ndigits: bigint): bigint {
   if (ndigits >= 0n) return value
   const magnitude = -ndigits
   const digits = BigInt((value < 0n ? -value : value).toString().length)

@@ -16,7 +16,7 @@ const schema: NodeSchema = {
   pack: 'demo-pack',
   isOutputNode: false,
   searchTerms: ['base-term'],
-  items: [
+  body: [
     {
       kind: 'input',
       id: 'color',
@@ -31,20 +31,18 @@ const schema: NodeSchema = {
       },
     },
     {
-      kind: 'input',
+      kind: 'group',
       id: 'group',
-      type: { kind: 'wildcard' },
-      optional: false,
-      dynamic: {
-        kind: 'autogrow',
-        naming: { kind: 'prefix', prefix: 'item', max: 3 },
-        template: [{
-          kind: 'input',
-          id: 'caption',
-          displayName: 'Caption',
-          type: { kind: 'concrete', name: 'STRING' },
-          optional: true,
-        }],
+      keys: { kind: 'numbered', prefix: 'item', start: 1, pad: 0 },
+      grows: 'link',
+      minMembers: 0,
+      maxMembers: 3,
+      value: {
+        kind: 'input',
+        id: 'caption',
+        displayName: 'Caption',
+        type: { kind: 'concrete', name: 'STRING' },
+        optional: true,
       },
     },
     {
@@ -122,9 +120,9 @@ describe('pack locale catalogs', () => {
     })
     const localized = overlayPackLocales(registry, new Map([['demo-pack', [preferred, fallback]]]))
     const translated = localized.resolve('legacy.paint')!
-    const color = translated.items[0]!
-    const group = translated.items[1]!
-    const image = translated.items[2]!
+    const color = translated.body[0]!
+    const group = translated.body[1]!
+    const image = translated.body[2]!
 
     expect(localized.hash).toBe(registry.hash)
     expect(localized.resolve.forEditorRole?.('demo.paint.editor')).toBe(translated)
@@ -135,9 +133,7 @@ describe('pack locale catalogs', () => {
       { value: 'red', label: 'Rot' },
       { value: 'blue', label: 'Blau' },
     ])
-    expect(group.kind === 'input' && group.dynamic?.kind === 'autogrow'
-      ? group.dynamic.template[0]
-      : undefined).toMatchObject({ displayName: 'Bildtext', tooltip: 'Beschriftung' })
+    expect(group.kind === 'group' ? group.value : undefined).toMatchObject({ displayName: 'Bildtext', tooltip: 'Beschriftung' })
     expect(image).toMatchObject({ displayName: 'Bild', tooltip: 'Fallback image help' })
     expect(translated.searchTerms).toEqual(['malen', 'base-term'])
     expect(localized.packs?.get('demo-pack')?.blueprints?.[0]).toMatchObject({

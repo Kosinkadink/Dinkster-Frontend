@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
-import { expect, nativeTest, openRailPanel, test, waitForWorkspaceReady, type Page } from './fixtures.js'
+import { boundaryItems, type Boundary } from '@dinkster/core'
+import { expect, nativeTest, openRailPanel, test, waitForWorkspaceReady, subgraphMarkPoint, type Page } from './fixtures.js'
 
 const readJson = (path: string): any => JSON.parse(readFileSync(new URL(path, import.meta.url), 'utf8'))
 // Import results stay independent of the current backend catalog; see the
@@ -19,13 +20,12 @@ const subgraphChildren = (doc: any): Record<string, string[]> => Object.fromEntr
 ]))
 
 async function enterInstance(page: Page, id: string): Promise<void> {
-  const point = await page.evaluate((id) => {
+  await page.evaluate((id) => {
     const renderer = window.__dinksterTest!.renderer!
     const node = renderer.getScene().nodes.find((candidate) => candidate.id === id)!
     renderer.setViewport({ x: 300 - node.x, y: 200 - node.y, scale: 1 })
-    const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-    return { x: canvas.left + 300 + node.layout.width / 2, y: canvas.top + 200 + node.layout.headerHeight / 2 }
   }, id)
+  const point = await subgraphMarkPoint(page, id)
   await page.mouse.dblclick(point.x, point.y)
 }
 
@@ -44,10 +44,10 @@ nativeTest('retains unattached typed boundary slots without phantom destinations
   page.on('pageerror', (error) => errors.push(error.message))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'unbound-scene-test', schemaWire: 1 }, packs: {},
-    nodes: { Relay: { displayName: 'Relay', category: 'test', interface: [
-      { role: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 7 },
-      { role: 'output', id: 'result', type: { kind: 'concrete', types: ['INT'] } },
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'unbound-scene-test', schemaWire: 2 }, packs: {},
+    nodes: { Relay: { displayName: 'Relay', category: 'test', body: [
+      { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 7 },
+      { kind: 'output', id: 'result', type: { kind: 'concrete', types: ['INT'] } },
     ] } },
   } }))
   await page.goto('/')
@@ -69,13 +69,14 @@ nativeTest('retains unattached typed boundary slots without phantom destinations
   await openRailPanel(page, 'Boundary')
   const panel = page.getByTestId('boundary-panel')
   await expect(panel).toBeVisible()
-  await expect(panel.getByText('No internal endpoint', { exact: true })).toHaveCount(2)
-  const focus = panel.getByTestId('boundary-show-on-canvas')
-  await expect(focus).toHaveCount(4)
-  await expect(focus.nth(0)).toBeDisabled()
-  await expect(focus.nth(1)).toBeEnabled()
-  await expect(focus.nth(2)).toBeDisabled()
-  await expect(focus.nth(3)).toBeEnabled()
+  await expect(panel.locator('.boundary-tree [data-entry-id]').filter({ hasText: 'Nothing inside' })).toHaveCount(2)
+  const rows = panel.locator('.boundary-tree [data-entry-id]')
+  await expect(rows).toHaveCount(4)
+  for (const [index, attached] of [[0, false], [1, true], [2, false], [3, true]] as const) {
+    await rows.nth(index).click()
+    await expect(panel.getByTestId('boundary-show-on-canvas')).toHaveCount(attached ? 1 : 0)
+    if (attached) await expect(panel.getByTestId('boundary-show-on-canvas')).toBeEnabled()
+  }
   await expect(panel).not.toContainText('undefined')
   await page.screenshot({ path: testInfo.outputPath('unattached-boundary.png'), animations: 'disabled' })
   const after = await page.evaluate(() => window.__dinksterTest!.app.exportDocument(window.__dinksterTest!.app.activeTab()!.id))
@@ -86,17 +87,17 @@ nativeTest('retains unattached typed boundary slots without phantom destinations
     if (failures.length) throw new Error(JSON.stringify(failures))
   }, after)
   await enterInstance(page, 'n10')
-  await expect(panel.getByText('No internal endpoint', { exact: true })).toHaveCount(2)
+  await expect(panel.locator('.boundary-tree [data-entry-id]').filter({ hasText: 'Nothing inside' })).toHaveCount(2)
   expect(errors).toEqual([])
 })
 
 nativeTest('draws, rebinds, and extracts an imported input boundary with mixed direct and reroute fanout', async ({ page }, testInfo) => {
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'junction-scene-test', schemaWire: 1 }, packs: {},
-    nodes: { Relay: { displayName: 'Relay', category: 'test', interface: [
-      { role: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 7 },
-      { role: 'output', id: 'result', type: { kind: 'concrete', types: ['INT'] } },
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'junction-scene-test', schemaWire: 2 }, packs: {},
+    nodes: { Relay: { displayName: 'Relay', category: 'test', body: [
+      { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 7 },
+      { kind: 'output', id: 'result', type: { kind: 'concrete', types: ['INT'] } },
     ] } },
   } }))
   await page.goto('/')
@@ -143,7 +144,7 @@ nativeTest('draws, rebinds, and extracts an imported input boundary with mixed d
       graphId: 'junction-body', side: 'inputs', itemId: 'in', node, port: 'value', viaReroute: 'r3',
     } })
     const outcome = await rebind('n2')
-    const binding = tab.store.doc.graphs['junction-body']!.boundary!.inputs[0]!.binds
+    const binding = tab.store.doc.graphs['junction-body']!.boundary!.body.flatMap((entry) => entry.kind === 'input' ? [entry] : [])[0]!.binds
     const restore = await rebind('n1')
     const revision = tab.store.revision
     const unchanged = await rebind('n1')
@@ -171,8 +172,8 @@ nativeTest('draws, rebinds, and extracts an imported input boundary with mixed d
   })
   expect(extracted.reroutes).toHaveLength(2)
   expect(extracted.links).toHaveLength(3)
-  expect(extracted.boundary!.inputs[0]!.binds).toMatchObject({ viaReroute: extracted.reroutes[0] })
-  expect(extracted.boundary!.inputs[0]).toMatchObject({ alsoBinds: [{ kind: 'port' }] })
+  expect(boundaryItems(extracted.boundary as Boundary | undefined, 'inputs')[0]!.binds).toMatchObject({ viaReroute: extracted.reroutes[0] })
+  expect(boundaryItems(extracted.boundary as Boundary | undefined, 'inputs')[0]).toMatchObject({ alsoBinds: [{ kind: 'port' }] })
   await enterInstance(page, extracted.occurrence)
   await expect(page.getByTestId('graph-breadcrumb').getByRole('button')).toHaveCount(3)
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().reroutes.length)).toBe(2)
@@ -200,7 +201,7 @@ nativeTest('draws, rebinds, and extracts an imported input boundary with mixed d
   expect(flattened.nodes).toEqual(Array.from({ length: 3 }, () => ({ type: 'Relay', value: 7 })))
   expect(flattened.reroutes).toHaveLength(2)
   expect(flattened.links).toHaveLength(3)
-  expect(flattened.boundary!.inputs[0]!.binds).toMatchObject({ viaReroute: flattened.reroutes[0] })
+  expect(boundaryItems(flattened.boundary as Boundary | undefined, 'inputs')[0]!.binds).toMatchObject({ viaReroute: flattened.reroutes[0] })
   await page.evaluate(() => window.__dinksterTest!.renderer!.fitToScene(140))
   await page.getByTestId('graph-canvas').screenshot({ path: testInfo.outputPath('junction-flattened.png') })
   const exported = await page.evaluate(() => window.__dinksterTest!.app.exportDocument(window.__dinksterTest!.app.activeTab()!.id))
@@ -284,24 +285,40 @@ nativeTest.describe('native structural output boundaries', () => {
         json: {
           schemaVersion: 1,
           epoch: 1,
-          dinkster: { version: 'boundary-contract-fixture', schemaWire: 1 },
+          dinkster: { version: 'boundary-contract-fixture', schemaWire: 2 },
           nodes: {
+            TextIdentity: {
+              body: [
+                {
+                  kind: 'input',
+                  id: 'value',
+                  type: { kind: 'concrete', types: ['STRING'] },
+                  default: '',
+                },
+                {
+                  kind: 'output',
+                  id: 'value',
+                  type: { kind: 'concrete', types: ['STRING'] },
+                  knownValue: { input: 'value' },
+                },
+              ],
+            },
             CLIPTextEncode: {
               outputNode: true,
-              interface: [
+              body: [
                 {
-                  role: 'input',
+                  kind: 'input',
                   id: 'text',
                   type: { kind: 'concrete', types: ['STRING'] },
                 },
                 {
-                  role: 'input',
+                  kind: 'input',
                   id: 'clip',
                   type: { kind: 'concrete', types: ['CLIP'] },
-                  optional: true,
+                  required: false,
                 },
                 {
-                  role: 'output',
+                  kind: 'output',
                   id: 'CONDITIONING',
                   type: { kind: 'concrete', types: ['CONDITIONING'] },
                 },

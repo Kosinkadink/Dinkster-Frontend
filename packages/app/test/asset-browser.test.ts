@@ -367,9 +367,9 @@ describe('metadata inspection ownership (AP10)', () => {
     expect(apply).not.toHaveBeenCalled()
   })
 
-  it('an owned failure surfaces its message', async () => {
+  it('an owned failure explains what could not be loaded', async () => {
     const apply = await run({ outcome: Promise.reject(new Error('boom')), stillCurrent: true, digest: 'blake3:own-fail' })
-    expect(apply).toHaveBeenCalledWith('boom', undefined)
+    expect(apply).toHaveBeenCalledWith('Metadata could not be loaded.', undefined)
   })
 
 })

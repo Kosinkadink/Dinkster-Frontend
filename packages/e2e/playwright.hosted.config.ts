@@ -38,23 +38,16 @@ const generation = requiredDirectory('DINKSTER_E2E_GENERATION')
 const generationPython = resolve(generation, 'python/bin/python')
 accessSync(generationPython)
 const nativeLibrary = resolve(frontendRoot, '.ci/native-library')
+const nativeEngineState = resolve(frontendRoot, '.ci/native-engine-state')
+const peerEngineState = resolve(frontendRoot, '.ci/peer-engine-state')
 const nativeOutput = resolve(nativeLibrary, 'output')
 const nativeImports = resolve(nativeLibrary, 'imports')
 const nativeCheckpoints = resolve(nativeLibrary, 'checkpoints')
 if (argumentProject) {
-  // Reset mutable test state without changing the captured generation.
-  rmSync(nativeOutput, { recursive: true, force: true })
-  rmSync(nativeImports, { recursive: true, force: true })
-  rmSync(resolve(nativeLibrary, 'vault'), { recursive: true, force: true })
-  rmSync(resolve(nativeLibrary, 'project-folders.json'), { force: true })
-  rmSync(resolve(nativeLibrary, 'value-store'), {
-    recursive: true,
-    force: true,
-  })
-  rmSync(resolve(nativeLibrary, 'worker-state'), {
-    recursive: true,
-    force: true,
-  })
+  // Migration metadata and engine bindings must reset with their record database.
+  for (const directory of [nativeLibrary, nativeEngineState, peerEngineState]) {
+    rmSync(directory, { recursive: true, force: true })
+  }
   mkdirSync(nativeOutput, { recursive: true })
   mkdirSync(nativeImports, { recursive: true })
   mkdirSync(resolve(nativeLibrary, 'vault'), { recursive: true })
@@ -80,13 +73,27 @@ const nativeFrontendPort = port(
   frontendPort + 3,
 )
 const guidePort = port('DINKSTER_E2E_GUIDE_PORT', nativePort + 2)
-if (new Set([frontendPort, nativePort, nativeFrontendPort, guidePort]).size !== 4)
+const peerPort =
+  selectedProject === 'backend-serial'
+    ? port('DINKSTER_E2E_SHARED_LIBRARY_PEER_PORT', nativePort + 4)
+    : undefined
+const ports = [
+  frontendPort,
+  nativePort,
+  nativeFrontendPort,
+  guidePort,
+  ...(peerPort === undefined ? [] : [peerPort]),
+]
+if (new Set(ports).size !== ports.length)
   throw new Error('hosted E2E ports must differ')
 const nativeBackend = `http://127.0.0.1:${nativePort}`
 process.env['DINKSTER_NATIVE_BACKEND'] = nativeBackend
 process.env['DINKSTER_E2E_GUIDE_BACKEND'] = `http://127.0.0.1:${guidePort}`
 process.env['DINKSTER_E2E_NATIVE_FRONTEND'] =
   `http://127.0.0.1:${nativeFrontendPort}`
+if (peerPort !== undefined) {
+  process.env['DINKSTER_SHARED_LIBRARY_PEER'] = `http://127.0.0.1:${peerPort}`
+}
 
 export default defineConfig({
   ...baseConfig,
@@ -109,6 +116,7 @@ export default defineConfig({
         `--allow-origin http://127.0.0.1:${frontendPort}`,
         `--allow-origin http://127.0.0.1:${nativeFrontendPort}`,
         `--library-root ${JSON.stringify(nativeLibrary)}`,
+        `--engine-state-root ${JSON.stringify(nativeEngineState)}`,
         '--execution-cache-mode memory',
         '--allow-mount-changes',
         `--execution-python ${JSON.stringify(generationPython)}`,
@@ -119,6 +127,28 @@ export default defineConfig({
       reuseExistingServer: false,
       timeout: 180_000,
     },
+    ...(peerPort === undefined
+      ? []
+      : [
+          {
+            command: [
+              JSON.stringify(generationPython),
+              '-m dinkster.serve',
+              '--host 127.0.0.1',
+              `--port ${peerPort}`,
+              `--generation ${JSON.stringify(generation)}`,
+              `--library-root ${JSON.stringify(nativeLibrary)}`,
+              `--engine-state-root ${JSON.stringify(peerEngineState)}`,
+              '--execution-cache-mode memory',
+              `--execution-python ${JSON.stringify(generationPython)}`,
+            ].join(' '),
+            cwd: dinksterRoot,
+            env: { ...process.env, CUDA_VISIBLE_DEVICES: '' },
+            url: `${process.env['DINKSTER_SHARED_LIBRARY_PEER']}/api/health`,
+            reuseExistingServer: false,
+            timeout: 180_000,
+          },
+        ]),
     {
       command: [
         JSON.stringify(generationPython),

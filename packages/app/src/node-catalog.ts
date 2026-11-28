@@ -1,4 +1,5 @@
 import { DINKSTER_SCHEMA_WIRE_VERSION, parseDinksterSchema, sha256Hex, type NodeSchema } from '@dinkster/core'
+import { requestFetch, requestFailure, type FetchLike } from '@dinkster/client'
 
 export interface CatalogPack {
   readonly name: string
@@ -76,8 +77,10 @@ export class RemoteNodeCatalog {
   readonly baseUrl: string
   private readonly storage: CacheStorage | undefined
   private pending: Promise<readonly CatalogNode[]> | undefined
+  private readonly fetchFn: FetchLike
 
-  constructor(baseUrl: string, storage?: CacheStorage, private readonly fetchFn: typeof fetch = (input, init) => globalThis.fetch(input, init)) {
+  constructor(baseUrl: string, storage?: CacheStorage, fetchFn: FetchLike = (input, init) => globalThis.fetch(input, init)) {
+    this.fetchFn = requestFetch(fetchFn)
     this.baseUrl = baseUrl.trim().replace(/\/+$/, '')
     if (storage !== undefined) this.storage = storage
     else { try { this.storage = globalThis.localStorage } catch { this.storage = undefined } }
@@ -102,7 +105,7 @@ export class RemoteNodeCatalog {
       credentials: 'omit',
     })
     if (response.status === 304 && cached !== undefined) return decode(cached.body)
-    if (!response.ok) throw new Error(`Schema catalog request failed: ${response.status}`)
+    if (!response.ok) throw await requestFailure(response)
     if (Number(response.headers.get('Content-Length')) > MAX_BODY_BYTES) {
       await response.body?.cancel()
       throw new Error('Schema catalog response is too large')

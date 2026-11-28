@@ -2,14 +2,15 @@ import {
   documentResolver,
   expandLifecycleSelectionFromGroups,
   hasSemanticLifecycleSelection,
-  inputsOf,
   lifecycleCanonicalHash,
   lifecycleFlattenFingerprint,
   lifecycleSelectionFingerprint,
-  outputsOf,
   planFlattenOccurrenceTopology,
   planFlattenBoundaryRoutes,
-  resolveStaticWidgetTap,
+  resolveWidgetTap,
+  buildGraphConnectivity,
+  elabInputsOf,
+  elaborateInterface,
   subgraphDefIdOf,
   type CommandInvocation,
   type CommandOutcome,
@@ -18,10 +19,13 @@ import {
   type NodeSchema,
   type ResolvedGeometryItem,
   type WorkflowDocument,
+  type GroupMembership,
+  scopeRowsOf,
 } from '@dinkster/core'
 
 export interface LifecycleSelectionSnapshot extends LifecycleSelectionInput {
   readonly geometry: readonly ResolvedGeometryItem[]
+  readonly groupMembership?: GroupMembership
 }
 
 export type ExtractCommit =
@@ -52,13 +56,11 @@ export function extractInvocation(
   name: string | undefined,
   resolveSchema: (type: string) => NodeSchema | undefined,
 ): CommandInvocation | undefined {
-  const expanded = expandLifecycleSelectionFromGroups(snapshot, snapshot.geometry)
+  const expanded = expandLifecycleSelectionFromGroups(snapshot, snapshot.geometry, doc.view.graphs[graphId]?.groupMembership)
   if (expanded === undefined) return undefined
   const selected = new Set([
     ...expanded.selection.nodeIds.map((id) => `node:${id}`),
     ...expanded.selection.rerouteIds.map((id) => `reroute:${id}`),
-    ...expanded.selection.valueSourceIds.map((id) => `valueSource:${id}`),
-    ...expanded.selection.selectorIds.map((id) => `selector:${id}`),
     ...expanded.selection.groupIds.map((id) => `group:${id}`),
   ])
   const resolvedGeometry = snapshot.geometry.filter((item) => selected.has(`${item.kind}:${item.id}`))
@@ -71,17 +73,17 @@ export function extractInvocation(
     const schema = resolve(node.type)
     return schema === undefined
       ? []
-      : [...inputsOf(schema), ...outputsOf(schema)]
-          .filter((port) => port.dynamic?.kind === 'dynamicSlot')
-          .map((port) => ({ node: node.id, port: port.id }))
+      : scopeRowsOf(schema.body)
+          .filter((row) => row.kind === 'typeChoice')
+          .map((row) => ({ node: node.id, port: row.id }))
   })
+  const connectivity = buildGraphConnectivity(graph)
   const widgetTapSources = Object.values(graph.nodes).flatMap((node) => {
     const schema = resolve(node.type)
     if (schema === undefined) return []
-    return schema.items.flatMap((item, index) =>
-      item.kind === 'input' && item.hidden !== true && schema.items.findIndex((candidate) => candidate.kind === 'input' && candidate.id === item.id) === index &&
-      resolveStaticWidgetTap(schema, item.id).ok
-        ? [{ node: node.id, tap: item.id }]
+    return elabInputsOf(elaborateInterface(schema, node, connectivity(node.id), { promoteGhosts: false })).flatMap((input) =>
+      input.spec.hidden !== true && resolveWidgetTap(schema, node, input.address.port, connectivity(node.id)).ok
+        ? [{ node: node.id, tap: input.address.port }]
         : [],
     )
   })
@@ -169,6 +171,6 @@ export function isFlattenSelection(doc: WorkflowDocument, graphId: string, nodeI
 }
 
 export const hasExtractSelection = (snapshot: LifecycleSelectionSnapshot): boolean => {
-  const expanded = expandLifecycleSelectionFromGroups(snapshot, snapshot.geometry)
+  const expanded = expandLifecycleSelectionFromGroups(snapshot, snapshot.geometry, snapshot.groupMembership)
   return expanded !== undefined && hasSemanticLifecycleSelection(expanded.selection)
 }

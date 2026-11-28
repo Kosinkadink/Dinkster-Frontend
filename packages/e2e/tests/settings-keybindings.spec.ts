@@ -20,9 +20,9 @@ test('settings dialog opens, lists categories, and search spans all categories',
   await dialog.locator('.settings-categories').getByRole('button', { name: 'Canvas grid' }).click()
   const search = dialog.getByPlaceholder('Search settings')
   await search.fill('minimap')
-  await expect(dialog.locator('.settings-categories').getByRole('button', { name: /All results, 9 results/ })).toBeVisible()
+  await expect(dialog.locator('.settings-categories').getByRole('button', { name: /All results, 7 results/ })).toBeVisible()
   await expect(dialog.locator('.settings-result-heading')).toContainText('Canvas minimap')
-  await expect(dialog.locator('[data-setting-id]')).toHaveCount(9)
+  await expect(dialog.locator('[data-setting-id]')).toHaveCount(7)
   await expect(dialog.locator('[data-setting-id="canvas.minimap.size"]').getByRole('combobox')).toBeVisible()
   // Presence, not ordering: ranking semantics are unit-pinned in
   // settings-search.test.ts; the E2E proves the cross-category span.
@@ -88,7 +88,7 @@ test('a changed setting persists through reload', async ({ page }) => {
 
 test('frame-rate diagnostics default off and persist with an optional status readout', async ({ page }, info) => {
   await page.route('**/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'e2e', schemaWire: 1 }, packs: {}, nodes: {},
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'e2e', schemaWire: 2 }, packs: {}, nodes: {},
   } }))
   await page.route('/supervisor/**', (route) => route.fulfill({ status: 404 }))
   await page.routeWebSocket('**/api/events?*', () => {})

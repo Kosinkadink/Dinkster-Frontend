@@ -9,30 +9,37 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
   asGraphDefId,
-  asDynamicMemberId,
   asLineageId,
   asLinkId,
   asNetId,
   asNodeId,
   asPortId,
   asRerouteId,
-  asSelectorCandidateId,
-  asSelectorId,
   documentResolver,
   createLocalSession,
   connectSharedSession,
   coreCommandRegistry,
   occurrenceDynamicView,
   loadDocument,
+  effectiveWidgetDefault,
+  formatWidgetValue,
+  normalizedComboOptions,
+  parseDinksterSchema,
+  registerCatalog,
+  stampEnvironment,
   type Json,
   type NodeProgress,
   type NodeSchema,
+  type TypeExpr,
   type WorkflowDocument,
+  boundaryOf,
+  boundaryItems,
 } from '@dinkster/core'
 import { historicalSchemas as schemas } from './historical-schemas.js'
-import { buildScene, boundaryPositions, boundaryNodesInGroup, nodesInGroup, selectorsInGroup, nodeStatesForGraph, scenesEqual, selectorBadgeRect, selectorCandidatePinPosition, selectorOutPinPosition, updateSceneNodePositions, updateSceneNodeValues, valueSourcesInGroup, valueSourcePinPosition, NET_STUB_GAP, NET_STUB_HEIGHT, NET_STUB_PAD_X, SELECTOR_MIN_WIDTH, VS_MIN_WIDTH, type Scene } from '../src/scene.js'
-import { defaultTokens } from '../src/tokens.js'
+import { buildScene, boundaryPositions, boundaryNodesInGroup, nodesInGroup, nodeStatesForGraph, scenesEqual, updateSceneNodePositions, updateSceneNodeValues, NET_STUB_GAP, NET_STUB_HEIGHT, NET_STUB_PAD_X, type Scene } from '../src/scene.js'
+import { canvasPaintTokens, defaultTokens } from '../src/tokens.js'
 import type { TextMeasurer, WidgetMeasure } from '../src/layout.js'
+import { hitTestPin } from '../src/hit.js'
 
 const coreRoot = join(dirname(fileURLToPath(import.meta.url)), '../../core')
 const readJson = (rel: string): unknown => JSON.parse(readFileSync(join(coreRoot, rel), 'utf8'))
@@ -54,6 +61,576 @@ function sceneOf(workflow: string, graphId = 'g0') {
 }
 
 describe('buildScene', () => {
+  it('preserves record fields on direct and rerouted wires into a generic input', () => {
+    const record: TypeExpr = { kind: 'record', name: 'Settings', fields: [
+      { id: 'seed-id', name: 'noise', type: { kind: 'concrete', name: 'INT' }, optional: false },
+      { id: 'label-id', name: 'label', type: { kind: 'concrete', name: 'STRING' }, optional: true },
+    ] }
+    const source: NodeSchema = { type: 'Make', displayName: 'Make', category: 'test', source: 'v3', isOutputNode: false,
+      body: [{ kind: 'output', id: 'record', type: record }] }
+    const sink: NodeSchema = { ...source, type: 'Sink', body: [{ kind: 'input', id: 'value', type: { kind: 'wildcard' }, optional: false }] }
+    const loaded = loadDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'record-wires', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Root', nextOrdinal: 3, nodes: {
+        make: { id: 'make', type: 'Make', values: {} }, sink: { id: 'sink', type: 'Sink', values: {} },
+        other: { id: 'other', type: 'Sink', values: {} },
+      }, links: {
+        direct: { id: 'direct', from: { node: 'make', port: 'record' }, to: { node: 'sink', port: 'value' } },
+        first: { id: 'first', from: { node: 'make', port: 'record' }, to: { reroute: 'r0' } },
+        middle: { id: 'middle', from: { reroute: 'r0' }, to: { reroute: 'r1' } },
+        last: { id: 'last', from: { reroute: 'r1' }, to: { node: 'other', port: 'value' } },
+      }, nets: {}, reroutes: { r0: { id: 'r0' }, r1: { id: 'r1' } } } },
+      view: { graphs: {} },
+    })
+    expect(loaded.diagnostics).toEqual([])
+    const scene = buildScene({ document: loaded.document!, graphId: 'g0', resolve: (type) => type === 'Make' ? source : sink,
+      tokens: defaultTokens, measure, widgetMeasure })
+    expect(scene.links.map((link) => [link.id, link.fromType])).toEqual([
+      ['direct', record], ['first', record], ['middle', record], ['last', record],
+    ])
+    const graph = loaded.document!.graphs.g0!
+    const document = { ...loaded.document!, graphs: { g0: { ...graph, links: {}, reroutes: {}, boundary: { body: [
+      { kind: 'input' as const, id: 'incoming', binds: { kind: 'port' as const, node: asNodeId('sink'), port: asPortId('value') } },
+      { kind: 'output' as const, id: 'outgoing', binds: { kind: 'port' as const, node: asNodeId('make'), port: asPortId('record') } },
+    ] } } } }
+    const bound = { ...sink, body: [{ kind: 'input' as const, id: 'value', type: record, optional: false }] }
+    const inside = buildScene({ document, graphId: 'g0', resolve: documentResolver(document, (type) => type === 'Make' ? source : bound),
+      tokens: defaultTokens, measure, widgetMeasure })
+    expect(inside.links.map((link) => [link.id, link.fromType])).toEqual([
+      ['boundary:inputs:incoming', record], ['boundary:outputs:outgoing', record],
+    ])
+
+    const subset: TypeExpr = { kind: 'record', name: 'Subset', fields: [
+      { id: 'other-seed', name: 'noise', type: { kind: 'concrete', name: 'INT' }, optional: false },
+    ] }
+    const otherRecord: TypeExpr = { kind: 'record', name: 'Other', fields: [
+      ...subset.fields,
+      { id: 'strength', name: 'strength', type: { kind: 'concrete', name: 'FLOAT' }, optional: true },
+    ] }
+    const occurrenceLoad = loadDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'record-occurrences', root: 'root',
+      graphs: {
+        root: { id: 'root', name: 'Root', nextOrdinal: 4, nodes: {
+          make: { id: 'make', type: 'Make', values: {} }, other: { id: 'other', type: 'Other', values: {} },
+          first: { id: 'first', type: '#body', values: {} }, second: { id: 'second', type: '#body', values: {} },
+        }, links: {
+          start: { id: 'start', from: { node: 'make', port: 'record' }, to: { reroute: 'r0' } },
+          middle: { id: 'middle', from: { reroute: 'r0' }, to: { reroute: 'r1' } },
+          end: { id: 'end', from: { reroute: 'r1' }, to: { node: 'first', port: 'incoming' } },
+          otherLink: { id: 'otherLink', from: { node: 'other', port: 'record' }, to: { node: 'second', port: 'incoming' } },
+        }, nets: {}, reroutes: { r0: { id: 'r0' }, r1: { id: 'r1' } } },
+        body: { id: 'body', name: 'Body', nextOrdinal: 1,
+          nodes: { sink: { id: 'sink', type: 'Sink', values: {} } }, links: {}, nets: {}, reroutes: {},
+          boundary: { body: [{ kind: 'input', id: 'incoming', binds: { kind: 'port', node: 'sink', port: 'value' } }] },
+        },
+      }, view: { graphs: {} },
+    })
+    expect(occurrenceLoad.diagnostics).toEqual([])
+    const occurrences = occurrenceLoad.document!
+    const parentRecord = (node: string, current = occurrences, linkId = 'boundary:inputs:incoming') => buildScene({
+      document: current, graphId: 'body', tokens: defaultTokens, measure, widgetMeasure,
+      resolve: documentResolver(current, (type) => type === 'Make' ? source : type === 'Other'
+        ? { ...source, type: 'Other', body: [{ kind: 'output', id: 'record', type: otherRecord }] }
+        : { ...sink, body: [{ kind: 'input', id: 'value', type: subset, optional: false }] }),
+      occurrence: { owner: { instancePath: [], node: asNodeId(node) }, plannerAvailable: true },
+    }).links.find((link) => link.id === linkId)?.fromType
+    expect(parentRecord('first')).toEqual(record)
+    expect(parentRecord('second')).toEqual(otherRecord)
+    const disconnected = { ...occurrences, graphs: { ...occurrences.graphs,
+      root: { ...occurrences.graphs.root!, links: {} },
+    } }
+    expect(parentRecord('first', disconnected)).toEqual(subset)
+    const junction: WorkflowDocument = { ...occurrences, graphs: { ...occurrences.graphs,
+      body: { ...occurrences.graphs.body!,
+        reroutes: { junction: { id: asRerouteId('junction') } },
+        links: { feed: { id: asLinkId('feed'), from: { reroute: asRerouteId('junction') },
+          to: { node: asNodeId('sink'), port: asPortId('value') } } },
+        boundary: boundaryOf([{ id: 'incoming', binds: {
+          kind: 'port', node: asNodeId('sink'), port: asPortId('value'), viaReroute: asRerouteId('junction'),
+        } }], []),
+      },
+    } }
+    expect(parentRecord('first', junction)).toEqual(record)
+    expect(parentRecord('second', junction)).toEqual(otherRecord)
+    expect(parentRecord('first', junction, 'feed')).toEqual(record)
+    expect(parentRecord('second', junction, 'feed')).toEqual(otherRecord)
+    const chain: WorkflowDocument = { ...junction, graphs: { ...junction.graphs,
+      body: { ...junction.graphs.body!,
+        reroutes: { ...junction.graphs.body!.reroutes, tail: { id: asRerouteId('tail') } },
+        links: {
+          middle: { id: asLinkId('middle'), from: { reroute: asRerouteId('junction') }, to: { reroute: asRerouteId('tail') } },
+          feed: { ...junction.graphs.body!.links.feed!, from: { reroute: asRerouteId('tail') } },
+        },
+      },
+    } }
+    expect(parentRecord('first', chain, 'feed')).toEqual(record)
+    expect(parentRecord('second', chain, 'feed')).toEqual(otherRecord)
+    const locallyDriven: WorkflowDocument = { ...chain, graphs: { ...chain.graphs,
+      body: { ...chain.graphs.body!,
+        nodes: { ...chain.graphs.body!.nodes, local: { id: asNodeId('local'), type: 'Other', values: {} } },
+        links: { ...chain.graphs.body!.links,
+          local: { id: asLinkId('local'), from: { node: asNodeId('local'), port: asPortId('record') },
+            to: { reroute: asRerouteId('junction') } },
+        },
+      },
+    } }
+    expect(parentRecord('first', locallyDriven, 'feed')).toEqual(otherRecord)
+  })
+
+  it('keeps mapped Save wires on their real inputs through folding and undo', () => {
+    const schema: NodeSchema = {
+      type: 'Save', displayName: 'Save', category: 'test', source: 'v3', isOutputNode: true,
+      body: [
+        { kind: 'input', id: 'destination', optional: true, type: { kind: 'concrete', name: 'MOUNT' } },
+        { kind: 'input', id: 'filename', optional: false, type: { kind: 'concrete', name: 'STRING' } },
+        { kind: 'editor', id: 'save', widget: { widgetType: 'SAVE_TARGET', options: {}, writes: { mount: 'destination', name: 'filename' } } },
+      ],
+    }
+    const source: NodeSchema = { ...schema, type: 'Source', body: [
+      { kind: 'output', id: 'disk', type: { kind: 'concrete', name: 'MOUNT' } },
+      { kind: 'output', id: 'path', type: { kind: 'concrete', name: 'STRING' } },
+    ] }
+    const loaded = loadDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'mapped-save', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Save', nextOrdinal: 3, nodes: {
+        save: { id: 'save', type: 'Save', values: { destination: 'archive', filename: 'portraits/final' } },
+        source: { id: 'source', type: 'Source', values: {} },
+      }, links: {
+        mount: { id: 'mount', from: { node: 'source', port: 'disk' }, to: { node: 'save', port: 'destination' } },
+        name: { id: 'name', from: { node: 'source', port: 'path' }, to: { node: 'save', port: 'filename' } },
+      }, nets: {}, reroutes: {} } },
+      view: { graphs: { g0: { nodes: { save: { position: { x: 400, y: 0 } }, source: { position: { x: 0, y: 0 } } } } } },
+    })
+    const session = createLocalSession(loaded.document!, coreCommandRegistry())
+    const scene = () => buildScene({ document: session.doc, graphId: 'g0', resolve: (type) => type === 'Save' ? schema : source,
+      tokens: defaultTokens, measure, widgetMeasure: () => ({ viewId: 'core.saveTarget', rows: 1 }) })
+    const folded = scene()
+    const pins = folded.nodes.find((node) => node.id === 'save')!.layout.pins
+    expect(pins.map((pin) => pin.portId)).toEqual(['destination', 'filename'])
+    expect(pins[1]!.y - pins[0]!.y).toBe(7)
+    const graph = session.doc.graphs.g0
+    expect(session.dispatch({ command: 'view.setEditorUnfolded', params: { graphId: 'g0', nodeId: 'save', valueKey: 'save', unfolded: true } }).ok).toBe(true)
+    const open = scene()
+    expect(open.links.map((link) => link.id)).toEqual(folded.links.map((link) => link.id))
+    expect(open.nodes.find((node) => node.id === 'save')!.layout.pins.map((pin) => pin.portId)).toEqual(['destination', 'filename'])
+    expect(session.doc.graphs.g0).toEqual(graph)
+    expect(session.undo()).toBe(true)
+    expect(scene()).toEqual(folded)
+  })
+
+  it('gives folded editors, sections and field lines their height back through one-step undo and redo, sized or not', async () => {
+    const base = loadDocument(readJson('fixtures/workflows/exec-basic.json')).document as WorkflowDocument
+    const editorViews = [
+      ['CURVE', 'core.curve', 3], ['WEBCAM', 'core.webcam', 1],
+      ['AUDIO_RECORD', 'core.audioRecord', 1], ['LOAD_3D', 'core.load3d', 1],
+      ['CAMERA_ANGLE', 'core.cameraAngle', 1], ['COMPARE_IMAGES', 'core.imageCompare', 1],
+    ] as const
+    for (const kind of ['local', 'shared']) for (const sized of [false, true]) for (const startsOpen of [false, true]) {
+      const schema: NodeSchema = {
+        type: 'Fold heights', displayName: 'Fold heights', category: 'test', source: 'v3', isOutputNode: false,
+        body: [{ kind: 'section', id: 'outer', rows: [
+          ...editorViews.map(([widgetType], index) => ({
+            kind: 'input' as const, id: `editor${index}`, optional: false, type: { kind: 'concrete' as const, name: widgetType },
+            widget: { widgetType, options: { unfolded: startsOpen } },
+          })),
+          { kind: 'section', id: 'inner', collapsedByDefault: startsOpen, rows: [{
+            kind: 'input', id: 'tail', optional: false, type: { kind: 'concrete', name: 'INT' },
+            widget: { widgetType: 'INT', options: {} },
+          }] },
+          { kind: 'group', id: 'extras', keys: { kind: 'named', names: ['first', 'second'] }, grows: 'button', minMembers: 0,
+            value: { kind: 'input', id: 'value', optional: false, type: { kind: 'concrete', name: 'INT' }, widget: { widgetType: 'INT', options: {} } } },
+          { kind: 'row', rows: ['first', 'last'].map((id) => ({ kind: 'input', id, optional: false,
+            type: { kind: 'concrete', name: 'INT' }, widget: { widgetType: 'INT', options: {} } })) },
+        ] }],
+      }
+      const graph = base.graphs.g0!
+      const document = {
+        ...base, graphs: { ...base.graphs, g0: { ...graph, nodes: {
+          n0: { ...graph.nodes.n0!, type: schema.type, values: {}, dynamic: { extras: { members: ['first', 'second'] } } },
+        }, links: {} } },
+        view: { ...base.view, graphs: { g0: { nodes: { n0: { position: { x: 100, y: 100 } } } } } },
+      } as WorkflowDocument
+      const layoutFor = (doc: WorkflowDocument) => buildScene({
+        document: doc, graphId: 'g0', resolve: () => schema, tokens: defaultTokens, measure,
+        widgetMeasure: (spec) => {
+          const editor = editorViews.find(([type]) => type === spec.widgetType)
+          return editor ? { viewId: editor[1], rows: editor[2] } : { viewId: 'core.number', rows: 1 }
+        },
+      }).nodes[0]!.layout
+      const options = { nodeHeightFor: (doc: WorkflowDocument) => layoutFor(doc).minHeight }
+      let receive: Parameters<Parameters<typeof connectSharedSession>[0]['onEvent']>[0] = () => {}
+      const session = kind === 'local' ? createLocalSession(document, coreCommandRegistry(), options)
+        : await connectSharedSession({
+          sessionId: 'fold-heights',
+          fetchSnapshot: async () => ({ revision: 0, document }), fetchOps: async () => ({ kind: 'ops', ops: [] }),
+          postOp: () => new Promise(() => {}), putSnapshot: async () => ({ kind: 'ok' }),
+          sendPresence: () => {}, onEvent: (listener) => { receive = listener; return () => {} }, close: () => {},
+        }, coreCommandRegistry(), { ...options, actorId: 'fold-heights' })
+      const scene = () => layoutFor(session.doc)
+      const natural = scene()
+      const storedSize = { width: 473, height: natural.height + 73 }
+      if (sized) expect(session.dispatch({ command: 'view.setNodeSize', params: { graphId: 'g0', nodeId: 'n0', size: storedSize } }).ok).toBe(true)
+      const checkFold = (command: string, params: Record<string, string | boolean>) => {
+        const beforeDoc = session.doc
+        const before = scene()
+        expect(session.dispatch({ command, params: { graphId: 'g0', nodeId: 'n0', ...params } }).ok).toBe(true)
+        const afterDoc = session.doc
+        const after = scene()
+        const delta = after.minHeight - before.minHeight
+        expect(delta).not.toBe(0)
+        expect(after.height - before.height).toBe(delta)
+        expect(session.doc.view.graphs.g0!.nodes.n0!.size).toEqual(sized
+          ? { width: storedSize.width, height: storedSize.height + after.minHeight - natural.minHeight }
+          : undefined)
+        expect(session.undo()).toBe(true)
+        expect(session.doc).toEqual(beforeDoc)
+        expect(scene()).toEqual(before)
+        expect(session.redo()).toBe(true)
+        expect(session.doc).toEqual(afterDoc)
+        expect(scene()).toEqual(after)
+      }
+      for (const [index] of editorViews.entries()) {
+        checkFold('view.setEditorUnfolded', { valueKey: `editor${index}`, unfolded: !startsOpen })
+        checkFold('view.setEditorUnfolded', { valueKey: `editor${index}`, unfolded: startsOpen })
+      }
+      if (!startsOpen) checkFold('view.setEditorUnfolded', { valueKey: 'editor3', unfolded: true })
+      for (const section of ['placement', 'animation']) {
+        checkFold('view.setSectionCollapsed', { sectionId: `editor3.${section}`, collapsed: false })
+        checkFold('view.setSectionCollapsed', { sectionId: `editor3.${section}`, collapsed: true })
+      }
+      if (!startsOpen) checkFold('view.setEditorUnfolded', { valueKey: 'editor3', unfolded: false })
+      checkFold('view.setSectionCollapsed', { sectionId: 'inner', collapsed: !startsOpen })
+      checkFold('view.setSectionCollapsed', { sectionId: 'inner', collapsed: startsOpen })
+      checkFold('view.setSectionCollapsed', { sectionId: 'group:extras', collapsed: true })
+      checkFold('view.setSectionCollapsed', { sectionId: 'group:extras', collapsed: false })
+      checkFold('view.setLineFolded', { lineKey: 'first', folded: false })
+      checkFold('view.setLineFolded', { lineKey: 'first', folded: true })
+      checkFold('view.setSectionCollapsed', { sectionId: 'outer', collapsed: true })
+      checkFold('view.setSectionCollapsed', { sectionId: 'outer', collapsed: false })
+      const openHeight = scene().height
+      checkFold('view.setSectionCollapsed', { sectionId: 'outer', collapsed: true })
+      const foldedHeight = scene().height
+      const foldedSize = session.doc.view.graphs.g0!.nodes.n0!.size
+      if (kind === 'shared') {
+        receive({ kind: 'op', op: {
+          opId: 'peer#1', actorId: 'peer', baseRevision: 0, revision: 1, timestamp: 1,
+          patch: [{ op: 'replace', path: ['view', 'graphs', 'g0', 'nodes', 'n0', 'position'], value: { x: 111, y: 222 } }],
+        } })
+        expect(session.doc.view.graphs.g0!.nodes.n0!.position).toEqual({ x: 111, y: 222 })
+        expect(scene().height).toBe(foldedHeight)
+        expect(session.doc.view.graphs.g0!.nodes.n0!.size).toEqual(foldedSize)
+        expect(session.undo()).toBe(true)
+        expect(scene().height).toBe(openHeight)
+        expect(session.redo()).toBe(true)
+        expect(scene().height).toBe(foldedHeight)
+      }
+      if (sized) {
+        storedSize.height += 41
+        expect(session.dispatch({ command: 'view.setNodeSize', params: {
+          graphId: 'g0', nodeId: 'n0', size: { width: storedSize.width, height: foldedHeight + 41 },
+        } }).ok).toBe(true)
+        checkFold('view.setSectionCollapsed', { sectionId: 'outer', collapsed: false })
+        expect(scene().height).toBe(openHeight + 41)
+        checkFold('view.setSectionCollapsed', { sectionId: 'outer', collapsed: true })
+      }
+      if ('close' in session && typeof session.close === 'function') session.close()
+    }
+  })
+
+  it('lists an automatic value that cannot be worked out as a warning on its field, until a value is fixed', () => {
+    const base = loadDocument(readJson('fixtures/workflows/exec-basic.json')).document as WorkflowDocument
+    const automatic = (type: string): NodeSchema | undefined => {
+      const schema = schemas.get(type)
+      if (type !== 'EmptyImage' || schema === undefined) return schema
+      return { ...schema, body: schema.body.map((row) => row.kind !== 'input' ? row
+        : row.id === 'batch_size' ? { ...row, automatic: { formula: 'width / 0' } }
+        : row.id === 'color' ? { ...row, automatic: { formula: 'width' } } : row) }
+    }
+    const sceneWith = (values: Record<string, Json>) => {
+      const graph = base.graphs.g0!
+      const doc = { ...base, graphs: { ...base.graphs, g0: { ...graph, nodes: { ...graph.nodes, n0: { ...graph.nodes.n0!, values } } } } }
+      return buildScene({ document: doc, graphId: 'g0', resolve: documentResolver(doc, automatic), tokens: defaultTokens, measure, widgetMeasure })
+    }
+    const warnings = (scene: Scene) => scene.diagnostics.filter((d) => d.code === 'automatic.default')
+    const failing = warnings(sceneWith({ width: 64, height: 64 }))
+    expect(failing).toHaveLength(1)
+    expect(failing[0]!.severity).toBe('warning')
+    expect(failing[0]!.anchor).toEqual({ port: { node: 'n0', port: 'batch_size' } })
+    expect(failing[0]!.message).toBe('Could not work out batch_size. Using the default, 1.')
+    expect(warnings(sceneWith({ width: 64, height: 64, batch_size: 2 }))).toHaveLength(0)
+  })
+
+  it('lists removed and retyped record selections on their fields until explicitly reselected', () => {
+    const integer: TypeExpr = { kind: 'concrete', name: 'INT' }
+    const text: TypeExpr = { kind: 'concrete', name: 'STRING' }
+    const selected = (type: string) => JSON.stringify({ path: ['seed-id'], name: 'seed', type: { kind: 'concrete', types: [type] } })
+    const saved = selected('INT')
+    const document = loadDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'record-warnings', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'root', nextOrdinal: 3, links: {}, nets: {}, reroutes: {}, nodes: {
+        read: { id: 'read', type: 'Read', values: { field: saved } },
+        change: { id: 'change', type: 'Change', values: { field: saved } },
+      } } }, view: { graphs: { g0: { nodes: {} } } },
+    }).document!
+    const sceneWith = (fields: Extract<TypeExpr, { kind: 'record' }>['fields'], selection = saved, wired: boolean | 'rerouted' = false) => {
+      const record: TypeExpr = { kind: 'record', name: 'settings', fields }
+      const schema = (type: string): NodeSchema => ({
+        type, displayName: type, category: 'Records', source: 'v3', isOutputNode: false,
+        body: [
+          { kind: 'input', id: 'record', type: record, optional: false },
+          { kind: 'input', id: 'field', type: text, optional: false },
+          ...(type === 'Read' ? [] : [{ kind: 'input' as const, id: 'value', optional: false,
+            type: { kind: 'record_field' as const, input: 'record', index: 'field' } }]),
+          { kind: 'output', id: type === 'Read' ? 'value' : 'record', type: type === 'Read'
+            ? { kind: 'record_field', input: 'record', index: 'field' } : record },
+        ],
+      })
+      const graph = document.graphs.g0!
+      const current = { ...document, graphs: { g0: { ...graph, nodes: Object.fromEntries(Object.entries(graph.nodes)
+        .map(([id, node]) => [id, { ...node, values: { field: selection } }])),
+        reroutes: wired === 'rerouted' ? { r: { id: asRerouteId('r') } } : {},
+        links: wired === 'rerouted' ? {
+          read: { id: asLinkId('read'), from: { node: asNodeId('read'), port: asPortId('value') }, to: { reroute: asRerouteId('r') } },
+          tail: { id: asLinkId('tail'), from: { reroute: asRerouteId('r') }, to: { node: asNodeId('change'), port: asPortId('value') } },
+        } : wired ? { read: { id: asLinkId('read'), from: { node: asNodeId('read'), port: asPortId('value') },
+          to: { node: asNodeId('change'), port: asPortId('value') } } } : {},
+      } } }
+      return buildScene({ document: current, graphId: 'g0', resolve: schema, tokens: defaultTokens, measure, widgetMeasure })
+    }
+    const warnings = (scene: Scene) => scene.diagnostics.filter((diagnostic) => diagnostic.code === 'record-field-removed')
+    const normal = sceneWith([{ id: 'seed-id', name: 'noise', type: integer, optional: false }])
+    expect(warnings(normal)).toEqual([])
+    const valueEditor = (scene: Scene) => scene.nodes.find((node) => node.id === 'change')?.layout.rows
+      .find((row) => row.kind === 'widget' && row.inputId === 'value')
+    expect(valueEditor(normal)).toMatchObject({ kind: 'widget', type: integer })
+    for (const name of ['FLOAT', 'BOOLEAN']) {
+      const type: TypeExpr = { kind: 'concrete', name }
+      expect(valueEditor(sceneWith([{ id: 'seed-id', name: 'seed', type, optional: false }], selected(name))))
+        .toMatchObject({ kind: 'widget', type })
+    }
+    expect(valueEditor(sceneWith([{ id: 'seed-id', name: 'seed', type: { kind: 'concrete', name: 'IMAGE' }, optional: false }], selected('IMAGE'))))
+      .toBeUndefined()
+    const removed = warnings(sceneWith([{ id: 'different-id', name: 'seed', type: text, optional: false }]))
+    expect(removed.map((diagnostic) => [diagnostic.severity, diagnostic.message, diagnostic.anchor?.port]))
+      .toEqual(['read', 'change'].map((node) => ['warning', "Record field 'seed' was removed.", { node, port: 'field' }]))
+    const retyped = [{ id: 'seed-id', name: 'seed', type: text, optional: false }]
+    expect(warnings(sceneWith(retyped)).map((diagnostic) => diagnostic.message))
+      .toEqual(["Record field 'seed' changed type from INT to STRING.", "Record field 'seed' changed type from INT to STRING."])
+    expect(warnings(sceneWith(retyped, selected('STRING')))).toEqual([])
+    const output = (scene: Scene) => scene.nodes.find((node) => node.id === 'read')?.layout.pins
+      .find((pin) => pin.direction === 'out' && pin.widgetTap !== true && pin.portId === 'value')
+    expect(output(sceneWith([]))).toBeUndefined()
+    expect(output(sceneWith(retyped))).toBeUndefined()
+    for (const fields of [[], retyped]) {
+      for (const wired of [true, 'rerouted'] as const) {
+        const retained = sceneWith(fields, saved, wired)
+        expect(valueEditor(retained)).toMatchObject({ optional: true })
+        expect(output(retained)).toMatchObject({ type: integer, inactive: true, maybeAbsent: true })
+        expect(output(retained)?.kept).toContain('seed')
+        for (const link of retained.links) expect(link).toMatchObject({ dimmed: true, maybeAbsent: true })
+        const read = retained.nodes.find((node) => node.id === 'read')!
+        expect(hitTestPin(retained, read.x + read.layout.width, read.y + output(retained)!.y)).toBeUndefined()
+        expect(retained.nodes.find((node) => node.id === 'change')?.layout.pins
+          .find((pin) => pin.direction === 'out' && pin.widgetTap !== true && pin.portId === 'record')?.kept).toBeUndefined()
+      }
+    }
+    const reselected = sceneWith(retyped, selected('STRING'), true)
+    expect(valueEditor(reselected)).toMatchObject({ kind: 'widget', type: text })
+    expect(output(reselected)).toMatchObject({ type: text })
+    expect(output(reselected)?.kept).toBeUndefined()
+    expect(reselected.links.find((link) => link.id === 'read')?.dimmed).toBeUndefined()
+    expect(document.graphs.g0!.nodes.read!.values.field).toBe(saved)
+  })
+
+  it('selects nested record fields one level at a time through one saved value and undo', () => {
+    registerCatalog('en', { 'canvas.record.fieldOf': 'Field of {record}', 'canvas.record.noFields': 'No fields' })
+    const atom = { kind: 'concrete', types: ['INT'] }
+    const inner = { kind: 'record', types: ['pack.settings'], fields: [
+      { id: 'seed-id', name: 'seed', type: atom, optional: false },
+      { id: 'other-id', name: 'other', type: atom, optional: false },
+    ] }
+    const selected = (path: string[], name: string, type: unknown) => JSON.stringify({ path, name, type })
+    const whole = selected(['settings-id'], 'settings', inner)
+    const seed = selected(['settings-id', 'seed-id'], 'settings / seed', atom)
+    const other = selected(['settings-id', 'other-id'], 'settings / other', atom)
+    const parsed = parseDinksterSchema('Read', { body: [
+      { kind: 'input', id: 'record', required: true, type: { kind: 'record', types: ['pack.bundle'], fields: [
+        { id: 'settings-id', name: 'settings', type: inner, optional: false },
+        { id: 'number-id', name: 'number', type: atom, optional: false },
+      ] } },
+      { kind: 'input', id: 'field', pin: false, type: { kind: 'concrete', types: ['COMBO'] }, default: JSON.stringify(['settings-id']),
+        widget: { type: 'COMBO', options: [
+          { value: whole, label: 'settings' }, { value: seed, label: 'settings / seed' },
+          { value: other, label: 'settings / other' },
+          { value: selected(['number-id'], 'number', atom), label: 'number' },
+        ] } },
+      { kind: 'output', id: 'value', type: { kind: 'record_field', input: 'record', index: 'field' } },
+    ] } as never)
+    expect(parsed.diagnostics).toEqual([])
+    const document = loadDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'nested-picker', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'root', nextOrdinal: 2, links: {}, nets: {}, reroutes: {},
+        nodes: { read: { id: 'read', type: 'Read', values: { field: whole } } } } }, view: { graphs: {} },
+    }).document!
+    const session = createLocalSession(document, coreCommandRegistry())
+    let schema = parsed.schema!
+    const scene = () => buildScene({ document: session.doc, graphId: 'g0', resolve: () => schema,
+      tokens: defaultTokens, measure, widgetMeasure: () => ({ viewId: 'core.select', rows: 1 }) })
+    const rows = () => scene().nodes[0]!.layout.rows.filter((row) => row.kind === 'widget')
+    const start = rows()
+    expect(start).toHaveLength(2)
+    expect(start.map((row) => row.label)).toEqual(['field', ''])
+    expect(start.map((row) => row.name)).toEqual(['Field of pack.bundle', 'Field of settings'])
+    expect(new Set(start.map((row) => row.valueKey)).size).toBe(2)
+    expect(start.map((row) => row.familyOwner?.valueKey)).toEqual(['field', 'field'])
+    expect(normalizedComboOptions(start[0]!.spec).map((option) => option.label)).toEqual(['settings', 'number'])
+    expect(formatWidgetValue(effectiveWidgetDefault(start[0]!.spec), start[0]!.spec)).toBe('settings')
+    expect(normalizedComboOptions(start[1]!.spec).map((option) => option.label).slice(1)).toEqual(['seed', 'other'])
+    expect(start[1]!.derivedValue).toBe(whole)
+    const choose = (value: Json) => session.dispatch({ command: 'node.setValue', params: {
+      graphId: 'g0', nodeId: 'read', inputId: 'field', value,
+    } })
+    expect(choose(other).ok).toBe(true)
+    expect(rows()[1]!.derivedValue).toBe(other)
+    expect(scene().nodes[0]!.elaborated!.items.find((item) => item.kind === 'output')!.spec.type)
+      .toEqual({ kind: 'concrete', name: 'INT' })
+    expect(session.doc.graphs.g0!.nodes.read!.values).toEqual({ field: other })
+    expect(session.undo()).toBe(true)
+    expect(rows()[1]!.derivedValue).toBe(whole)
+    expect(session.redo()).toBe(true)
+    expect(rows()[1]!.derivedValue).toBe(other)
+    expect(choose(whole).ok).toBe(true)
+    expect(scene().nodes[0]!.elaborated!.items.find((item) => item.kind === 'output')!.spec.type.kind).toBe('record')
+    expect(choose(selected(['number-id'], 'number', atom)).ok).toBe(true)
+    expect(rows()).toHaveLength(1)
+    expect(choose(seed).ok).toBe(true)
+    const changeField = (depth: 'parent' | 'child', remove: boolean) => {
+      schema = { ...parsed.schema!, body: parsed.schema!.body.map((item) => {
+        if (item.kind !== 'input' || item.id !== 'record' || item.type.kind !== 'record') return item
+        return { ...item, type: { ...item.type, fields: item.type.fields.flatMap((field) => {
+          if (field.id !== 'settings-id') return [field]
+          if (depth === 'parent') return remove ? [] : [{ ...field, type: { kind: 'concrete', name: 'STRING' } }]
+          if (field.type.kind !== 'record') return [field]
+          return [{ ...field, type: { ...field.type, fields: field.type.fields.flatMap((child) =>
+            child.id !== 'seed-id' ? [child] : remove ? [] : [{ ...child, type: { kind: 'concrete', name: 'STRING' } }]) } }]
+        }) } }
+      }) }
+    }
+    for (const depth of ['child', 'parent'] as const) {
+      for (const remove of [true, false]) {
+        changeField(depth, remove)
+        const row = rows().at(-1)!
+        expect(rows()).toHaveLength(depth === 'parent' ? 1 : 2)
+        expect(row.derivedValue).toBe(seed)
+        expect(normalizedComboOptions(row.spec).find((option) => option.value === seed)?.label)
+          .toBe(depth === 'parent' ? 'settings / seed (removed)' : 'seed (removed)')
+        const warnings = scene().diagnostics.filter((diagnostic) => diagnostic.code === 'record-field-removed')
+        expect(warnings).toHaveLength(1)
+        expect(warnings[0]!.refs?.[0]?.valueKey).toBe(depth === 'parent' ? 'field' : '$record/field/1')
+        expect(session.doc.graphs.g0!.nodes.read!.values).toEqual({ field: seed })
+      }
+    }
+    const emptyParsed = parseDinksterSchema('Read', { body: [
+      { kind: 'input', id: 'record', required: true, type: { kind: 'record', types: ['pack.bundle'], fields: [] } },
+      { kind: 'input', id: 'field', pin: false, type: { kind: 'concrete', types: ['COMBO'] }, default: '[]', widget: { type: 'COMBO' } },
+      { kind: 'output', id: 'value', type: { kind: 'record_field', input: 'record', index: 'field' } },
+    ] } as never)
+    expect(emptyParsed.diagnostics).toEqual([])
+    const emptyBody = emptyParsed.schema!.body
+    schema = { ...parsed.schema!, body: emptyBody }
+    expect(rows()).toHaveLength(1)
+    expect(rows()[0]!.disabled).not.toBe(true)
+    expect(normalizedComboOptions(rows()[0]!.spec).find((option) => option.value === seed)?.label).toBe('settings / seed (removed)')
+    expect(choose('[]').ok).toBe(true)
+    const emptyRow = rows()[0]!
+    expect(rows()).toHaveLength(1)
+    expect(emptyRow.label).toBe('field')
+    expect(emptyRow.disabled).toBe(true)
+    expect(emptyRow.inert).toBe(true)
+    expect(emptyRow.disabledReason).toBeUndefined()
+    expect(emptyRow.derivedValue).toBe('')
+    expect(emptyRow.spec.options['placeholder']).toBe('No fields')
+    expect(normalizedComboOptions(emptyRow.spec)).toEqual([])
+    expect(scene().diagnostics).toEqual([])
+    const emptyOutput = scene().nodes[0]!.layout.pins.find((pin) => pin.direction === 'out' && pin.portId === 'value')
+    expect(emptyOutput).toBeDefined()
+    expect(emptyOutput!.type).toEqual({ kind: 'wildcard' })
+    expect(emptyOutput!.kept).toBeUndefined()
+    const oldField: TypeExpr = { kind: 'record_field', input: 'oldRecord', index: 'oldField' }
+    const freshField: TypeExpr = { kind: 'record_field', input: 'record', index: 'field' }
+    for (const elements of [[oldField, freshField], [freshField, oldField]]) {
+      schema = { ...schema, body: [
+        ...emptyBody.filter((item) => item.kind !== 'output'),
+        { kind: 'input', id: 'oldRecord', type: { kind: 'record', name: 'pack.old', fields: [] }, optional: false },
+        { kind: 'input', id: 'oldField', type: { kind: 'concrete', name: 'COMBO' }, optional: false,
+          widget: { widgetType: 'COMBO', options: {}, default: seed } },
+        { kind: 'output', id: 'value', type: { kind: 'tuple', elements } },
+      ] }
+      const output = scene().nodes[0]!.elaborated!.items.find((item) => item.kind === 'output')!
+      expect(output.kind === 'output' && output.kept).toContain('was removed')
+      expect(output.spec.hidden).toBe(true)
+    }
+    schema = { ...schema, body: [...emptyBody, { kind: 'input', id: 'replacement', optional: false,
+      type: { kind: 'record_field', input: 'record', index: 'field' } }] }
+    const replacement = scene().nodes[0]!.elaborated!.items.find((item) => item.kind === 'input' && item.spec.id === 'replacement')!
+    expect(replacement.kind === 'input' && replacement.spec.optional).toBe(true)
+    schema = parsed.schema!
+    expect(rows()[0]!.disabled).not.toBe(true)
+    expect(rows()[0]!.inert).not.toBe(true)
+    expect(scene().diagnostics).toEqual([])
+    expect(rows()).toHaveLength(1)
+    expect(normalizedComboOptions(rows()[0]!.spec).find((option) => option.value === '[]')?.label).toBe('number')
+    const promoted = loadDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'promoted-picker', root: 'root',
+      graphs: {
+        root: { id: 'root', name: 'Root', nextOrdinal: 2, links: {}, nets: {}, reroutes: {}, nodes: {
+          first: { id: 'first', type: '#body', values: { choice: seed } },
+          second: { id: 'second', type: '#body', values: { choice: whole } },
+        } },
+        body: { id: 'body', name: 'Body', nextOrdinal: 1, links: {}, nets: {}, reroutes: {},
+          nodes: { read: { id: 'read', type: 'Read', values: { field: whole } } },
+          boundary: { body: [{ kind: 'input', id: 'choice', promoted: true,
+            binds: { kind: 'port', node: 'read', port: 'field' } }] },
+        },
+      }, view: { graphs: {} },
+    })
+    expect(promoted.diagnostics).toEqual([])
+    const promotedSession = createLocalSession(promoted.document!, coreCommandRegistry())
+    const promotedScene = (owner?: string) => buildScene({ document: promotedSession.doc,
+      graphId: owner === undefined ? 'root' : 'body',
+      resolve: documentResolver(promotedSession.doc, (type) => type === 'Read' ? parsed.schema : undefined),
+      tokens: defaultTokens, measure, widgetMeasure: () => ({ viewId: 'core.select', rows: 1 }),
+      ...(owner === undefined ? {} : { occurrence: {
+        owner: { instancePath: [], node: asNodeId(owner) }, plannerAvailable: true,
+      } }),
+    })
+    for (const [id, value] of [['first', seed], ['second', whole]] as const) {
+      const outer = promotedScene().nodes.find((node) => node.id === id)!
+      const outerRows = outer.layout.rows.filter((row) => row.kind === 'widget')
+      expect(outerRows).toHaveLength(2)
+      expect(outerRows[1]!.derivedValue).toBe(value)
+      expect(outerRows.map((row) => row.familyOwner?.valueKey)).toEqual(['choice', 'choice'])
+      const panel = promotedScene(id).boundaryNodes.find((node) => node.side === 'inputs')!
+      const fields = panel.layout.rows.filter((row) => row.kind === 'widget')
+      expect(fields).toHaveLength(2)
+      expect(fields[1]!.derivedValue).toBe(value)
+      expect(fields.map((row) => row.familyOwner)).toEqual(fields.map(() => ({
+        graphId: 'root', nodeId: id, construct: 'choice', valueKey: 'choice',
+      })))
+    }
+    const panelRow = promotedScene('first').boundaryNodes.find((node) => node.side === 'inputs')!
+      .layout.rows.filter((row) => row.kind === 'widget')[1]!
+    const owner = panelRow.familyOwner!
+    expect(promotedSession.dispatch({ command: 'node.setValue', params: {
+      graphId: owner.graphId, nodeId: owner.nodeId, inputId: owner.valueKey!, value: other,
+    } }).ok).toBe(true)
+    expect(promotedSession.doc.graphs.root!.nodes.first!.values).toEqual({ choice: other })
+    expect(promotedSession.doc.graphs.root!.nodes.second!.values).toEqual({ choice: whole })
+    expect(promotedSession.doc.graphs.body!.nodes.read!.values).toEqual({ field: whole })
+    expect(promotedSession.undo()).toBe(true)
+    expect(promotedSession.doc.graphs.root!.nodes.first!.values).toEqual({ choice: seed })
+  })
+
   it('keeps numeric edit scenes equal to a fresh build and declines value-dependent presentation', () => {
     const previous = loadDocument(readJson('fixtures/workflows/exec-basic.json')).document as WorkflowDocument
     const graph = previous.graphs.g0!
@@ -69,7 +646,8 @@ describe('buildScene', () => {
     expect(updated).toEqual(buildScene({ ...input, document: current }))
     expect(updated!.nodes[1]).toBe(before.nodes[1])
     expect(updated!.nodes[0]!.layout).toBe(before.nodes[0]!.layout)
-    const changedSchema = { ...resolve(old.type)!, widgetGroups: [] }
+    const oldSchema = resolve(old.type)!
+    const changedSchema = { ...oldSchema, body: [{ kind: 'section' as const, id: 'shown', visible: { formula: 'width > 100' }, rows: oldSchema.body }] }
     expect(updateSceneNodeValues(before, previous, current, 'g0', (type) => type === old.type ? changedSchema : resolve(type))).toBeUndefined()
     const deleted = { ...current, graphs: { ...current.graphs, g0: { ...current.graphs.g0!, nodes: {
       ...graph.nodes, n0: { ...old, values: {} },
@@ -212,54 +790,39 @@ describe('buildScene', () => {
     expect(scene.links[0]!.from).toMatchObject({ kind: 'port', port: 'image' })
   })
 
+  it('centers a folded line on drawn boundary wires, not hidden ones, without carrying its fold to the face', () => {
+    const field = (id: string): Extract<NodeSchema['body'][number], { kind: 'input' }> => ({ kind: 'input', id, optional: false,
+      type: { kind: 'concrete', name: 'INT' }, widget: { widgetType: 'INT', options: {} } })
+    const schema: NodeSchema = { type: 'Fields', displayName: 'Fields', category: 'test', source: 'v3', isOutputNode: false,
+      body: [{ kind: 'row', rows: [field('first'), field('last')] }] }
+    const document = structuredClone(loadDocument(readJson('fixtures/workflows/exec-subgraph.json')).document!)
+    ;(document.graphs.g1!.nodes as Record<string, unknown>).n0 = { id: 'n0', type: 'Fields', values: { first: 7, last: 19 } }
+    ;(document.graphs.g1 as { boundary: unknown }).boundary = { body: [
+      { kind: 'input', id: 'first', promoted: true, wireHidden: true, binds: { kind: 'port', node: 'n0', port: 'first' } },
+      { kind: 'input', id: 'last', promoted: true, binds: { kind: 'port', node: 'n0', port: 'last' } },
+    ] }
+    const resolve = documentResolver(document, (type) => type === 'Fields' ? schema : schemas.get(type))
+    const scene = (graphId: string) => buildScene({ document, graphId, resolve, tokens: defaultTokens, measure, widgetMeasure })
+    for (const hidden of [true, false]) {
+      const item = boundaryItems(document.graphs.g1!.boundary!, 'inputs')[0]!
+      ;(item as { wireHidden: boolean }).wireHidden = hidden
+      const inner = scene('g1')
+      const layout = inner.nodes[0]!.layout
+      const row = layout.rows[0]!
+      const center = row.y + defaultTokens.rowHeight / 2
+      const lastPin = layout.pins.find((pin) => pin.portId === 'last' && pin.direction === 'in')!
+      expect(lastPin.y).toBe(hidden ? center : center + canvasPaintTokens.node.box.clusterPitch.two / 2)
+      expect(inner.links.find((link) => link.to.kind === 'port' && link.to.port === 'first')?.hidden === true).toBe(hidden)
+      const face = scene('g0').nodes.find((node) => node.id === 'n0')!.layout
+      expect(face.lines).toBeUndefined()
+      expect(face.rows[0]!.y).not.toBe(face.rows[1]!.y)
+    }
+  })
+
   it('inner subgraph definitions render standalone by graph id', () => {
     const scene = sceneOf('exec-subgraph', 'g1')
     expect(scene.nodes.map((n) => n.id)).toEqual(['n0'])
     expect(scene.nodes[0]!.isSubgraph).toBe(false)
-  })
-
-  it('value sources are scene items separate from nodes, with derived INT spec', () => {
-    const scene = sceneOf('value-source')
-    expect(scene.nodes.map((n) => n.id).sort()).toEqual(['n0', 'n1'])
-    expect(scene.valueSources).toHaveLength(1)
-    const vs = scene.valueSources[0]!
-    expect(vs.id).toBe('v2')
-    expect(vs.x).toBe(80)
-    expect(vs.y).toBe(140)
-    expect(vs.width).toBeGreaterThanOrEqual(VS_MIN_WIDTH)
-    // No declared spec, but INT consumers: spec derives; no conflicts.
-    expect(vs.specState).toBe('derived')
-    expect(vs.conflict).toBe(false)
-    expect(vs.effective.spec?.widgetType).toBe('INT')
-    expect(vs.typeName).toBe('INT')
-    expect(vs.title).toBe('INT')
-    expect(vs.valueText).toBe('128')
-  })
-
-  it('value source noodles render: direct, into a reroute, and onward (fan-out)', () => {
-    const scene = sceneOf('value-source')
-    const vs = scene.valueSources[0]!
-    const pin = valueSourcePinPosition(vs)
-    const n0 = scene.nodes.find((n) => n.id === 'n0')!
-
-    const direct = scene.links.find((l) => l.id === 'l4')!
-    expect(direct.from).toEqual({ kind: 'valueSource', valueSource: 'v2' })
-    expect(direct.x1).toBe(pin.x)
-    expect(direct.y1).toBe(pin.y)
-    const widthPin = n0.layout.pins.find((p) => p.direction === 'in' && p.portId === 'width')!
-    expect(direct.x2).toBe(n0.x)
-    expect(direct.y2).toBe(n0.y + widthPin.y)
-    expect(direct.typeName).toBe('INT')
-
-    const intoReroute = scene.links.find((l) => l.id === 'l5')!
-    expect(intoReroute.from).toEqual({ kind: 'valueSource', valueSource: 'v2' })
-    expect(intoReroute.to).toEqual({ kind: 'reroute', reroute: 'r3' })
-    expect(intoReroute.typeName).toBe('INT')
-
-    // The reroute dot itself takes the source's advisory type color.
-    expect(scene.reroutes.find((r) => r.id === 'r3')!.typeName).toBe('INT')
-    const onward = scene.links.find((l) => l.id === 'l6')!
-    expect(onward.typeName).toBe('INT')
   })
 
   it('marks a resolver-missing node type as unrecognized', () => {
@@ -310,6 +873,27 @@ describe('buildScene', () => {
     expect(same.layout).toMatchObject({ title: 'TotallyUnknownNode', titleRenamed: false })
   })
 
+  it('a node waiting for definitions shows its type id without the pack part', () => {
+    const doc = structuredClone(
+      loadDocument(readJson('fixtures/workflows/exec-basic.json')).document,
+    ) as WorkflowDocument
+    const node = doc.graphs.g0!.nodes.n0! as { type: string; title?: string }
+    const titleOf = (type: string, schemasPending: boolean) => {
+      node.type = type
+      return buildScene({
+        document: doc, graphId: 'g0', resolve: () => undefined, schemasPending,
+        tokens: defaultTokens, measure, widgetMeasure,
+      }).nodes.find((candidate) => candidate.id === 'n0')!.layout
+    }
+    expect(titleOf('dinkster.video.save_video', true)).toMatchObject({ title: 'save_video', titleRenamed: false })
+    expect(titleOf('KSampler', true).title).toBe('KSampler')
+    expect(titleOf('visual.', true).title).toBe('visual.')
+    // A missing node keeps the whole id, which names the pack to install.
+    expect(titleOf('dinkster.video.save_video', false).title).toBe('dinkster.video.save_video')
+    node.title = 'Custom'
+    expect(titleOf('dinkster.video.save_video', true)).toMatchObject({ title: 'Custom', titleRenamed: true })
+  })
+
   it('an unresolved node keeps its stored values as read-only fallback rows', () => {
     const doc = structuredClone(
       loadDocument(readJson('fixtures/workflows/exec-basic.json')).document,
@@ -331,6 +915,22 @@ describe('buildScene', () => {
       ['batch_size', '1'],
       ['color', '0'],
     ])
+    const stored = loadDocument({ ...doc, view: { graphs: {} }, graphs: { g0: { ...doc.graphs.g0, links: {}, nets: {}, reroutes: {}, nodes: {
+      n0: { id: 'n0', type: 'Make', values: { field_73656564: 7, field_67756964616e6365: 13 } },
+    } } } }).document!
+    const schema = parseDinksterSchema('Make', { signature: 'make-fields', body: [
+      { kind: 'input', id: 'field_73656564', label: 'renamed seed', type: { kind: 'concrete', types: ['INT'] } },
+      { kind: 'input', id: 'field_67756964616e6365', label: 'guidance', type: { kind: 'concrete', types: ['INT'] } },
+    ] } as never).schema!
+    const environment = stampEnvironment(stored, { resolve: () => schema })
+    const reopened = loadDocument(JSON.parse(JSON.stringify({ ...stored, environment }))).document!
+    const missingRows = (document: WorkflowDocument) => buildScene({ document, graphId: 'g0', resolve: () => undefined,
+      tokens: defaultTokens, measure, widgetMeasure }).nodes[0]!.layout.rows.filter((row) => row.kind === 'fallback')
+    expect(missingRows(reopened).map((row) => [row.valueKey, row.label, row.text])).toEqual([
+      ['field_73656564', 'renamed seed', '7'], ['field_67756964616e6365', 'guidance', '13'],
+    ])
+    expect(missingRows(stored).map((row) => row.label)).toEqual(['Field 1', 'Field 2'])
+    expect(reopened.graphs).toEqual(stored.graphs)
   })
 
   it('an unresolved node keeps its manual size override (never snaps back to natural size)', () => {
@@ -424,7 +1024,7 @@ describe('buildScene', () => {
       category: 'test',
       source: 'v3',
       isOutputNode: false,
-      items: [{ kind: 'output', id: 'image', type: { kind: 'concrete', name: 'IMAGE' } }],
+      body: [{ kind: 'output', id: 'image', type: { kind: 'concrete', name: 'IMAGE' } }],
     }
     const match: NodeSchema = {
       type: 'Match',
@@ -432,7 +1032,7 @@ describe('buildScene', () => {
       category: 'test',
       source: 'v3',
       isOutputNode: false,
-      items: [
+      body: [
         {
           kind: 'input', id: 'in', optional: false,
           type: {
@@ -504,7 +1104,7 @@ describe('buildScene', () => {
     })
     for (const pin of pins) {
       expect(pin.matchVariable).toBe('T')
-      const declared = match.items.find((item) =>
+      const declared = match.body.find((item) =>
         (item.kind === 'input' || item.kind === 'output') && item.id === pin.portId)
       if (declared?.kind !== 'input' && declared?.kind !== 'output') throw new Error(`missing declared pin '${pin.portId}'`)
       expect(pin.matchConstraint).toEqual(declared.type)
@@ -520,17 +1120,15 @@ describe('buildScene', () => {
       category: 'test',
       source: 'v3',
       isOutputNode: false,
-      items: [
+      body: [
         {
-          kind: 'input',
+          kind: 'group',
           id: 'items',
-          type: { kind: 'wildcard' },
-          optional: false,
-          dynamic: {
-            kind: 'autogrow',
-            template: [{ kind: 'input', id: 'value', type: variable, optional: false }],
-            naming: { kind: 'prefix', prefix: 'value', min: 1, max: 8 },
-          },
+          value: { kind: 'input', id: 'value', type: variable, optional: false },
+          keys: { kind: 'numbered', prefix: 'value', start: 0, pad: 0 },
+          grows: 'link',
+          minMembers: 1,
+          maxMembers: 8,
         },
         { kind: 'output', id: 'result', type: { kind: 'list', element: variable } },
       ],
@@ -541,7 +1139,7 @@ describe('buildScene', () => {
       category: 'test',
       source: 'v3',
       isOutputNode: false,
-      items: [{ kind: 'output', id: 'value', type: { kind: 'concrete', name } }],
+      body: [{ kind: 'output', id: 'value', type: { kind: 'concrete', name } }],
     })
     const image = producer('IMAGE')
     const latent = producer('LATENT')
@@ -561,14 +1159,9 @@ describe('buildScene', () => {
             second: { id: asNodeId('second'), type: '#body', values: {} },
           },
           links: {
-            latentFeed: {
-              id: asLinkId('latentFeed'),
-              from: { node: asNodeId('latent'), port: asPortId('value') },
-              to: { selector: asSelectorId('pick'), candidate: asSelectorCandidateId('only') },
-            },
             latentDelivery: {
               id: asLinkId('latentDelivery'),
-              from: { selector: asSelectorId('pick') },
+              from: { node: asNodeId('latent'), port: asPortId('value') },
               to: { node: asNodeId('second'), port: asPortId('input') },
             },
           },
@@ -581,13 +1174,6 @@ describe('buildScene', () => {
             },
           },
           reroutes: {},
-          selectors: {
-            pick: {
-              id: asSelectorId('pick'),
-              candidates: [{ id: asSelectorCandidateId('only') }],
-              policy: { kind: 'fixed', candidate: asSelectorCandidateId('only') },
-            },
-          },
           nextOrdinal: 1,
         },
         body: {
@@ -598,24 +1184,23 @@ describe('buildScene', () => {
               id: asNodeId('match'),
               type: listMaker.type,
               values: {},
-              dynamic: { items: { members: [asDynamicMemberId('m0'), asDynamicMemberId('m1')] } },
+              dynamic: { items: { members: ['value0', 'value1'], seq: 2 } },
             },
           },
           links: {},
           nets: {},
           reroutes: {},
-          boundary: {
-            inputs: [{
+          boundary: boundaryOf(
+            [{
               id: 'input',
               binds: {
                 kind: 'port',
                 node: asNodeId('match'),
-                port: asPortId('items.value'),
-                members: [asDynamicMemberId('m0')],
+                port: asPortId('items.value0'),
               },
             }],
-            outputs: [{ id: 'output', binds: { kind: 'port', node: asNodeId('match'), port: asPortId('result') } }],
-          },
+            [{ id: 'output', binds: { kind: 'port', node: asNodeId('match'), port: asPortId('result') } }],
+          ),
           nextOrdinal: 1,
         },
       },
@@ -639,7 +1224,7 @@ describe('buildScene', () => {
 
     expect(resolve('#body')).toBeDefined()
     const expectOccurrenceType = (pins: ReturnType<typeof occurrencePins>, name: string) => {
-      for (const id of ['items.value#m0', 'items.value#m1']) {
+      for (const id of ['items.value0', 'items.value1']) {
         expect(pins.find((pin) => pin.portId === id)?.type).toEqual({ kind: 'concrete', name })
       }
       expect(pins.find((pin) => pin.portId === 'result')?.type).toEqual({
@@ -661,7 +1246,7 @@ describe('buildScene', () => {
       },
     }
     const reverted = occurrencePins('first', disconnected)
-    for (const id of ['items.value#m0', 'items.value#m1']) {
+    for (const id of ['items.value0', 'items.value1']) {
       expect(reverted.find((pin) => pin.portId === id)?.type).toEqual(variable)
     }
     expect(reverted.find((pin) => pin.portId === 'result')?.type).toEqual({ kind: 'list', element: variable })
@@ -676,7 +1261,7 @@ describe('buildScene', () => {
       category: 'test',
       source: 'v3',
       isOutputNode: false,
-      items: [
+      body: [
         { kind: 'input', id: 'in', type: variable, optional: false },
         { kind: 'output', id: 'out', type: variable },
       ],
@@ -687,7 +1272,7 @@ describe('buildScene', () => {
       category: 'test',
       source: 'v3',
       isOutputNode: false,
-      items: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name } }],
+      body: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name } }],
     })
     const image = producer('IMAGE')
     const latent = producer('LATENT')
@@ -729,10 +1314,10 @@ describe('buildScene', () => {
           links: {},
           nets: {},
           reroutes: {},
-          boundary: {
-            inputs: [{ id: 'input', binds: { kind: 'port', node: asNodeId('inner'), port: asPortId('input') } }],
-            outputs: [{ id: 'output', binds: { kind: 'port', node: asNodeId('inner'), port: asPortId('output') } }],
-          },
+          boundary: boundaryOf(
+            [{ id: 'input', binds: { kind: 'port', node: asNodeId('inner'), port: asPortId('input') } }],
+            [{ id: 'output', binds: { kind: 'port', node: asNodeId('inner'), port: asPortId('output') } }],
+          ),
           nextOrdinal: 1,
         },
         body: {
@@ -742,10 +1327,10 @@ describe('buildScene', () => {
           links: {},
           nets: {},
           reroutes: {},
-          boundary: {
-            inputs: [{ id: 'input', binds: { kind: 'port', node: asNodeId('match'), port: asPortId('in') } }],
-            outputs: [{ id: 'output', binds: { kind: 'port', node: asNodeId('match'), port: asPortId('out') } }],
-          },
+          boundary: boundaryOf(
+            [{ id: 'input', binds: { kind: 'port', node: asNodeId('match'), port: asPortId('in') } }],
+            [{ id: 'output', binds: { kind: 'port', node: asNodeId('match'), port: asPortId('out') } }],
+          ),
           nextOrdinal: 1,
         },
       },
@@ -800,19 +1385,24 @@ describe('sections in scenes', () => {
     category: 'test',
     source: 'v3',
     isOutputNode: false,
-    items: [
+    body: [
       { kind: 'input', id: 'a', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
-      { kind: 'section', id: 'advanced', displayName: 'Advanced' },
       {
-        kind: 'input',
-        id: 'w',
-        type: { kind: 'concrete', name: 'INT' },
-        optional: false,
-        section: 'advanced',
-        widget: { widgetType: 'INT', options: {} },
+        kind: 'section',
+        id: 'advanced',
+        displayName: 'Advanced',
+        rows: [
+          {
+            kind: 'input',
+            id: 'w',
+            type: { kind: 'concrete', name: 'INT' },
+            optional: false,
+            widget: { widgetType: 'INT', options: {} },
+          },
+          { kind: 'input', id: 'b', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
+          { kind: 'output', id: 'x', type: { kind: 'concrete', name: 'IMAGE' } },
+        ],
       },
-      { kind: 'input', id: 'b', type: { kind: 'concrete', name: 'IMAGE' }, optional: false, section: 'advanced' },
-      { kind: 'output', id: 'x', type: { kind: 'concrete', name: 'IMAGE' }, section: 'advanced' },
     ],
   }
   const producerSchema: NodeSchema = {
@@ -821,7 +1411,7 @@ describe('sections in scenes', () => {
     category: 'test',
     source: 'v3',
     isOutputNode: false,
-    items: [{ kind: 'output', id: 'out0', type: { kind: 'concrete', name: 'IMAGE' } }],
+    body: [{ kind: 'output', id: 'out0', type: { kind: 'concrete', name: 'IMAGE' } }],
   }
   const consumerSchema: NodeSchema = {
     type: 'Consumer',
@@ -829,7 +1419,7 @@ describe('sections in scenes', () => {
     category: 'test',
     source: 'v3',
     isOutputNode: false,
-    items: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'INT' }, optional: false }],
+    body: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'INT' }, optional: false }],
   }
   const synthetic = new Map([
     ['Sectioned', sectionedSchema],
@@ -959,31 +1549,43 @@ describe('sections in scenes', () => {
     expect(closed.elaborated?.items.flatMap((item) =>
       item.kind === 'input' && item.apiName !== undefined ? [item.apiName] : [],
     )).toEqual(['a', 'w', 'b'])
+    // The folded field still has a row to check its stored value against.
+    const fieldIds = (node: typeof open) => node.fieldRows?.flatMap((row) => row.kind === 'widget' ? [row.inputId] : [])
+    expect(fieldIds(open)).toBeUndefined()
+    expect(fieldIds(closed)).toEqual(['w'])
+    expect(fieldIds(sectionedScene(false, false, false, true).nodes.find((n) => n.id === 's0')!)).toEqual(['w'])
   })
 
-  it('link and named-net noodles into a collapsed section anchor on its header', () => {
+  it('link and named-net noodles into a collapsed section anchor on its closed row', () => {
     const scene = sectionedScene(true)
     const s0 = scene.nodes.find((n) => n.id === 's0')!
     const header = s0.layout.rows.find((r) => r.kind === 'section')!
-    const anchorY = s0.y + header.y + header.height / 2
+    const pinY = (portId: string) => s0.y + s0.layout.pins.find((p) => p.portId === portId && p.direction === 'in')!.y
+    // Both hidden inputs gather on the closed row, as a cluster.
+    for (const portId of ['b', 'w']) {
+      expect(pinY(portId)).toBeGreaterThan(s0.y + header.y)
+      expect(pinY(portId)).toBeLessThan(s0.y + header.y + header.height)
+    }
+    expect(pinY('b')).not.toBe(pinY('w'))
     // Ordinary link into hidden port b.
     const link = scene.links.find((l) => l.id === 'l1')!
     expect(link.x2).toBe(s0.x)
-    expect(link.y2).toBe(anchorY)
+    expect(link.y2).toBe(pinY('b'))
     // Named-net noodle into hidden widget input w.
     const netLink = scene.links.find((l) => l.netId === 't2')!
-    expect(netLink.y2).toBe(anchorY)
+    expect(netLink.y2).toBe(pinY('w'))
   })
 
   it('connected widget tap in a collapsed section keeps a header pin and noodle anchor', () => {
     const scene = sectionedScene(true, true)
     const s0 = scene.nodes.find((n) => n.id === 's0')!
     const header = s0.layout.rows.find((r) => r.kind === 'section')!
-    const anchorY = s0.y + header.y + header.height / 2
     const tapPin = s0.layout.pins.find((p) => p.direction === 'out' && p.portId === 'w' && p.widgetTap === true)!
     const tapLink = scene.links.find((l) => l.id === 'tap')!
+    const anchorY = s0.y + tapPin.y
 
-    expect(s0.y + tapPin.y).toBe(anchorY)
+    expect(anchorY).toBeGreaterThan(s0.y + header.y)
+    expect(anchorY).toBeLessThan(s0.y + header.y + header.height)
     expect(tapLink.from).toEqual({ kind: 'widgetTap', node: 's0', input: 'w' })
     expect(tapLink.x1).toBe(s0.x + s0.layout.width)
     expect(tapLink.y1).toBe(anchorY)
@@ -1113,7 +1715,7 @@ describe('named nets in scenes', () => {
     category: 'test',
     source: 'v3',
     isOutputNode: false,
-    items: [{ kind: 'output', id: 'out0', type: { kind: 'concrete', name: 'LATENT' } }],
+    body: [{ kind: 'output', id: 'out0', type: { kind: 'concrete', name: 'LATENT' } }],
   }
   const consumer: NodeSchema = {
     type: 'Consumer',
@@ -1121,7 +1723,7 @@ describe('named nets in scenes', () => {
     category: 'test',
     source: 'v3',
     isOutputNode: false,
-    items: [{ kind: 'input', id: 'in0', type: { kind: 'concrete', name: 'LATENT' }, optional: false }],
+    body: [{ kind: 'input', id: 'in0', type: { kind: 'concrete', name: 'LATENT' }, optional: false }],
   }
   const synthetic = new Map([
     ['Producer', producer],
@@ -1277,20 +1879,20 @@ describe('solver verdicts on scene edges', () => {
   const typed = (name: string): { kind: 'concrete'; name: string } => ({ kind: 'concrete', name })
   const producerOf = (type: string, out: string): NodeSchema => ({
     type: `P${out}`, displayName: type, category: 'test', source: 'v3', isOutputNode: false,
-    items: [{ kind: 'output', id: 'out', type: typed(type) }],
+    body: [{ kind: 'output', id: 'out', type: typed(type) }],
   })
   const sink: NodeSchema = {
     type: 'SinkLatent', displayName: 'Sink', category: 'test', source: 'v3', isOutputNode: false,
-    items: [{ kind: 'input', id: 'in', type: typed('LATENT'), optional: false }],
+    body: [{ kind: 'input', id: 'in', type: typed('LATENT'), optional: false }],
   }
   const imageSink: NodeSchema = {
     type: 'SinkImage', displayName: 'Image sink', category: 'test', source: 'v3', isOutputNode: false,
-    items: [{ kind: 'input', id: 'in', type: typed('IMAGE'), optional: false }],
+    body: [{ kind: 'input', id: 'in', type: typed('IMAGE'), optional: false }],
   }
   const variable = { kind: 'variable' as const, templateId: 'T' }
   const variableSwitch: NodeSchema = {
     type: 'VariableSwitch', displayName: 'Variable switch', category: 'test', source: 'v3', isOutputNode: false,
-    items: [
+    body: [
       { kind: 'input', id: 'in', type: variable, optional: false },
       { kind: 'output', id: 'out', type: variable },
     ],
@@ -1374,18 +1976,18 @@ describe('solver verdicts on scene edges', () => {
     const listImage = { kind: 'list' as const, element: image }
     const source: NodeSchema = {
       type: 'ListSource', displayName: 'List source', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'output', id: 'images', type: listImage }],
+      body: [{ kind: 'output', id: 'images', type: listImage }],
     }
     const bodyNode: NodeSchema = {
       type: 'BodyNode', displayName: 'Body node', category: 'test', source: 'v3', isOutputNode: false,
-      items: [
+      body: [
         { kind: 'input', id: 'image', type: image, optional: false },
         { kind: 'output', id: 'image', type: image },
       ],
     }
     const listSink: NodeSchema = {
       type: 'ListSink', displayName: 'List sink', category: 'test', source: 'v3', isOutputNode: true,
-      items: [{ kind: 'input', id: 'images', type: listImage, optional: false }],
+      body: [{ kind: 'input', id: 'images', type: listImage, optional: false }],
     }
     const doc: WorkflowDocument = {
       format: 'dinkster-workflow', formatVersion: 1, lineage: asLineageId('region-solve'), root: asGraphDefId('root'),
@@ -1409,10 +2011,10 @@ describe('solver verdicts on scene edges', () => {
           id: asGraphDefId('body'), name: 'Body',
           nodes: { work: { id: asNodeId('work'), type: bodyNode.type, values: {} } },
           links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
-          boundary: {
-            inputs: [{ id: asPortId('item'), binds: { kind: 'port', node: asNodeId('work'), port: asPortId('image') } }],
-            outputs: [{ id: asPortId('result'), binds: { kind: 'port', node: asNodeId('work'), port: asPortId('image') } }],
-          },
+          boundary: boundaryOf(
+            [{ id: asPortId('item'), binds: { kind: 'port', node: asNodeId('work'), port: asPortId('image') } }],
+            [{ id: asPortId('result'), binds: { kind: 'port', node: asNodeId('work'), port: asPortId('image') } }],
+          ),
         },
       },
       view: { graphs: { root: { nodes: {} }, body: { nodes: {} } } },
@@ -1443,8 +2045,9 @@ describe('solver verdicts on scene edges', () => {
     const scene = verdictScene('link')
     const bad = scene.links.find((l) => l.id === 'bad')!
     expect(bad.mismatch).toBe(true)
+    expect(bad.mismatchKind).toBe('warning')
     expect(bad.diagnostics).toEqual([
-      expect.objectContaining({ code: 'solve.linkMismatch', message: 'c1.in: IMAGE cannot feed LATENT' }),
+      expect.objectContaining({ code: 'solve.linkMismatch', message: 'Sink: In needs latent data, but IMAGE sends an image.' }),
     ])
     const good = scene.links.find((l) => l.id === 'good')!
     expect(good.mismatch).toBeUndefined()
@@ -1458,12 +2061,15 @@ describe('solver verdicts on scene edges', () => {
     const [bad, good] = scene.links.filter((l) => l.netId === 'n')
     expect(bad).toMatchObject({
       mismatch: true,
+      mismatchKind: 'warning',
       diagnostics: [expect.objectContaining({ code: 'solve.linkMismatch' })],
     })
     expect(good!.mismatch).toBeUndefined()
     expect(good!.diagnostics).toBeUndefined()
     expect(scene.netStubs.find((stub) => stub.role === 'source')!.mismatch).toBe(true)
+    expect(scene.netStubs.find((stub) => stub.role === 'source')!.mismatchKind).toBe('warning')
     expect(scene.netStubs.find((stub) => stub.nodeId === 'c1')!.mismatch).toBe(true)
+    expect(scene.netStubs.find((stub) => stub.nodeId === 'c1')!.mismatchKind).toBe('warning')
     expect(scene.netStubs.find((stub) => stub.nodeId === 'cImage')!.mismatch).toBeUndefined()
   })
 
@@ -1472,8 +2078,9 @@ describe('solver verdicts on scene edges', () => {
     expect(links).toHaveLength(2)
     for (const link of links) {
       expect(link.mismatch).toBe(true)
+      expect(link.mismatchKind).toBe('warning')
       expect(link.diagnostics).toEqual([
-        expect.objectContaining({ code: 'solve.varConflict', message: 'sw.T: connected types have no common match' }),
+        expect.objectContaining({ code: 'solve.varConflict', message: 'Variable switch: In receives an image, but its output feeds the input in of Sink, which needs latent data.' }),
       ])
     }
   })
@@ -1481,33 +2088,15 @@ describe('solver verdicts on scene edges', () => {
 
 describe('groups', () => {
 
-  it('nodesInGroup: membership is spatial (node center inside bounds)', () => {
+  it('initializes legacy membership with full bounds and keeps stored membership independent of bounds', () => {
     const scene = sceneOf('subgraph')
     const group = scene.groups[0]!
-    // All three g0 nodes (positions 60/380/720 x ~200) center inside the
-    // 40..800 x 140..440 rect.
-    expect(nodesInGroup(scene, group).sort()).toEqual(['n0', 'n1', 'n2'])
-    // Shrink the rect so only n0's center fits: membership follows.
-    const narrow = { ...group, x: 40, width: 200 }
-    expect(nodesInGroup(scene, narrow)).toEqual(['n0'])
-    // A rect over empty space carries nothing.
-    expect(nodesInGroup(scene, { ...group, x: -5_000, y: -5_000, width: 10, height: 10 })).toEqual([])
+    expect(nodesInGroup(scene, group).sort()).toEqual(['n0', 'n1'])
+    const stored = { ...scene, groupMembership: { nodes: { n0: group.id }, reroutes: {}, groups: {}, boundary: {} } }
+    expect(nodesInGroup(stored, group)).toEqual(['n0'])
+    expect(nodesInGroup(stored, { ...group, x: -5_000, y: -5_000, width: 10, height: 10 })).toEqual(['n0'])
   })
 
-  it('value sources and selectors use center membership with inclusive edges', () => {
-    const base = sceneOf('exec-basic')
-    const group = { id: 'g', title: 'g', x: 10, y: 20, width: 100, height: 80 }
-    // Centers are inside, one unit past the right edge, and exactly on it.
-    const positioned = (id: string, centerX: number) => ({ id, x: centerX - 5, y: 55, width: 10, height: 10 })
-    const scene = {
-      ...base,
-      valueSources: [positioned('vs-inside', 50), positioned('vs-outside', 111), positioned('vs-edge', 110)],
-      selectors: [positioned('sel-inside', 50), positioned('sel-outside', 111), positioned('sel-edge', 110)],
-    } as unknown as Scene
-
-    expect(valueSourcesInGroup(scene, group)).toEqual(['vs-inside', 'vs-edge'])
-    expect(selectorsInGroup(scene, group)).toEqual(['sel-inside', 'sel-edge'])
-  })
 })
 
 describe('boundary pseudo-nodes', () => {
@@ -1647,14 +2236,14 @@ describe('boundary pseudo-nodes', () => {
     expect(sceneOf('exec-subgraph').boundaryNodes).toEqual([])
   })
 
-  it('participate in spatial group membership by center', () => {
+  it('initializes fully enclosed legacy boundary panels as group members', () => {
     const scene = g1SceneWith({ inputs: { position: { x: 100, y: 100 } } })
     const inputs = scene.boundaryNodes.find((node) => node.side === 'inputs')!
     const group = {
       id: 'group', title: 'Boundary', x: inputs.x - 10, y: inputs.y - 10,
       width: inputs.layout.width + 20, height: inputs.layout.height + 20,
     }
-    expect(boundaryNodesInGroup(scene, group)).toContain('inputs')
+    expect(boundaryNodesInGroup({ ...scene, groups: [group] }, group)).toContain('inputs')
   })
 
   it('a definition derives Inputs (pins face out) and Outputs (pins face in)', () => {
@@ -1715,83 +2304,6 @@ describe('boundary pseudo-nodes', () => {
     expect(outLink.typeName).toBe('IMAGE')
   })
 
-  it.each([false, true])('renders exported promoted literals with occurrence constraints and inherited state (reverse: %s)', (reverse) => {
-    const graph = (id: string, nodes = {}) => ({ id, name: id, nodes, links: {}, nets: {}, reroutes: {}, nextOrdinal: 10 })
-    const binds = { kind: 'valueSource', valueSource: 'v0', type: { kind: 'concrete', name: 'INT' } }
-    const document: any = {
-      format: 'dinkster-workflow', formatVersion: 1, lineage: 'promoted-source', root: 'root',
-      graphs: {
-        root: graph('root', {
-          a: { id: 'a', type: '#wrapper', values: {} },
-          b: { id: 'b', type: '#wrapper', values: { value: 17 }, controllers: { value: 'fixed' } },
-          left: { id: 'left', type: 'Left', values: {} }, right: { id: 'right', type: 'Right', values: {} },
-        }),
-        wrapper: { ...graph('wrapper', { inner: { id: 'inner', type: '#body', values: {} } }), boundary: {
-          inputs: [{ id: 'value', promoted: true, binds: { kind: 'port', node: 'inner', port: 'value' } }],
-          outputs: [{ id: 'out', binds: { kind: 'port', node: 'inner', port: 'out' } }],
-        } },
-        body: { ...graph('body'), valueSources: { v0: { id: 'v0', value: 11, controller: 'increment' } },
-          boundary: { inputs: [{ id: 'value', promoted: true, binds }], outputs: [{ id: 'out', binds }] } },
-      },
-      view: { graphs: {} },
-    }
-    document.graphs.root.links = {
-      l0: { id: 'l0', from: { node: 'a', port: 'out' }, to: { node: 'left', port: 'value' } },
-      l1: { id: 'l1', from: { node: 'b', port: 'out' }, to: { node: 'right', port: 'value' } },
-    }
-    if (reverse) document.graphs.root.nodes = Object.fromEntries(Object.entries(document.graphs.root.nodes).reverse())
-    const resolve = (type: string): NodeSchema | undefined => type === 'Left' || type === 'Right' ? {
-      type, displayName: type, category: 'test', source: 'v3', isOutputNode: false, items: [
-        { kind: 'input', id: 'value', optional: false, type: { kind: 'concrete', name: 'INT' }, widget: {
-          widgetType: 'INT', controller: 'after_generate', options: type === 'Left'
-            ? { min: 3, max: 17, step: 2 } : { min: 10, max: 20, step: 7 },
-        } },
-      ],
-    } : undefined
-    const before = structuredClone(document)
-    const root = buildScene({ document, graphId: 'root', resolve, tokens: defaultTokens, measure, widgetMeasure })
-    for (const [id, options, mode] of [
-      ['a', { min: 3, max: 17, step: 2 }, 'increment'],
-      ['b', { min: 10, max: 20, step: 7 }, 'fixed'],
-    ] as const) {
-      const row = root.nodes.find((node) => node.id === id)!.layout.rows.find((row) => row.kind === 'widget')
-      expect(row).toMatchObject({ kind: 'widget', spec: { options, default: 11 }, controllerMode: mode })
-      const drilled = buildScene({ document, graphId: 'wrapper', resolve, tokens: defaultTokens, measure, widgetMeasure,
-        occurrence: { owner: { node: asNodeId(id), instancePath: [] }, plannerAvailable: false },
-        occurrenceView: occurrenceDynamicView(document, resolve, [id]),
-      })
-      expect(drilled.nodes[0]!.layout.rows.find((row) => row.kind === 'widget'))
-        .toMatchObject({ kind: 'widget', spec: { options, default: 11 }, controllerMode: mode })
-    }
-    expect(document).toEqual(before)
-  })
-
-  it('anchors shared literal output bindings at the source pin without creating a consuming input', () => {
-    const binds = { kind: 'valueSource', valueSource: 'v0', type: { kind: 'concrete', name: 'INT' } }
-    const document = {
-      format: 'dinkster-workflow', formatVersion: 1, lineage: 'source-boundary-scene', root: 'g0',
-      graphs: { g0: {
-        id: 'g0', name: 'literal', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
-        valueSources: { v0: { id: 'v0', value: 23 } },
-        boundary: { inputs: [{ id: 'value', promoted: true, binds }], outputs: [{ id: 'out', binds }, { id: 'shared', binds }] },
-      } },
-      view: { graphs: { g0: { nodes: {}, valueSources: { v0: { position: { x: 137, y: 241 } } } } } },
-    } as unknown as WorkflowDocument
-    const scene = buildScene({ document, graphId: 'g0', resolve: documentResolver(document, () => undefined), tokens: defaultTokens, measure, widgetMeasure })
-    expect(scene.nodes).toEqual([])
-    const source = scene.valueSources[0]!
-    expect(source).toMatchObject({ id: 'v0', x: 137, y: 241, valueText: '23' })
-    const links = scene.links.filter((link) => link.boundary)
-    expect(links.map((link) => link.id).sort()).toEqual(['boundary:outputs:out', 'boundary:outputs:shared'])
-    for (const link of links) {
-      expect(link.from).toEqual({ kind: 'valueSource', valueSource: 'v0' })
-      expect(link.to).toMatchObject({ kind: 'boundary', side: 'outputs' })
-      expect(link.x1).toBe(source.x + source.width)
-      expect(link.y1).toBe(source.y + source.height / 2)
-      expect(link.typeName).toBe('INT')
-    }
-  })
-
   it('projects an output widget-tap binding from the exact widget pin', () => {
     const doc = loadDocument(readJson('fixtures/workflows/exec-subgraph.json')).document as WorkflowDocument
     const g1 = doc.graphs['g1']!
@@ -1801,10 +2313,10 @@ describe('boundary pseudo-nodes', () => {
         ...doc.graphs,
         g1: {
           ...g1,
-          boundary: {
-            ...g1.boundary!,
-            outputs: [{ id: 'color', binds: { kind: 'widgetTap', node: 'n0', tap: 'color' } }],
-          },
+          boundary: boundaryOf(
+            boundaryItems(g1.boundary, 'inputs'),
+            [{ id: asPortId('color'), binds: { kind: 'widgetTap', node: asNodeId('n0'), tap: asPortId('color') } }],
+          ),
         },
       },
     } as unknown as WorkflowDocument
@@ -1825,7 +2337,6 @@ describe('boundary pseudo-nodes', () => {
     expect(link.from).toEqual({ kind: 'widgetTap', node: 'n0', input: 'color' })
     expect(link.to).toEqual({ kind: 'boundary', side: 'outputs', item: 'color' })
     expect(link.typeName).toBe('INT')
-    expect(link.boundaryFamily).toBeUndefined()
     expect(link.x1).toBe(n0.x + n0.layout.width)
     expect(link.y1).toBe(n0.y + tap.y)
   })
@@ -1844,17 +2355,17 @@ describe('boundary pseudo-nodes', () => {
   it('fan-out (alsoBinds) renders one noodle per binding from the same boundary pin', () => {
     const doc = loadDocument(readJson('fixtures/workflows/exec-subgraph.json')).document as WorkflowDocument
     const g1 = doc.graphs['g1']!
-    const item = g1.boundary!.inputs[0]! // 'color' -> n0/color
+    const item = boundaryItems(g1.boundary, 'inputs')[0]! // 'color' -> n0/color
     const patched: WorkflowDocument = {
       ...doc,
       graphs: {
         ...doc.graphs,
         g1: {
           ...g1,
-          boundary: {
-            ...g1.boundary!,
-            inputs: [{ ...item, alsoBinds: [{ kind: 'port', node: 'n0', port: 'width' } as (typeof item)['binds']] }],
-          },
+          boundary: boundaryOf(
+            [{ ...item, alsoBinds: [{ kind: 'port', node: 'n0', port: 'width' } as (typeof item)['binds']] }],
+            boundaryItems(g1.boundary, 'outputs'),
+          ),
         },
       },
     } as WorkflowDocument
@@ -1895,14 +2406,14 @@ describe('boundary pseudo-nodes', () => {
       }, g1: { ...body,
       reroutes: { junction: { id: r } },
       links: { feed: { id: asLinkId('feed'), from: { reroute: r }, to: { node: asNodeId('n0'), port: asPortId('color') } } },
-      boundary: { ...body.boundary!, inputs: [{ ...body.boundary!.inputs[0]!, binds: {
+      boundary: boundaryOf([{ ...boundaryItems(body.boundary, 'inputs')[0]!, binds: {
         kind: 'port', node: asNodeId('n0'), port: asPortId('color'), viaReroute: r,
-      } }] },
+      } }], boundaryItems(body.boundary, 'outputs')),
     } }, view: { ...original.view, graphs: { ...original.view.graphs, g1: {
       ...original.view.graphs.g1!, reroutes: { junction: { position: { x: -80, y: 95 } } },
     } } } }
     const integerSource: NodeSchema = { type: 'IntegerSource', displayName: 'Integer source', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'output', id: 'number', type: { kind: 'concrete', name: 'INT' } }] }
+      body: [{ kind: 'output', id: 'number', type: { kind: 'concrete', name: 'INT' } }] }
     const before = JSON.stringify(doc)
     for (const occurrence of [undefined, { owner: { instancePath: [], node: asNodeId('n0') }, plannerAvailable: true }]) {
       const scene = buildScene({ document: doc, graphId: 'g1', resolve: documentResolver(doc, (type) => type === 'IntegerSource' ? integerSource : schemas.get(type)),
@@ -1919,6 +2430,27 @@ describe('boundary pseudo-nodes', () => {
     expect(JSON.stringify(doc)).toBe(before)
   })
 
+  it('draws only the local delivery when it replaces a promoted boundary value', () => {
+    const original = loadDocument(readJson('fixtures/workflows/exec-subgraph.json')).document!
+    const source: NodeSchema = { type: 'IntegerSource', displayName: 'Integer source', category: 'test', source: 'v3', isOutputNode: false,
+      body: [{ kind: 'output', id: 'number', type: { kind: 'concrete', name: 'INT' } }] }
+    const doc: WorkflowDocument = { ...original, graphs: { ...original.graphs, g1: { ...original.graphs.g1!,
+      nodes: { ...original.graphs.g1!.nodes, source: { id: asNodeId('source'), type: source.type, values: {} } },
+      links: { drive: { id: asLinkId('drive'), from: { node: asNodeId('source'), port: asPortId('number') },
+        to: { node: asNodeId('n0'), port: asPortId('color') } } },
+    } } }
+    const resolve = documentResolver(doc, (type) => type === source.type ? source : schemas.get(type))
+    const definition = buildScene({ document: doc, graphId: 'g1', resolve, tokens: defaultTokens, measure, widgetMeasure })
+    expect(definition.links.some((link) => link.id === 'boundary:inputs:color')).toBe(true)
+    const occurrence = { owner: { instancePath: [], node: asNodeId('n0') }, plannerAvailable: true }
+    const local = buildScene({ document: doc, graphId: 'g1', resolve, tokens: defaultTokens, measure, widgetMeasure, occurrence })
+    expect(local.links.filter((link) => link.to.kind === 'port' && link.to.node === 'n0' && link.to.port === 'color')
+      .map((link) => link.from)).toEqual([{ kind: 'port', node: 'source', port: 'number' }])
+    const unwired = buildScene({ document: original, graphId: 'g1', resolve: documentResolver(original, (type) => schemas.get(type)),
+      tokens: defaultTokens, measure, widgetMeasure, occurrence })
+    expect(unwired.links.some((link) => link.id === 'boundary:inputs:color')).toBe(true)
+  })
+
   it('saved view positions win over defaults, per side', () => {
     const scene = g1SceneWith({ inputs: { position: { x: -321, y: 77 } } })
     const inputs = scene.boundaryNodes.find((b) => b.side === 'inputs')!
@@ -1931,133 +2463,6 @@ describe('boundary pseudo-nodes', () => {
     const inLink = scene.links.find((l) => l.id === 'boundary:inputs:color')!
     expect(inLink.x1).toBe(-321 + inputs.layout.width)
     expect(inLink.y1).toBe(77 + inputs.layout.pins[0]!.y)
-  })
-})
-
-describe('selector scene items', () => {
-  // selector fixture: s6 fixed (two IMAGE branches, one via reroute, output
-  // fanning out to two consumers) + s9 random (mixed IMAGE/LATENT branches).
-  const scene = sceneOf('selector')
-  const s6 = scene.selectors.find((s) => s.id === 's6')!
-  const s9 = scene.selectors.find((s) => s.id === 's9')!
-
-  it('selectors are scene items separate from nodes, at their view positions', () => {
-    expect(scene.selectors).toHaveLength(2)
-    expect(scene.nodes.some((n) => n.id === 's6' || n.id === 's9')).toBe(false)
-    expect({ x: s6.x, y: s6.y }).toEqual({ x: 440, y: 140 })
-    expect({ x: s9.x, y: s9.y }).toEqual({ x: 440, y: 560 })
-    expect(s6.width).toBeGreaterThanOrEqual(SELECTOR_MIN_WIDTH)
-  })
-
-  it('title, candidate labels, and policy flags come from the document', () => {
-    expect(s6.title).toBe('Quality')
-    expect(s6.candidates.map((c) => c.label)).toEqual(['full', '2']) // title else 1-based ordinal
-    expect(s6.activeCandidate).toBe('c7')
-    expect(s6.random).toBe(false)
-    expect(s9.title).toBe('Select')
-    expect(s9.activeCandidate).toBeUndefined()
-    expect(s9.random).toBe(true)
-  })
-
-  it('homogeneous driven branches give the output the single agreed type', () => {
-    expect(s6.candidates.map((c) => c.typeName)).toEqual(['IMAGE', 'IMAGE'])
-    expect(s6.typeName).toBe('IMAGE')
-  })
-
-  it('mixed branch types keep their own colors but leave the output unresolved', () => {
-    expect(s9.candidates.map((c) => c.typeName)).toEqual(['IMAGE', 'LATENT'])
-    expect(s9.typeName).toBeUndefined()
-  })
-
-  it('distinct prefixed and native branch types do not claim one agreed type', () => {
-    const extra: Record<string, NodeSchema> = {
-      DinksterImageSrc: {
-        type: 'DinksterImageSrc', displayName: 'DinksterImageSrc', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'IMAGE' } }],
-      },
-      ComfyImageSrc: {
-        type: 'ComfyImageSrc', displayName: 'ComfyImageSrc', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'comfy.IMAGE' } }],
-      },
-    }
-    const doc = loadDocument({
-      format: 'dinkster-workflow', formatVersion: 1, lineage: 'lineage-compat-sel', root: 'g0',
-      graphs: {
-        g0: {
-          id: 'g0', name: 'root',
-          nodes: { n0: { id: 'n0', type: 'DinksterImageSrc', values: {} }, n1: { id: 'n1', type: 'ComfyImageSrc', values: {} } },
-          links: {
-            l2: { id: 'l2', from: { node: 'n0', port: 'out' }, to: { selector: 's4', candidate: 'c5' } },
-            l3: { id: 'l3', from: { node: 'n1', port: 'out' }, to: { selector: 's4', candidate: 'c6' } },
-          },
-          nets: {},
-          reroutes: {},
-          selectors: { s4: { id: 's4', candidates: [{ id: 'c5' }, { id: 'c6' }], policy: { kind: 'random' } } },
-          nextOrdinal: 7,
-        },
-      },
-      view: {
-        graphs: {
-          g0: {
-            nodes: { n0: { position: { x: 0, y: 0 } }, n1: { position: { x: 0, y: 200 } } },
-            selectors: { s4: { position: { x: 400, y: 100 } } },
-          },
-        },
-      },
-    }).document as WorkflowDocument
-    const mixed = buildScene({
-      document: doc,
-      graphId: 'g0',
-      resolve: documentResolver(doc, (t) => extra[t] ?? schemas.get(t)),
-      tokens: defaultTokens,
-      measure,
-      widgetMeasure,
-    })
-    const sel = mixed.selectors.find((s) => s.id === 's4')!
-    expect(sel.candidates.map((c) => c.typeName)).toEqual(['IMAGE', 'comfy.IMAGE'])
-    expect(sel.typeName).toBeUndefined()
-  })
-
-  it('every candidate noodle stays visible and anchors at the candidate pin', () => {
-    const direct = scene.links.find((l) => l.id === 'l12')!
-    expect(direct.to).toEqual({ kind: 'selector', selector: 's6', candidate: 'c7' })
-    const pin7 = selectorCandidatePinPosition(s6, 'c7')!
-    expect({ x: direct.x2, y: direct.y2 }).toEqual(pin7)
-
-    // The second branch arrives via a reroute; both hops render.
-    const intoReroute = scene.links.find((l) => l.id === 'l13')!
-    expect(intoReroute.to).toEqual({ kind: 'reroute', reroute: 'r5' })
-    const fromReroute = scene.links.find((l) => l.id === 'l14')!
-    expect(fromReroute.from).toEqual({ kind: 'reroute', reroute: 'r5' })
-    const pin8 = selectorCandidatePinPosition(s6, 'c8')!
-    expect({ x: fromReroute.x2, y: fromReroute.y2 }).toEqual(pin8)
-
-    // Candidate pins sit on the left edge, one per row, below the header.
-    expect(pin7.x).toBe(s6.x)
-    expect(pin8.x).toBe(s6.x)
-    expect(pin7.y).toBeGreaterThan(s6.y + s6.headerHeight)
-    expect(pin8.y).toBeGreaterThan(pin7.y)
-  })
-
-  it('the single output pin anchors fan-out links in the header band', () => {
-    const out = selectorOutPinPosition(s6)
-    expect(out.x).toBe(s6.x + s6.width)
-    expect(out.y).toBe(s6.y + s6.headerHeight / 2)
-    const fanOut = scene.links.filter((l) => l.id === 'l15' || l.id === 'l16')
-    expect(fanOut).toHaveLength(2)
-    for (const link of fanOut) {
-      expect(link.from).toEqual({ kind: 'selector', selector: 's6' })
-      expect({ x: link.x1, y: link.y1 }).toEqual(out)
-      expect(link.typeName).toBe('IMAGE') // traced through the selector
-    }
-    expect(fanOut.map((l) => (l.to as { node: string }).node).sort()).toEqual(['n2', 'n3'])
-  })
-
-  it('the policy badge sits inside the header band at the right edge', () => {
-    const badge = selectorBadgeRect(s6)
-    expect(badge.x + badge.width).toBeLessThanOrEqual(s6.x + s6.width)
-    expect(badge.y).toBeGreaterThanOrEqual(s6.y)
-    expect(badge.y + badge.height).toBeLessThanOrEqual(s6.y + s6.headerHeight)
   })
 })
 
@@ -2078,4 +2483,49 @@ describe('scenesEqual', () => {
     expect(scenesEqual(a, b)).toBe(false)
   })
 
+})
+
+describe('an editor on the Inputs panel', () => {
+  const recorder: NodeSchema = {
+    type: 'Rec', displayName: 'Rec', category: 'test', outputNode: false,
+    body: [{ kind: 'input', id: 'clip', type: { kind: 'concrete', name: 'AUDIO_RECORD' }, widget: { widgetType: 'AUDIO_RECORD', options: { unfolded: true } } }],
+  } as unknown as NodeSchema
+  const editorMeasure: WidgetMeasure = (spec) => spec.widgetType === 'AUDIO_RECORD' ? { viewId: 'core.audioRecord', rows: 1 } : undefined
+  const panelOf = (inputsPanel?: Json) => {
+    const document = loadDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'panel-editor', root: 'g0',
+      graphs: {
+        g0: { id: 'g0', name: 'Root', nextOrdinal: 2, links: {}, nets: {}, reroutes: {}, nodes: { outer: { id: 'outer', type: '#g1', values: {} } } },
+        g1: {
+          id: 'g1', name: 'Sub', nextOrdinal: 2, links: {}, nets: {}, reroutes: {},
+          nodes: { inner: { id: 'inner', type: 'Rec', values: {} } },
+          boundary: { body: [{ kind: 'input', id: 'clip', promoted: true, binds: { kind: 'port', node: 'inner', port: 'clip' } }] },
+        },
+      },
+      view: { graphs: {
+        g0: { nodes: { outer: { position: { x: 0, y: 0 }, editors: { clip: { unfolded: true } } } } },
+        g1: { nodes: { inner: { position: { x: 300, y: 0 } } }, ...(inputsPanel === undefined ? {} : { inputsPanel }) },
+      } },
+    } as never).document as WorkflowDocument
+    const scene = buildScene({
+      document, graphId: 'g1', resolve: documentResolver(document, (type) => type === 'Rec' ? recorder : undefined),
+      tokens: defaultTokens, measure: (text) => text.length * 6, widgetMeasure: editorMeasure,
+    })
+    return scene.boundaryNodes.find((bnode) => bnode.side === 'inputs')!.layout
+  }
+
+  it('starts folded whatever the declaration or the node outside says, and unfolds under its field from the panel\'s own state', () => {
+    const folded = panelOf()
+    expect(folded.rows.some((row) => row.kind === 'editorSpace')).toBe(false)
+    const open = panelOf({ editors: { clip: { unfolded: true } } })
+    const field = open.rows.findIndex((row) => row.kind === 'widget' && row.valueKey === 'clip')
+    const space = open.rows[field + 1]
+    expect(open.rows[field]).toMatchObject({ unfolded: true })
+    if (space?.kind !== 'editorSpace') throw new Error('expected the editor space under its field')
+    expect(space).toMatchObject({ valueKey: 'clip', viewId: 'core.audioRecord', y: open.rows[field]!.y + open.rows[field]!.height })
+    expect(space.rowAbove).toBe(open.rows[field]!.height)
+    // The panel grows downward by the space; the add slot moves below it.
+    expect(open.height - folded.height).toBe(space.height)
+    expect(open.width).toBeGreaterThanOrEqual(canvasPaintTokens.node.editorSpace.minWidth + space.inset * 2)
+  })
 })

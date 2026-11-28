@@ -44,9 +44,7 @@ const BACKEND_SERIAL_SPECS = [
   'reconnect.spec.ts',
   'reroutes.spec.ts',
   'seed-controller.spec.ts',
-  'selectors.spec.ts',
   'smoke.spec.ts',
-  'value-source.spec.ts',
   // Native (:8765) writers: library records, uploads, runs; run-history
   // clears the whole local scope.
   'workflow-library.spec.ts',
@@ -73,7 +71,6 @@ const BACKEND_SERIAL_SPECS = [
   'bounding-box-live.spec.ts',
   'image-compare-live.spec.ts',
   'camera-angle-live.spec.ts',
-  'resolution-live.spec.ts',
   'save-target-live.spec.ts',
   'video-edit.spec.ts',
   'glsl-shader.spec.ts',

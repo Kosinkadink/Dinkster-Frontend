@@ -7,21 +7,29 @@ import { createWorkflowApp } from './fixtures/workflow-app.js'
  * are keyed by the Tab OBJECT (WeakMap), so a fresh session can never be
  * answered with another session's compile or hash.
  */
-import { readFileSync } from 'node:fs'
-import { join, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { DinksterNodesPayload } from '@dinkster/core'
+import { DINKSTER_SCHEMA_WIRE_VERSION, type DinksterNodesPayload } from '@dinkster/core'
 import { buildDinksterRegistry } from '@dinkster/client'
 import type { AppState, Backend, Tab } from '../src/app-state.js'
 
 // AppState builds its WS url from the page origin; give the node test env one.
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
 
-const coreRoot = join(dirname(fileURLToPath(import.meta.url)), '../../core')
-const nodesPayload = JSON.parse(
-  readFileSync(join(coreRoot, 'fixtures/dinkster-nodes.json'), 'utf8'),
-) as DinksterNodesPayload & { nodes: Record<string, Record<string, unknown>> }
+const INT = { kind: 'concrete', types: ['INT'] }
+const nodesPayload: DinksterNodesPayload & { nodes: Record<string, Record<string, unknown>> } = {
+  schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
+  nodes: {
+    'std.math.add_ints': {
+      nodeType: 'std.math.add_ints', schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, version: 1,
+      displayName: 'Add Ints', category: 'math', description: '', idempotent: true,
+      body: [
+        { kind: 'input', id: 'a', required: true, type: INT },
+        { kind: 'input', id: 'b', required: true, default: 1, type: INT },
+        { kind: 'output', id: 'sum', type: INT },
+      ],
+    },
+  },
+}
 
 /** Two chained std.math.add_ints (mirrors library.test.ts's CHAIN_DOC). */
 const chainDoc = (a: number) => ({

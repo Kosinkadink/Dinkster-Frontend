@@ -27,8 +27,8 @@
 .app-view.mobile-presentation .app-view-header { flex-wrap: wrap; }
 .app-view.mobile-presentation { padding-right: var(--dinkster-space-16); padding-left: var(--dinkster-space-16); }
 .app-view.mobile-presentation .app-view-titles { flex-basis: 100%; }
-.app-view.mobile-presentation .app-view-arrange-toggle,
-.app-view.mobile-presentation .app-view-queue { flex: 1; justify-content: center; }
+.app-view.mobile-presentation [data-testid='app-view-arrange-toggle'],
+.app-view.mobile-presentation [data-testid='app-view-queue'] { flex: 1; justify-content: center; }
 .app-view-titles { flex: 1; min-width: 0; }
 .app-view-title { margin: 0; font-size: 20px; font-weight: 700; }
 .app-view-description { margin: 4px 0 0; color: var(--dinkster-text-secondary); }
@@ -63,18 +63,6 @@
 .app-layout-queue-targets small { grid-column: 2; color: var(--dinkster-text-muted); }
 .app-view-rows,
 .app-layout-flow { display: flex; flex-direction: column; gap: 12px; }
-.app-view-row {
-  background: var(--dinkster-surface-panel);
-  border: 1px solid var(--dinkster-border-subtle);
-  border-radius: 6px;
-  padding: 10px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.app-view-row.stale { border-color: var(--dinkster-warning-border); }
-.app-view-row.dragging { opacity: 0.55; }
-.app-view-row-head { display: flex; align-items: center; gap: 8px; }
 .app-view-drag-handle {
   background: none;
   border: none;
@@ -86,15 +74,13 @@
 }
 .app-view-drag-handle:active { cursor: grabbing; }
 .app-view-drag-handle:disabled { color: var(--dinkster-text-disabled); cursor: default; }
-.app-view-label { flex: 1; min-width: 0; font-weight: 600; display: flex; align-items: baseline; gap: 8px; }
 .app-view-context { color: var(--dinkster-text-secondary); font-weight: 400; font-size: 11px; }
 .app-view-rename-field { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 .app-view-rename { flex: 1; min-width: 0; }
 .app-view-row-tools { display: flex; gap: 2px; }
 .app-view-widget-preview { display: block; width: 100%; }
-.app-view-control { width: 100%; }
-.app-view-control.product-checkbox { width: 32px; align-self: flex-start; padding: 3px; }
-.app-view-control.multiline { min-height: 72px; }
+.app-view-widget-action { width: 100%; min-height: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
+.app-view-color { justify-content: flex-start; }
 .app-view-readonly { margin: 0; color: var(--dinkster-text-secondary); display: flex; flex-direction: column; gap: 2px; overflow-wrap: anywhere; }
 .app-view-hint { color: var(--dinkster-text-secondary); font-size: 11px; }
 .app-view-stale { margin: 0; color: var(--dinkster-warning-foreground); }
@@ -129,7 +115,7 @@
   gap: var(--dinkster-space-8);
   padding: var(--dinkster-space-12);
   background: var(--dinkster-surface-panel);
-  border: 1px dashed var(--dinkster-border-strong);
+  border: 1px dashed var(--dinkster-border-subtle);
   border-radius: var(--dinkster-radius-card);
 }
 .app-layout-item-toolbar { display: flex; align-items: center; justify-content: flex-end; gap: var(--dinkster-space-4); }
@@ -143,7 +129,7 @@
   gap: var(--dinkster-space-12);
   padding: var(--dinkster-space-12);
   background: var(--dinkster-surface-panel);
-  border: 1px solid var(--dinkster-border-strong);
+  border: 1px solid var(--dinkster-border-subtle);
   border-radius: var(--dinkster-radius-card);
   box-shadow: var(--dinkster-elevation-low);
 }
@@ -176,11 +162,11 @@
   border-radius: var(--dinkster-radius-card);
 }
 .app-layout-grid.arrange .app-layout-grid-placement {
-  outline: 1px dashed var(--dinkster-border-strong);
+  outline: 1px dashed var(--dinkster-border-subtle);
   outline-offset: 2px;
 }
 .app-layout-grid-placement:focus-visible {
-  outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus);
+  outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus);
   outline-offset: 3px;
 }
 .app-layout-grid-placement.pending { outline-color: var(--dinkster-accent-border); }
@@ -243,7 +229,7 @@
 .app-layout-mobile-placement.dragging { opacity: 0.55; }
 .app-layout-mobile-placement.pending > .app-layout-mobile-toolbar { border-color: var(--dinkster-accent-border); }
 .app-layout-mobile-placement:focus-visible {
-  outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus);
+  outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus);
   outline-offset: var(--dinkster-space-4);
   border-radius: var(--dinkster-radius-card);
 }
@@ -256,7 +242,7 @@
   padding: 0 var(--dinkster-space-4);
   color: var(--dinkster-text-secondary);
   background: var(--dinkster-surface-panel);
-  border: 1px dashed var(--dinkster-border-strong);
+  border: 1px dashed var(--dinkster-border-subtle);
   border-radius: var(--dinkster-radius-control);
 }
 .app-layout-mobile-toolbar > span {
@@ -306,13 +292,14 @@
   margin: 8px;
   padding: 5px 10px;
   color: var(--dinkster-text-primary);
-  border: 1px solid var(--dinkster-border-strong);
+  border: 1px solid var(--dinkster-border-subtle);
   border-radius: 4px;
   background: var(--dinkster-surface-raised);
   text-decoration: none;
 }
+.app-preview-download:where(:hover:not(:disabled)) { border-color: var(--dinkster-border-hover); }
 .app-preview-download:hover { background: var(--dinkster-interaction-hover); }
-.app-preview-download:focus-visible { outline: 2px solid var(--dinkster-border-focus); outline-offset: 1px; }
+.app-preview-download:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus); outline-offset: 1px; }
 .app-preview-text {
   box-sizing: border-box;
   width: 100%;

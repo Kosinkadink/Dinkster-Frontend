@@ -9,17 +9,40 @@ import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { asConnectionId, asPromptId, resolveImportedNodePacks, setLocale, type ComfyTranslation, type DinksterNodesPayload, type ExecutionRef, type NodeSchema } from '@dinkster/core'
-import { buildDinksterRegistry, EngineNotReadyError, type DinksterJobRecord, type SchemaRegistry, type WorkerInfo } from '@dinkster/client'
+import { asConnectionId, asPromptId, DINKSTER_SCHEMA_WIRE_VERSION, resolveImportedNodePacks, setLocale, type ComfyTranslation, type DinksterNodesPayload, type ExecutionRef, type NodeSchema, boundaryOf } from '@dinkster/core'
+import { buildDinksterRegistry, EngineNotReadyError, type DinksterJobRecord, type ModelDownloadJob, type SchemaRegistry, type WorkerInfo } from '@dinkster/client'
 import { buildScene, defaultTokens } from '@dinkster/canvas'
 import { AppState, type Backend, type Tab } from '../src/app-state.js'
+import { installAssetConsent } from '../src/dialog-requests.js'
 import { historicalSchemas } from './historical-schemas.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '../../core')
-const nodesPayload = JSON.parse(readFileSync(join(root, 'fixtures/dinkster-nodes-comfy.json'), 'utf8')) as DinksterNodesPayload
+const INT = { kind: 'concrete', types: ['INT'] }
+const IMAGE = { kind: 'concrete', types: ['comfy.IMAGE'] }
+const nodesPayload: DinksterNodesPayload = {
+  schemaVersion: 1,
+  epoch: 2,
+  dinkster: { version: '0.0.1', schemaWire: DINKSTER_SCHEMA_WIRE_VERSION },
+  packs: { core: { displayName: 'Dinkster Core' }, comfy: { displayName: 'ComfyUI Compat', abbr: 'C1', color: '#4a7ab5' } },
+  nodes: {
+    'comfy.EmptyImage': {
+      schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, nodeType: 'comfy.EmptyImage', version: 1, displayName: 'Empty Image',
+      category: 'comfy/image', description: '', idempotent: true, aliases: ['EmptyImage'], pack: 'comfy',
+      body: [
+        ...['width', 'height', 'batch_size', 'color'].map((id) => ({ kind: 'input', id, type: INT, required: false, default: id === 'batch_size' ? 1 : id === 'color' ? 0 : 512 })),
+        { kind: 'output', id: 'image', type: IMAGE },
+      ],
+    },
+    'comfy.PreviewImage': {
+      schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, nodeType: 'comfy.PreviewImage', version: 1, displayName: 'Preview Image',
+      category: 'comfy/image', description: '', idempotent: false, aliases: ['PreviewImage'], outputNode: true, pack: 'comfy',
+      body: [{ kind: 'input', id: 'images', type: IMAGE, required: true }],
+    },
+  },
+}
 
 let app: AppState
 let basic: Tab
@@ -47,7 +70,7 @@ const choiceSchema = (options: readonly string[]): NodeSchema => ({
   category: 'test',
   source: 'v3',
   isOutputNode: false,
-  items: [{
+  body: [{
     kind: 'input',
     id: 'choice',
     type: { kind: 'concrete', name: 'STRING' },
@@ -118,6 +141,32 @@ afterEach(() => {
 
 describe('default backend', () => {
 
+  it('drops lookup, choice and scoped answers when the engine reports another account', async () => {
+    let principal = 'account-a'
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      const payload = url.endsWith('/api/account')
+        ? { available: true, canStartSignIn: true, signInUnavailableReason: null, signedIn: true,
+          profile: null, signIn: { state: 'idle' }, principalRevision: principal }
+        : url.includes('/api/choices/') ? [principal]
+        : url.endsWith('/api/lookups') ? { answer: principal } : { owner: principal }
+      return new Response(JSON.stringify(payload), { headers: { 'Content-Type': 'application/json' } })
+    })
+    const backend = app.backends.get()[0]!
+    if (backend.protocol !== 'dinkster') throw new Error('native backend expected')
+    await backend.connection.accountStatus()
+    const call = { nodeType: 'test.node', node: 'test', function: 'pack.list', args: [] }
+    expect(await backend.lookups.request(call)).toEqual({ state: 'ready', answer: 'account-a' })
+    expect(await backend.scopedClient.remoteChoices('/api/choices/test')).toEqual(['account-a'])
+    expect(await backend.scopedClient.query('/api/test', {})).toEqual({ owner: 'account-a' })
+    principal = 'account-b'
+    await backend.connection.accountStatus()
+    expect(backend.lookups.entry(call)).toBeUndefined()
+    expect(await backend.lookups.request(call)).toEqual({ state: 'ready', answer: 'account-b' })
+    expect(await backend.scopedClient.remoteChoices('/api/choices/test')).toEqual(['account-b'])
+    expect(await backend.scopedClient.query('/api/test', {})).toEqual({ owner: 'account-b' })
+  })
+
   it('is not removable', () => {
     const def = app.backends.get()[0]!
     app.removeBackend(def.id)
@@ -148,6 +197,133 @@ describe('compileInputForTab capabilities', () => {
 })
 
 describe('addBackend / removeBackend', () => {
+
+  it('reviews standalone exact models and observes only the captured variant and backend', async () => {
+    const name = 'weights.safetensors'
+    const asset = { digest: `blake3:${'a'.repeat(64)}`, name, size: 8192,
+      mediaType: 'application/octet-stream', virtualPath: `models/${name}` }
+    const requirement = { name, kind: 'model/vae', asset }
+    const source = 'https://huggingface.co/example/model/resolve/main/weights.safetensors'
+    const selection = { name, kind: requirement.kind, digest: asset.digest, project: 'default',
+      provider: 'huggingface' as const, source, repo: 'example/model', revision: 'c'.repeat(40), file: name,
+      sha256: 'd'.repeat(64), size: asset.size, license: 'apache-2.0', destination: `/models/${name}`, mount: 'models' }
+    let jobs: ModelDownloadJob[] = [{ ...selection, jobId: 'external', status: 'downloading', received: 317 },
+      { ...selection, jobId: 'wrong-hash', digest: `blake3:${'b'.repeat(64)}`, status: 'downloading', received: 701 },
+      { ...selection, jobId: 'wrong-kind', kind: 'model/checkpoints', status: 'downloading', received: 1031 },
+      { ...selection, jobId: 'wrong-project', project: 'elsewhere', status: 'downloading', received: 2017 }]
+    const requests: { url: string; body: unknown }[] = []
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      requests.push({ url: String(url), body: init?.body ? JSON.parse(String(init.body)) : undefined })
+      return new Response(JSON.stringify(String(url).includes('/plan?')
+        ? { ...selection, status: 'consent-required', planId: 'exact-plan' }
+        : { instance: 'engine', jobs }))
+    })
+    const backend = addOffline('http://model-owner:8188')
+    const state = app.modelDownloadStateFor(backend, requirement)
+    const values: (number | undefined)[] = []
+    const unsubscribe = state.subscribe((row) => values.push(row?.job?.received))
+    try {
+      await vi.waitFor(() => expect(state.get()?.job?.received).toBe(317))
+      expect(state.get()?.job?.jobId).toBe('external')
+      expect(app.modelDownloadStateFor(backend, { name, kind: requirement.kind }).get()).toBeUndefined()
+      expect(app.modelDownloadStateFor(app.backends.get()[0]!, requirement).get()).toBeUndefined()
+      jobs = []
+      await app.modelDownloadsFor(backend).refresh()
+      const page = new AbortController()
+      let pageCurrent = true
+      const open = () => app.openModelDownloads(backend, [{ ...requirement, source }], {
+        workflowTitle: 'Example', signal: page.signal, stillCurrent: () => pageCurrent,
+      })
+      open()
+      await app.assetConsent.get()!.reviewModel!(0)
+      expect(requests.find((request) => request.url.includes('/plan?'))?.body).toEqual({
+        name, kind: requirement.kind, asset, source, project: 'default', scope: 'local',
+      })
+      expect(app.assetConsent.get()?.retry).toBeUndefined()
+      expect(state.get()?.plan?.status).toBe('consent-required')
+      pageCurrent = false
+      await app.assetConsent.get()!.downloadModels!([0])
+      expect(app.assetConsent.get()).toBeUndefined()
+      pageCurrent = true
+      open()
+      page.abort()
+      expect(app.assetConsent.get()).toBeUndefined()
+      open()
+      expect(app.assetConsent.get()).toBeUndefined()
+      app.assetConsent.set(undefined)
+      jobs = [{ ...selection, jobId: 'external-new', status: 'downloading', received: 4093 }]
+      await app.modelDownloadsFor(backend).refresh()
+      app.openModelDownloads(backend, [requirement])
+      await app.assetConsent.get()!.reviewModel!(0)
+      expect(app.assetConsent.get()?.models?.[0]?.job?.received).toBe(4093)
+      jobs = [{ ...jobs[0]!, status: 'completed', received: 8192, asset,
+        path: selection.destination, reused: false, renamed: false }]
+      await app.modelDownloadsFor(backend).refresh()
+      expect(state.get()?.job?.status).toBe('completed')
+      jobs = [{ ...selection, jobId: 'another-window', status: 'downloading', received: 6053 }]
+      await app.modelDownloadsFor(backend).refresh()
+      expect(state.get()?.job?.received).toBe(6053)
+      jobs = [{ ...jobs[0]!, status: 'completed', received: 8192, asset,
+        path: selection.destination, reused: false, renamed: false }]
+      await app.modelDownloadsFor(backend).refresh()
+      expect(state.get()?.job?.jobId).toBe('another-window')
+      expect(state.get()?.job?.status).toBe('completed')
+      app.modelDownloadsFor(backend).invalidate(requirement)
+      await app.modelDownloadsFor(backend).refresh()
+      expect(state.get()?.job).toBeUndefined()
+      jobs = [{ ...selection, jobId: 'after-invalidation', status: 'downloading', received: 7147 }]
+      await app.modelDownloadsFor(backend).refresh()
+      expect(state.get()?.job?.received).toBe(7147)
+      jobs = [{ ...jobs[0]!, status: 'completed', received: 8192, asset,
+        path: selection.destination, reused: false, renamed: false }]
+      await app.modelDownloadsFor(backend).refresh()
+      expect(state.get()?.job?.status).toBe('completed')
+      app.openModelDownloads(backend, [requirement], { missing: [requirement] })
+      expect(app.assetConsent.get()?.models?.[0]?.job).toBeUndefined()
+      await app.assetConsent.get()!.reviewModel!(0)
+      expect(app.assetConsent.get()?.models?.[0]?.plan?.status).toBe('consent-required')
+      jobs = [{ ...selection, jobId: 'completion-after-missing', status: 'downloading', received: 7181 }]
+      await app.modelDownloadsFor(backend).refresh()
+      app.openModelDownloads(backend, [requirement], { missing: [requirement] })
+      expect(app.assetConsent.get()?.models?.[0]?.job?.received).toBe(7181)
+      jobs = [{ ...jobs[0]!, status: 'completed', received: 8192, asset,
+        path: selection.destination, reused: false, renamed: false }]
+      await app.modelDownloadsFor(backend).refresh()
+      expect(app.assetConsent.get()?.models?.[0]?.job).toBeUndefined()
+      await vi.waitFor(() => expect(app.assetConsent.get()?.models?.[0]?.plan?.status).toBe('consent-required'))
+      app.removeBackend(backend.id)
+      expect(app.assetConsent.get()).toBeUndefined()
+      expect(state.get()).toBeUndefined()
+      expect(values.at(-1)).toBeUndefined()
+      const replacement = addOffline('http://model-owner:8188')
+      app.openModelDownloads(backend, [requirement])
+      expect(app.assetConsent.get()).toBeUndefined()
+      expect(app.modelDownloadStateFor(replacement, requirement).get()).toBeUndefined()
+      expect(requests.some((request) => request.url.includes('/start') || request.url.includes('/api/jobs'))).toBe(false)
+    } finally { unsubscribe() }
+  })
+
+  it('disconnect retires only its own download dialog and permits a fresh review', async () => {
+    const first = addOffline('http://first:8188')
+    const second = addOffline('http://second:8188')
+    const controller = app.modelDownloadsFor(first, 'studio')
+    const open = () => installAssetConsent({ models: [{ name: 'weights.safetensors', kind: 'model/vae' }],
+      slot: app.assetConsent, modelDownloads: { connection: first.connection, project: 'studio', controller } })
+    open()
+    const request = app.assetConsent.get()
+    app.disconnectBackend(second)
+    expect(app.assetConsent.get()).toBe(request)
+    app.disconnectBackend(first)
+    expect(app.assetConsent.get()).toBeUndefined()
+    const replacement = app.modelDownloadsFor(first, 'studio')
+    expect(replacement).not.toBe(controller)
+    installAssetConsent({ models: [{ name: 'weights.safetensors', kind: 'model/vae' }], slot: app.assetConsent,
+      modelDownloads: { connection: first.connection, project: 'studio', controller: replacement } })
+    vi.spyOn(first.connection, 'fetchModelDownloads').mockResolvedValue({ instance: 'engine', jobs: [] })
+    vi.spyOn(first.connection, 'planModelDownload').mockResolvedValue({ status: 'destination-required' })
+    await app.assetConsent.get()!.reviewModel!(0)
+    expect(app.assetConsent.get()?.models?.[0]?.plan).toEqual({ status: 'destination-required' })
+  })
 
   it('rejects a duplicate url with a diagnostic instead of a second entry', () => {
     addOffline('http://other:8188')
@@ -298,7 +474,7 @@ describe('addBackend / removeBackend', () => {
             rootChoice: { id: 'rootChoice', type: 'Choice', values: { choice: 'retained-root' } },
             subgraph: { id: 'subgraph', type: '#body', values: {} },
           },
-          links: {}, nets: {}, reroutes: {}, valueSources: {}, selectors: {}, nextOrdinal: 2,
+          links: {}, nets: {}, reroutes: {}, nextOrdinal: 2,
         },
         body: {
           id: 'body',
@@ -306,8 +482,8 @@ describe('addBackend / removeBackend', () => {
           nodes: {
             nestedChoice: { id: 'nestedChoice', type: 'Choice', values: { choice: 'retained-nested' } },
           },
-          links: {}, nets: {}, reroutes: {}, valueSources: {}, selectors: {},
-          boundary: { inputs: [], outputs: [] },
+          links: {}, nets: {}, reroutes: {},
+          boundary: boundaryOf([], []),
           nextOrdinal: 1,
         },
       },
@@ -360,9 +536,16 @@ describe('addBackend / removeBackend', () => {
       requests.push(url)
       if (url.includes('/api/nodes')) return new Response(JSON.stringify({
         schemaVersion: 1,
-        dinkster: { version: 'locale-test', schemaWire: 1 },
+        dinkster: { version: 'locale-test', schemaWire: 2 },
         packs: { demo: { displayName: 'Demo', locales: { en: digest('a'), de: digest('b') } } },
-        nodes: { 'demo.localized': { schemaVersion: 1, displayName: 'RAW pack node', pack: 'demo', interface: [] } },
+        nodes: {
+          'demo.localized': {
+            schemaVersion: 2,
+            displayName: 'RAW pack node',
+            pack: 'demo',
+            body: [],
+          },
+        },
       }), { status: 200, headers: { 'Content-Type': 'application/json' } })
       const localeDigest = decodeURIComponent(url.slice(url.lastIndexOf('/') + 1))
       if (localeDigest === digest('b')) {
@@ -585,7 +768,7 @@ describe('compile and registry routing', () => {
       displayName: 'Test Only',
       category: 'test',
       source: 'v3',
-      items: [],
+      body: [],
       isOutputNode: false,
     }
     app.registerSchemas([extra])

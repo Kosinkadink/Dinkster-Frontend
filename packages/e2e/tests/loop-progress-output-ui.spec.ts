@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, mockProjectPacks, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
+import { executionDetails, expect, mockProjectPacks, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_LOOP_UI_PROOF_DIR']
 if (proofDir !== undefined) mkdirSync(proofDir, { recursive: true })
@@ -9,7 +9,7 @@ async function mockBackend(page: Page): Promise<void> {
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'isolated proof' }))
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'proof' }, devices: [] } }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'loop-proof', schemaWire: 1 }, nodes: {},
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'loop-proof', schemaWire: 2 }, nodes: {},
   } }))
   await page.route('**/api/assets/*', async (route) => {
     const digest = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!)
@@ -37,7 +37,7 @@ async function installLoopExecution(page: Page): Promise<void> {
     const bridge = window.__dinksterTest!
     bridge.app.registerSchemas([{
       type: 'LoopOutputProof', displayName: 'Loop output', category: 'proof', source: 'v3', isOutputNode: true,
-      items: [{ kind: 'output', id: 'images', type: { kind: 'asset', element: { kind: 'concrete', name: 'IMAGE' } } }],
+      body: [{ kind: 'output', id: 'images', type: { kind: 'asset', element: { kind: 'concrete', name: 'IMAGE' } } }],
     }])
     await bridge.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'loop-progress-proof', root: 'g0',
@@ -95,7 +95,7 @@ test('loop progress and outputs render per item', async ({ page }) => {
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined)).toBe(true)
   await waitForWorkspaceReady(page)
   await installLoopExecution(page)
-  await page.getByTestId('runs-panel').locator('.runs-details > summary').click()
+  await executionDetails(page.getByTestId('execution-row').first())
 
   const progress = page.getByLabel('Loop iteration progress')
   await expect(progress).toContainText('map mapImages - item 1completed')

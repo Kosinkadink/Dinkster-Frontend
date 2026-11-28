@@ -30,25 +30,31 @@ export async function captureWebcamFrame(
     video.srcObject = stream
     await video.play()
     signal?.throwIfAborted()
-    if (!video.videoWidth || !video.videoHeight) {
-      throw new DOMException('Camera returned an empty frame.', 'NotReadableError')
-    }
-    const canvas = document.createElement('canvas')
-    canvas.width = dimensions.width || video.videoWidth
-    canvas.height = dimensions.width ? dimensions.height ?? 0 : video.videoHeight
-    const context = canvas.getContext('2d')
-    if (!context) throw new Error('Camera capture requires a canvas context.')
-    context.drawImage(video, 0, 0, canvas.width, canvas.height)
-    const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob(
-      (value) => value ? resolve(value) : reject(new Error('Camera PNG encoding failed.')),
-      'image/png',
-    ))
+    const file = await frameFromVideo(video, dimensions)
     signal?.throwIfAborted()
-    return new File([blob], 'webcam.png', { type: 'image/png' })
+    return file
   } finally {
     signal?.removeEventListener('abort', release)
     release()
   }
+}
+
+/** One PNG of what a playing camera video shows, at the node's size when it gives one. */
+export async function frameFromVideo(video: HTMLVideoElement, dimensions: WebcamDimensions = {}): Promise<File> {
+  if (!video.videoWidth || !video.videoHeight) {
+    throw new DOMException('Camera returned an empty frame.', 'NotReadableError')
+  }
+  const canvas = document.createElement('canvas')
+  canvas.width = dimensions.width || video.videoWidth
+  canvas.height = dimensions.width ? dimensions.height ?? 0 : video.videoHeight
+  const context = canvas.getContext('2d')
+  if (!context) throw new Error('Camera capture requires a canvas context.')
+  context.drawImage(video, 0, 0, canvas.width, canvas.height)
+  const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob(
+    (value) => value ? resolve(value) : reject(new Error('Camera PNG encoding failed.')),
+    'image/png',
+  ))
+  return new File([blob], 'webcam.png', { type: 'image/png' })
 }
 
 export function webcamError(error: unknown): string {

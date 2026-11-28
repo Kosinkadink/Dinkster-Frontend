@@ -1,17 +1,15 @@
-import { mkdir } from 'node:fs/promises'
 import { expect, test } from '../visual.js'
+import { focusByTab } from './fixtures.js'
 
-const PROOF = '/tmp/audit-assets-proof'
 const sharedDigest = `blake3:${'a'.repeat(64)}`
 const localDigest = `blake3:${'b'.repeat(64)}`
 const pixel = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+XxW8WQAAAABJRU5ErkJggg==', 'base64')
 
-test('uses the configured All assets source while preserving curated per-mount browsing', async ({ page }) => {
-  await mkdir(PROOF, { recursive: true })
+test('uses the configured All assets source while preserving curated per-mount browsing', async ({ page }, testInfo) => {
   let catalogRequests = 0
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
-  await page.route('/api/nodes*', (route) => route.fulfill({ json: { schemaVersion: 1, epoch: 1, dinkster: { version: 'audit', schemaWire: 1 }, nodes: {} } }))
+  await page.route('/api/nodes*', (route) => route.fulfill({ json: { schemaVersion: 1, epoch: 1, dinkster: { version: 'audit', schemaWire: 2 }, nodes: {} } }))
   await page.route('**/api/mounts', (route) => route.fulfill({ json: { mounts: [
     { id: 'comfy-model-checkpoints-1', mode: 'read', state: 'ready', kind: 'model/checkpoint', entryCount: 2 },
     { id: 'comfy-model-checkpoints-2', mode: 'read', state: 'ready', kind: 'model/checkpoint', entryCount: 1 },
@@ -42,7 +40,7 @@ test('uses the configured All assets source while preserving curated per-mount b
 
   await page.goto('/')
   const assetsToggle = page.getByTestId('assets-toggle')
-  await assetsToggle.focus()
+  await focusByTab(page, assetsToggle)
   await expect(page.getByTestId('app-tooltip')).toHaveText('Assets\nBrowse assets across mounted sources')
   await page.keyboard.press('Enter')
   await expect(page.getByTestId('app-tooltip')).toBeHidden()
@@ -92,13 +90,13 @@ test('uses the configured All assets source while preserving curated per-mount b
   await expect(tooltip).toHaveText('Assets\nBrowse assets across mounted sources')
   await page.getByTestId('library-toggle').click()
   await expect(tooltip).toBeHidden()
-  await page.getByTestId('graph-canvas').hover()
+  await page.getByTestId('graph-canvas').hover({ position: { x: 8, y: 8 } })
   await page.getByTestId('library-toggle').hover()
   const libraryHelp = 'Library\nBrowse packs, templates, and saved workflows'
   await expect(page.getByTestId('library-toggle')).toHaveAttribute('aria-pressed', 'true')
   await expect(tooltip).toHaveText(libraryHelp)
   await page.getByTestId('library-toggle').click()
-  await page.getByTestId('graph-canvas').hover()
+  await page.getByTestId('graph-canvas').hover({ position: { x: 8, y: 8 } })
   await page.getByTestId('library-toggle').hover()
   await expect(page.getByTestId('library-toggle')).toHaveAttribute('aria-pressed', 'false')
   await expect(tooltip).toHaveText(libraryHelp)
@@ -110,5 +108,5 @@ test('uses the configured All assets source while preserving curated per-mount b
   await expect(assetsPanel.getByRole('option', { name: /local\.safetensors/ }).locator('.collection-badge').last()).toHaveText('21 B')
   await page.keyboard.press('Escape')
   await expect(page.locator('.app-tooltip')).not.toBeVisible()
-  await page.screenshot({ path: `${PROOF}/01-configured-all-assets-grid.png`, fullPage: true })
+  await page.screenshot({ path: testInfo.outputPath('01-configured-all-assets-grid.png'), fullPage: true })
 })

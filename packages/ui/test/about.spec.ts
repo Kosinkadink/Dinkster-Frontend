@@ -1,6 +1,33 @@
-import { expect, test } from '../../e2e/visual.js'
+import { expect, test, type Page } from '../../e2e/visual.js'
+import { chooseOption } from '../../e2e/choices.js'
 import axe from 'axe-core'
 import components from '@dinkster/branding/components' with { type: 'json' }
+
+const toolbarChoices: Record<string, Record<string, string>> = {
+  'Account state': {
+    'signed-out': 'Signed out',
+    'signing-in': 'Signing in',
+    'signing-in-no-url': 'Signing in without local URL',
+    'sign-in-unavailable': 'Sign in from engine machine',
+    'signed-in': 'Signed in',
+    'signed-in-email': 'Email only',
+    'signed-in-empty': 'No profile',
+  },
+  'Brand presentation': { menu: 'Plain menu', wordmark: 'D symbol action' },
+  'All-workflow activity': {
+    idle: 'Idle',
+    waiting: 'Queued only',
+    running: 'One running, two queued',
+    multiple: 'Three running, two queued',
+  },
+  'Right panel attention': { problem: 'Three problems', none: 'None' },
+  'Search shortcut': { 'Alt+K': 'Alternate binding', '': 'No shortcut' },
+}
+const chooseToolbar = (page: Page, field: string, value: string) =>
+  chooseOption(
+    page.getByLabel(field, { exact: true }),
+    toolbarChoices[field]?.[value] ?? value,
+  )
 
 // The narrowest Linux gallery viewport whose bar shows the full row: the bar pads 12px each side.
 const fullRowViewport = components.layout.toolbarFullRowWidth + 24
@@ -106,7 +133,7 @@ test('account menu identifies a session without a name or profile', async ({
     ['signed-in-email', 'alex@example.test', ''],
     ['signed-in-empty', 'Signed in', ''],
   ]) {
-    await page.getByLabel('Account state').selectOption(state!)
+    await chooseToolbar(page, 'Account state', state!)
     const trigger = bar.getByRole('button', {
       name: `Account menu: ${primary}`,
       exact: true,
@@ -138,14 +165,14 @@ test('phone toolbar uses D branding and an operable circular account control', a
   page,
 }) => {
   await page.goto('/#window-toolbar')
-  await page.getByLabel('Execution state').selectOption('running')
-  await page.getByLabel('Brand presentation').selectOption('menu')
+  await chooseToolbar(page, 'Execution state', 'running')
+  await chooseToolbar(page, 'Brand presentation', 'menu')
   const bar = page
     .getByRole('region', { name: 'custom dark linux', exact: true })
     .locator('header')
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 })
-    await page.getByLabel('Account state').selectOption('signed-out')
+    await chooseToolbar(page, 'Account state', 'signed-out')
     const trigger = bar.getByRole('button', { name: 'Sign in', exact: true })
     await trigger.scrollIntoViewIfNeeded()
     await page.evaluate(
@@ -202,11 +229,15 @@ test('phone toolbar uses D branding and an operable circular account control', a
       .click()
     await expect(trigger).toBeFocused()
     await expect(menu).toHaveCount(0)
-    await page.getByLabel('Account state').selectOption('signing-in-no-url')
+    await chooseToolbar(page, 'Account state', 'signing-in-no-url')
+    await pending.scrollIntoViewIfNeeded()
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
     await bar.getByRole('button', { name: 'Signing in', exact: true }).click()
     await expect(bar.getByRole('menuitem')).toHaveText(['Cancel sign-in'])
     await page.keyboard.press('Escape')
-    await page.getByLabel('Account state').selectOption('sign-in-unavailable')
+    await chooseToolbar(page, 'Account state', 'sign-in-unavailable')
+    await trigger.scrollIntoViewIfNeeded()
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
     await trigger.click()
     await expect(
       bar.getByRole('menu', { name: 'Sign in', exact: true }),
@@ -215,7 +246,7 @@ test('phone toolbar uses D branding and an operable circular account control', a
     )
     await page.keyboard.press('Escape')
     for (const state of ['signed-in', 'signed-in-empty']) {
-      await page.getByLabel('Account state').selectOption(state)
+      await chooseToolbar(page, 'Account state', state)
       const account = bar.getByRole('button', {
         name:
           state === 'signed-in'
@@ -238,21 +269,21 @@ test('circular account toolbar fits its measured platform minimums', async ({
   page,
 }) => {
   await page.goto('/#window-toolbar')
-  await page.getByLabel('All-workflow activity').selectOption('running')
+  await chooseToolbar(page, 'All-workflow activity', 'running')
   await page.addStyleTag({
     content:
       '.dinkster-window-toolbar-host[data-platform="win32"] { padding-right:148px }',
   })
   await page.evaluate(() => document.fonts.ready)
   for (const state of ['running', 'pending']) {
-    await page.getByLabel('Execution state').selectOption(state)
+    await chooseToolbar(page, 'Execution state', state)
     for (const account of [
       'signed-out',
       'signing-in',
       'signed-in',
       'signed-in-empty',
     ]) {
-      await page.getByLabel('Account state').selectOption(account)
+      await chooseToolbar(page, 'Account state', account)
       for (const [platform, width] of [
         ['linux', 384],
         ['darwin', 464],
@@ -293,12 +324,12 @@ test('narrow toolbar keeps region switches in the checked layout menu', async ({
   page,
 }) => {
   await page.goto('/#window-toolbar')
-  await page.getByLabel('Account state').selectOption('signed-out')
+  await chooseToolbar(page, 'Account state', 'signed-out')
   const bar = page
     .getByRole('region', { name: 'custom dark linux', exact: true })
     .locator('header')
   for (const state of ['idle', 'running', 'pending']) {
-    await page.getByLabel('Execution state').selectOption(state)
+    await chooseToolbar(page, 'Execution state', state)
     await page.setViewportSize({ width: fullRowViewport, height: 900 })
     for (const name of ['Left panel', 'Bottom panel', 'Right panel'])
       await expect(bar.getByRole('button', { name, exact: true })).toBeVisible()
@@ -385,7 +416,7 @@ test('narrow layout menu carries the right panel attention on its trigger and it
   page,
 }) => {
   await page.goto('/#window-toolbar')
-  await page.getByLabel('Right panel attention').selectOption('problem')
+  await chooseToolbar(page, 'Right panel attention', 'problem')
   const bar = page
     .getByRole('region', { name: 'production dark linux', exact: true })
     .locator('header')
@@ -423,7 +454,7 @@ test('narrow layout menu carries the right panel attention on its trigger and it
   await expect(menu.locator('.dinkster-attention')).toHaveCount(1)
   await page.keyboard.press('Escape')
 
-  await page.getByLabel('Right panel attention').selectOption('none')
+  await chooseToolbar(page, 'Right panel attention', 'none')
   await expect(
     bar.getByRole('button', { name: 'Customize layout', exact: true }),
   ).toBeVisible()
@@ -434,8 +465,8 @@ test('44px toolbar keeps account and full compact metadata in one row', async ({
   page,
 }) => {
   await page.goto('/#window-toolbar')
-  await page.getByLabel('Brand presentation').selectOption('wordmark')
-  await page.getByLabel('Account state').selectOption('signed-in')
+  await chooseToolbar(page, 'Brand presentation', 'wordmark')
+  await chooseToolbar(page, 'Account state', 'signed-in')
   const section = page.getByRole('region', {
     name: 'custom dark linux',
     exact: true,
@@ -444,7 +475,7 @@ test('44px toolbar keeps account and full compact metadata in one row', async ({
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 })
     for (const state of ['idle', 'pending']) {
-      await page.getByLabel('Execution state').selectOption(state)
+      await chooseToolbar(page, 'Execution state', state)
       await expect(bar).toHaveCSS('height', '44px')
       const account = bar.getByRole('button', {
         name: 'Account menu: Alex Rivers',
@@ -476,12 +507,18 @@ test('44px toolbar keeps account and full compact metadata in one row', async ({
         expect(rect.x + rect.width).toBeLessThanOrEqual(
           bounds.x + bounds.width - 12,
         )
+        // The slim X that cancels a run is 22 px, centred on the same row.
+        if ((await button.getAttribute('data-cancel')) !== null) {
+          expect(rect.height).toBe(22)
+          expect(rect.y - bounds.y + rect.height / 2).toBe(22)
+          continue
+        }
         expect(rect.y - bounds.y).toBe(6)
         expect(rect.height).toBe(32)
       }
       await page.keyboard.press('Tab')
       await account.focus()
-      await expect(account).toHaveCSS('outline-width', '2px')
+      await expect(account).toHaveCSS('outline-width', '1px')
       await expect(account).toHaveCSS('outline-offset', '2px')
     }
   }
@@ -492,7 +529,7 @@ test('44px toolbar keeps account and full compact metadata in one row', async ({
   await expect(page.getByRole('status', { exact: true })).toHaveText(
     'Signed out',
   )
-  await page.getByLabel('Account state').selectOption('signed-out')
+  await chooseToolbar(page, 'Account state', 'signed-out')
   await bar.getByRole('button', { name: 'Sign in', exact: true }).click()
   await expect(page.getByRole('status', { exact: true })).toHaveText(
     'Sign in opened',
@@ -504,6 +541,7 @@ test('toolbar search is outlined, capped and centered with native reservations',
 }) => {
   await page.setViewportSize({ width: 2000, height: 900 })
   await page.goto('/#window-toolbar')
+  await expect(page.getByRole('region', { name: 'Shortcut keys', exact: true }).locator('kbd')).toHaveText(['Ctrl+Shift+O', 'Cmd+,', 'Alt++', 'Ctrl+Shift+O', 'Ctrl+K', 'Ctrl+C', 'Ctrl+Wheel', 'Cmd+,'])
   for (const theme of ['dark', 'light']) {
     for (const platform of ['linux', 'darwin', 'win32']) {
       const bar = page
@@ -526,19 +564,19 @@ test('toolbar activity separates running and queued counts and disappears withou
   page,
 }) => {
   await page.goto('/#window-toolbar')
-  await page.getByLabel('Execution state').selectOption('running')
-  await page.getByLabel('Account state').selectOption('signed-out')
+  await chooseToolbar(page, 'Execution state', 'running')
+  await chooseToolbar(page, 'Account state', 'signed-out')
   const bar = page
     .getByRole('region', { name: 'custom dark linux', exact: true })
     .locator('header')
   await expect(bar.locator('.dinkster-run-activity')).toHaveCount(0)
-  await page.getByLabel('All-workflow activity').selectOption('waiting')
+  await chooseToolbar(page, 'All-workflow activity', 'waiting')
   await expect(bar.locator('.dinkster-run-activity')).toHaveCount(0)
   for (const [state, running] of [
     ['running', '1'],
     ['multiple', '3'],
   ] as const) {
-    await page.getByLabel('All-workflow activity').selectOption(state)
+    await chooseToolbar(page, 'All-workflow activity', state)
     await expect(
       bar.getByRole('img', { name: `${running} running, 2 queued` }),
     ).toBeVisible()
@@ -579,7 +617,7 @@ test('toolbar activity separates running and queued counts and disappears withou
       })
     }
   }
-  await page.getByLabel('All-workflow activity').selectOption('idle')
+  await chooseToolbar(page, 'All-workflow activity', 'idle')
   await expect(bar.locator('.dinkster-run-activity')).toHaveCount(0)
 })
 
@@ -599,7 +637,7 @@ test('Rich toolbar labels preserve branding, compact geometry and pending focus'
     content:
       '.dinkster-window-toolbar-host[data-platform="win32"] { padding-right:148px }',
   })
-  await page.getByLabel('Brand presentation').selectOption('wordmark')
+  await chooseToolbar(page, 'Brand presentation', 'wordmark')
   const sections = page.locator('section[aria-label]')
   for (const fixtureWidth of [1440, 929, 928, 873, 872, 793, 792, 390]) {
     for (const section of await sections.all()) {
@@ -623,7 +661,7 @@ test('Rich toolbar labels preserve branding, compact geometry and pending focus'
         name: 'Dinkster menu',
         exact: true,
       })
-      await expect(action).toHaveAttribute('title', 'Dinkster menu')
+      await expect(action).not.toHaveAttribute('title')
       const image = action.locator('.dinkster-window-action-label img')
       await expect(image).toHaveAttribute('src', /symbol-color/)
       expect(
@@ -676,8 +714,8 @@ test('Rich toolbar labels preserve branding, compact geometry and pending focus'
     .first()
     .getByRole('button', { name: 'Search', exact: true })
     .click()
+  await chooseToolbar(page, 'Execution state', 'pending')
   await action.focus()
-  await page.getByLabel('Execution state').selectOption('pending')
   await expect(action).toBeFocused()
   await expect(action).toBeDisabled()
   await expect(action).toHaveAttribute('aria-busy', 'true')
@@ -688,9 +726,9 @@ test('Rich toolbar labels preserve branding, compact geometry and pending focus'
   await sections.first().locator('header').screenshot({
     path: 'test-results/captures/window-toolbar-wordmark-pending-512.png',
   })
-  await page.getByLabel('Execution state').selectOption('idle')
+  await chooseToolbar(page, 'Execution state', 'idle')
   await expect(action).toBeEnabled()
-  await page.getByLabel('Brand presentation').selectOption('menu')
+  await chooseToolbar(page, 'Brand presentation', 'menu')
   await expect(
     sections
       .first()
@@ -708,9 +746,9 @@ for (const state of ['running', 'pending'])
       content:
         '.dinkster-window-toolbar-host[data-platform="win32"] { padding-right:148px }',
     })
-    await page.getByLabel('Execution state').selectOption(state)
-    await page.getByLabel('Account state').selectOption('signed-out')
-    await page.getByLabel('Brand presentation').selectOption('wordmark')
+    await chooseToolbar(page, 'Execution state', state)
+    await chooseToolbar(page, 'Account state', 'signed-out')
+    await chooseToolbar(page, 'Brand presentation', 'wordmark')
     const name = 'An exceptionally long project name beyond the visible limit'
     await page.getByLabel('Project name').fill(name)
     await page.evaluate(() => document.fonts.ready)
@@ -740,14 +778,14 @@ for (const state of ['running', 'pending'])
             }),
         )
         if (state === 'pending') {
-          await page.getByLabel('Execution state').selectOption('running')
+          await chooseToolbar(page, 'Execution state', 'running')
           const before = await bar.getByRole('button').evaluateAll((nodes) =>
             nodes.map((node) => {
               const rect = node.getBoundingClientRect()
               return [rect.x, rect.width]
             }),
           )
-          await page.getByLabel('Execution state').selectOption('pending')
+          await chooseToolbar(page, 'Execution state', 'pending')
           expect(
             await bar.getByRole('button').evaluateAll((nodes) =>
               nodes.map((node) => {
@@ -756,7 +794,7 @@ for (const state of ['running', 'pending'])
               }),
             ),
           ).toEqual(before)
-          for (const label of ['Dinkster menu', 'Cancel run']) {
+          for (const label of ['Dinkster menu', 'Cancel Long run']) {
             const action = bar.getByRole('button', {
               name: label,
               exact: true,
@@ -770,7 +808,7 @@ for (const state of ['running', 'pending'])
             expect(spinner.y + spinner.height / 2).toBe(
               actionBounds.y + actionBounds.height / 2,
             )
-            if (label === 'Cancel run')
+            if (label === 'Cancel Long run')
               expect(spinner.x + spinner.width / 2).toBe(
                 actionBounds.x + actionBounds.width / 2,
               )
@@ -785,7 +823,7 @@ for (const state of ['running', 'pending'])
           await text.evaluate((node) => node.scrollWidth > node.clientWidth),
         ).toBe(true)
         if (contentWidth >= 940) {
-          await expect(search.locator('kbd')).toBeVisible()
+          await expect(search.locator('.dinkster-shortcut')).toBeVisible()
           expect((await text.boundingBox())!.width).toBe(160)
           const projectBounds = (await project.boundingBox())!
           const searchBounds = (await search.boundingBox())!
@@ -799,7 +837,7 @@ for (const state of ['running', 'pending'])
           ).toBeGreaterThanOrEqual(4)
           expect(actionsBounds.x - searchBounds.x - searchBounds.width).toBe(4)
         } else {
-          await expect(search.locator('kbd')).toBeHidden()
+          await expect(search.locator('.dinkster-shortcut')).toBeHidden()
           const width = (await text.boundingBox())!.width
           expect(width).toBeGreaterThanOrEqual(64)
           expect(width).toBeLessThanOrEqual(160)
@@ -849,10 +887,10 @@ for (const state of ['idle', 'running', 'pending'])
       content:
         '.dinkster-window-toolbar-host[data-platform="win32"] { padding-right:148px }',
     })
-    await page.getByLabel('Account state').selectOption('signed-out')
+    await chooseToolbar(page, 'Account state', 'signed-out')
     const sections = page.locator('section[aria-label]')
     await expect(sections).toHaveCount(18)
-    await page.getByLabel('Execution state').selectOption(state)
+    await chooseToolbar(page, 'Execution state', state)
     for (const fixtureWidth of [1440, 929, 928, 873, 872, 793, 792, 390]) {
       for (const section of await sections.all()) {
         if (
@@ -881,15 +919,15 @@ for (const state of ['idle', 'running', 'pending'])
         )
         const search = bar.getByRole('button', { name: 'Search', exact: true })
         const compact = right - left < 940
-        await expect(search).toHaveAttribute('title', 'Search (Ctrl+K)')
-        await expect(search).toHaveAccessibleDescription('Search (Ctrl+K)')
+        await expect(search).toHaveAttribute('data-tooltip-shortcut', 'Ctrl+K')
+        await expect(search).toHaveAccessibleDescription('Ctrl+K')
         if (compact) {
           await expect(search.locator('svg')).toBeVisible()
-          await expect(search.locator('kbd')).toBeHidden()
+          await expect(search.locator('.dinkster-shortcut')).toBeHidden()
         } else {
           await expect(search.locator('svg')).toBeHidden()
-          await expect(search.locator('kbd')).toBeVisible()
-          const hint = (await search.locator('kbd').boundingBox())!
+          await expect(search.locator('.dinkster-shortcut')).toBeVisible()
+          const hint = (await search.locator('.dinkster-shortcut').boundingBox())!
           const action = (await search.boundingBox())!
           expect(hint.x + hint.width).toBeLessThanOrEqual(
             action.x + action.width,
@@ -963,7 +1001,7 @@ for (const state of ['idle', 'running', 'pending'])
               bar.getByRole('button', { name: label, exact: true }),
             ).toBeVisible()
         const cancel = bar.getByRole('button', {
-          name: 'Cancel run',
+          name: 'Cancel Long run',
           exact: true,
         })
         if (state === 'idle') await expect(cancel).toHaveCount(0)
@@ -994,20 +1032,25 @@ for (const state of ['idle', 'running', 'pending'])
         }
       }
     }
-    await page.getByLabel('Execution state').selectOption('running')
+    await chooseToolbar(page, 'Execution state', 'running')
     const first = sections.first()
     const search = first.getByRole('button', { name: 'Search', exact: true })
-    await page.getByLabel('Search shortcut').selectOption('Alt+K')
-    await expect(search).toHaveAccessibleDescription('Search (Alt+K)')
+    await chooseToolbar(page, 'Search shortcut', 'Alt+K')
+    await expect(search).toHaveAccessibleDescription('Alt+K')
     await page.setViewportSize({ width: 1440, height: 900 })
-    await expect(search.locator('kbd')).toHaveText('Alt+K')
-    await expect(search.locator('kbd')).toBeVisible()
-    await page.getByLabel('Search shortcut').selectOption('')
+    await expect(search.locator('kbd')).toHaveText(['Alt+K'])
+    await expect(search.locator('kbd').first()).toBeVisible()
+    await chooseToolbar(page, 'Search shortcut', '')
     await expect(search.locator('kbd')).toHaveCount(0)
-    await expect(search).toHaveAttribute('title', 'Search')
+    await expect(search).not.toHaveAttribute('title')
+    await page.setViewportSize({ width: 512, height: 900 })
+    await page.clock.install()
+    await search.hover()
+    await page.clock.fastForward(1000)
+    await expect(page.getByRole('tooltip')).toHaveText('Search')
     await search.click()
     await expect(page.getByRole('status')).toHaveText('Search opened')
-    await first.getByRole('button', { name: 'Cancel run' }).click()
+    await first.getByRole('button', { name: 'Cancel Long run' }).click()
     await expect(page.getByRole('status')).toHaveText('Run cancelled')
     const trigger = first.getByRole('button', {
       name: 'Dinkster menu',

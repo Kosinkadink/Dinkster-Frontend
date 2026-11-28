@@ -9,7 +9,7 @@
  * pipeline live events take (DinksterConnection.replayJob) - one pipeline, no
  * parallel state machine.
  *
- * For each non-terminal execution, plus completed executions whose artifact
+ * For each non-terminal execution, plus terminal executions whose artifact
  * field has not been hydrated:
  *  - job terminal          -> replay (node states + the terminal job_state
  *                             transition with full error detail) and hydrate
@@ -23,13 +23,13 @@
  * (connection.onEvent(store.apply)) - the standard wiring - because replay
  * flows through that subscription.
  *
- * Terminal races are safe by construction: completed executions are read only
+ * Terminal races are safe by construction: terminal executions are read only
  * until their artifact field becomes authoritative, ExecutionStore.markLost()
  * never downgrades a terminal state, and the normalizer dedupes a terminal
  * replay over an already-completed run.
  */
 
-import type { ExecutionRef } from '@dinkster/core'
+import { automaticValuesOfJob, type ExecutionRef } from '@dinkster/core'
 import { runJournalIdentity, type DinksterConnection, type DinksterJobRecord } from './dinkster-connection.js'
 import type { ExecutionStore } from './execution-store.js'
 import { supersedable } from './reconcile-track.js'
@@ -37,8 +37,8 @@ import { supersedable } from './reconcile-track.js'
 /** Capture the read's owner before fetching; admit its result before any store write or replay. */
 export type PrepareExecutionHydration = (ref: ExecutionRef) => (job: DinksterJobRecord | undefined) => Promise<boolean>
 
-/** Fetch persisted outputs and artifacts after the queue's live completion event. */
-export async function hydrateDinksterCompletedExecution(
+/** Fetch persisted outputs and artifacts after the queue's live terminal event. */
+export async function hydrateDinksterTerminalExecution(
   connection: DinksterConnection,
   store: ExecutionStore,
   ref: ExecutionRef,
@@ -50,15 +50,15 @@ export async function hydrateDinksterCompletedExecution(
   const admit = prepareHydration?.(ref)
   const job = await connection.fetchJob(ref.prompt)
   if (admit !== undefined && !await admit(job)) {
-    // Completion may beat the submit identity. Re-read under its new owner
+    // The terminal event may beat the submit identity. Re-read under its new owner
     // rather than publishing the rejected result.
     if ((artifact === undefined && store.get(ref)?.artifact !== undefined) ||
       (jobRef === undefined && store.get(ref)?.jobRef !== undefined)) {
-      await hydrateDinksterCompletedExecution(connection, store, ref, prepareHydration)
+      await hydrateDinksterTerminalExecution(connection, store, ref, prepareHydration)
     }
     return
   }
-  if (job?.state === 'completed') {
+  if (job?.state === 'completed' || job?.state === 'failed' || job?.state === 'cancelled') {
     if (job.submittedBy !== undefined) store.hydrateSubmittedBy(ref, job.submittedBy)
     // run_finished precedes result persistence; an earlier output fetch may
     // have observed a still-running job with no descriptors.
@@ -69,6 +69,9 @@ export async function hydrateDinksterCompletedExecution(
     }
     if (job.artifacts !== undefined) store.hydrateArtifacts(ref, job.artifacts)
   }
+  // A failed or cancelled run also records the automatic values it used.
+  const automaticValues = job === undefined ? [] : automaticValuesOfJob(job)
+  if (automaticValues.length > 0) store.hydrateAutomaticValues(ref, automaticValues)
 }
 
 // Generation-tracked like the V1 reconciler: overlapping reconnects coalesce,
@@ -97,7 +100,7 @@ async function reconcilePass(
       s.ref.connection === connection.id && (
         s.status === 'queued' ||
         s.status === 'running' ||
-        (s.status === 'completed' && !s.artifactsHydrated)
+        (['completed', 'error', 'cancelled'].includes(s.status) && !s.artifactsHydrated)
       ),
   )
   for (const state of open) {
@@ -151,9 +154,11 @@ async function reconcilePass(
           outputs as Readonly<Record<string, Readonly<Record<string, unknown>>>>,
         )
       }
-      if (job.state === 'completed' && job.artifacts !== undefined) {
+      if (job.artifacts !== undefined) {
         store.hydrateArtifacts(state.ref, job.artifacts)
       }
+      const automaticValues = automaticValuesOfJob(job)
+      if (automaticValues.length > 0) store.hydrateAutomaticValues(state.ref, automaticValues)
     }
   }
 }

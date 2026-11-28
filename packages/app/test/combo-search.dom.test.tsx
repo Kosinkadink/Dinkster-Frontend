@@ -39,17 +39,18 @@ const mountEditor = (ed: WidgetEditorState, appOverrides: Partial<AppState> = {}
   const outside = document.createElement('button')
   document.body.append(root)
   document.body.append(outside)
-  const dispatchTo = vi.fn().mockReturnValue({ ok: true, diagnostics: [] })
+  const dispatchEditTo = vi.fn().mockReturnValue({ ok: true, diagnostics: [] })
   const onClose = vi.fn()
   const [open, setOpen] = createSignal(true)
   let clickAway: (() => void) | undefined
   const app = {
     backendForTab: () => ({ protocol: 'v1', scopedClient: { remoteChoiceAuthority: () => 0 } }),
     backendsTick: { get: () => 0, subscribe: () => () => {} },
-    dispatchTo,
+    dispatchEditTo,
     widgetValueMutationGeneration: () => 0,
     widgetRegistry: { kind: () => undefined },
     widgetRegistryForTab: () => app.widgetRegistry,
+    engineOffReason: () => undefined,
     ...appOverrides,
   } as unknown as AppState
   const unmount = render(() => (
@@ -63,7 +64,7 @@ const mountEditor = (ed: WidgetEditorState, appOverrides: Partial<AppState> = {}
       />
     </Show>
   ), root)
-  return { root, outside, dispatchTo, onClose, unmount, clickAway: () => clickAway?.() }
+  return { root, outside, dispatchEditTo, onClose, unmount, clickAway: () => clickAway?.() }
 }
 
 const optionLabels = (root: ParentNode): string[] =>
@@ -99,15 +100,15 @@ describe('combo search', () => {
     })
     const store = new DocumentStore(loaded.document!, coreCommandRegistry())
     const schema: NodeSchema = { type: 'Menu', displayName: 'Menu', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'input', id: 'choice', type: { kind: 'concrete', name: 'COMBO' }, optional: false,
+      body: [{ kind: 'input', id: 'choice', type: { kind: 'concrete', name: 'COMBO' }, optional: false,
         widget: { widgetType: 'COMBO', editableOptions: true, options: { options: ['schema'] } },
       }],
     }
     const open = () => {
       const spec = elabInputsOf(elaborateInterface(schema, store.doc.graphs.g0!.nodes.n0!))[0]!.spec.widget!
       return mountEditor({ ...editorState(spec, 'outside'), tab: { store } as unknown as Tab,
-        target: { kind: 'input', nodeId: 'n0', valueKey: 'choice', optionsTarget: { construct: 'choice', ancestors: [] } },
-      }, { dispatchTo: (_tab, command) => { const outcome = store.dispatch(command); expect(outcome.ok).toBe(true); return outcome } })
+        target: { kind: 'input', nodeId: 'n0', valueKey: 'choice', optionsTarget: { construct: 'choice' } },
+      }, { dispatchEditTo: (_tab, command) => { const outcome = store.dispatch(command); expect(outcome.ok).toBe(true); return outcome } })
     }
     for (const dismissal of ['cancel', 'outside']) {
       const draft = open()
@@ -168,7 +169,7 @@ describe('combo search', () => {
     }
     const ed = editorState(spec, kind === 'multi' ? ['schema'] : 'schema')
     const mounted = mountEditor({ ...ed, target: { kind: 'input', nodeId: 'n0', valueKey: 'choice',
-      ...(kind === 'no-owner' ? {} : { optionsTarget: { construct: 'choice', ancestors: [] } }),
+      ...(kind === 'no-owner' ? {} : { optionsTarget: { construct: 'choice' } }),
     } }, { backendForTab: () => ({ scopedClient: { remoteChoiceAuthority: () => 0, remoteChoices: async () => ['schema'] } }) } as unknown as Partial<AppState>)
     await flushMicrotasks()
     expect(mounted.root.querySelector('[data-testid="combo-authoring"]')).toBeNull()
@@ -185,7 +186,7 @@ describe('combo search', () => {
       await flushMicrotasks()
       expect(mounted.root.querySelectorAll('.combo-option')[index]?.getAttribute('aria-selected')).toBe('true')
       mounted.root.querySelectorAll<HTMLElement>('.combo-option')[index]!.click()
-      expect(mounted.dispatchTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      expect(mounted.dispatchEditTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
         command: 'node.setValue', params: expect.objectContaining({ value }),
       }))
       mounted.unmount()
@@ -205,7 +206,7 @@ describe('combo search', () => {
     expect([...mounted.root.querySelectorAll<HTMLElement>('[data-testid="multi-combo-value"]')].map((row) => row.textContent)).toEqual(['beta', 'alpha', 'beta', 'beta'])
     mounted.root.querySelector<HTMLElement>('[data-testid="multi-combo-clear"]')!.click()
     mounted.root.querySelector<HTMLElement>('[data-testid="multi-combo-apply"]')!.click()
-    expect(mounted.dispatchTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+    expect(mounted.dispatchEditTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       command: 'node.setValue', params: expect.objectContaining({ value: [] }),
     }))
     mounted.unmount()
@@ -246,7 +247,7 @@ describe('combo search', () => {
     mounted.root.querySelector<HTMLElement>('[data-testid="multi-combo-option"]')!.click()
     mounted.root.querySelector<HTMLElement>('[data-testid="multi-combo-apply"]')!.click()
     await flushMicrotasks()
-    expect(mounted.dispatchTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+    expect(mounted.dispatchEditTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       command: 'node.setValue', params: expect.objectContaining({ value: ['outside', 'alpha'] }),
     }))
     expect(mounted.onClose).toHaveBeenCalledOnce()
@@ -299,7 +300,7 @@ describe('combo search', () => {
     mounted.root.querySelector<HTMLButtonElement>('[data-testid="multi-combo-refresh"]')!.click()
     refresh.resolve(['new-a', 'new-b'])
     await flushMicrotasks()
-    expect(mounted.dispatchTo).toHaveBeenCalledWith(tab, {
+    expect(mounted.dispatchEditTo).toHaveBeenCalledWith(tab, {
       command: 'node.setValue',
       params: { graphId: 'g0', nodeId: 'n0', inputId: 'choice', value: ['new-b'] },
     })
@@ -325,7 +326,7 @@ describe('combo search', () => {
     mounted.root.querySelectorAll<HTMLButtonElement>('[data-testid="multi-combo-option"]')[1]!.click()
     refresh.resolve(['new-a'])
     await flushMicrotasks()
-    expect(mounted.dispatchTo).not.toHaveBeenCalled()
+    expect(mounted.dispatchEditTo).not.toHaveBeenCalled()
     expect(mounted.onClose).not.toHaveBeenCalled()
     expect([...mounted.root.querySelectorAll<HTMLElement>('[data-testid="multi-combo-value"]')].map((row) => row.textContent))
       .toEqual(['old', 'draft'])
@@ -418,11 +419,11 @@ describe('combo search', () => {
     expect([...rows].map((row) => row.textContent)).toEqual(['alpha', 'Seven'])
     rows[1]!.click()
 
-    expect(mounted.dispatchTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+    expect(mounted.dispatchEditTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       command: 'node.setValue',
       params: expect.objectContaining({ value: 7 }),
     }))
-    expect(typeof mounted.dispatchTo.mock.calls[0]![1].params.value).toBe('number')
+    expect(typeof mounted.dispatchEditTo.mock.calls[0]![1].params.value).toBe('number')
     mounted.unmount()
   })
 
@@ -433,52 +434,16 @@ describe('combo search', () => {
         kind: 'input',
         nodeId: 'resize',
         valueKey: 'choice',
-        selector: { construct: 'choice', ancestors: [] },
+        selector: { construct: 'choice' },
       },
     })
     await flushMicrotasks()
 
     mounted.root.querySelectorAll<HTMLButtonElement>('[data-testid="combo-option"]')[1]!.click()
 
-    expect(mounted.dispatchTo).toHaveBeenCalledWith(expect.anything(), {
+    expect(mounted.dispatchEditTo).toHaveBeenCalledWith(expect.anything(), {
       command: 'dynamic.selectOption',
       params: { graphId: 'g0', nodeId: 'resize', construct: 'choice', option: 'crop' },
-    })
-    mounted.unmount()
-  })
-
-  it('selects a DynamicCombo option on a forwarded ancestor occurrence', async () => {
-    const mounted = mountEditor({
-      ...editorState({ widgetType: 'COMBO', options: { options: ['fit', 'crop'] } }, 'fit'),
-      target: {
-        kind: 'input',
-        nodeId: 'derived-resize',
-        valueKey: 'choice',
-        selector: {
-          construct: 'derived-choice',
-          ancestors: [],
-          owner: {
-            graphId: 'root',
-            nodeId: 'wrapper',
-            construct: 'forwarded-choice',
-            ancestors: [{ construct: 'regions', member: 'left' }],
-          },
-        },
-      },
-    })
-    await flushMicrotasks()
-
-    mounted.root.querySelectorAll<HTMLButtonElement>('[data-testid="combo-option"]')[1]!.click()
-
-    expect(mounted.dispatchTo).toHaveBeenCalledWith(expect.anything(), {
-      command: 'dynamic.selectOption',
-      params: {
-        graphId: 'root',
-        nodeId: 'wrapper',
-        construct: 'forwarded-choice',
-        option: 'crop',
-        ancestors: [{ construct: 'regions', member: 'left' }],
-      },
     })
     mounted.unmount()
   })
@@ -502,94 +467,9 @@ describe('combo search', () => {
     expect(mounted.root.querySelector('[data-testid="combo-folder-navigation"]')?.textContent).toContain('Solvers / Basic')
     mounted.root.querySelector<HTMLButtonElement>('[data-testid="combo-option"]')!.click()
 
-    expect(mounted.dispatchTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+    expect(mounted.dispatchEditTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       params: expect.objectContaining({ value: 'dinkster.euler' }),
     }))
-    mounted.unmount()
-  })
-
-  it('edits input-family labels by stable member id and selects the stable value', async () => {
-    const pending = deferred<ReturnType<DocumentStore['dispatch']>>()
-    const dispatchTo = vi.fn().mockReturnValueOnce(pending.promise).mockReturnValue({ ok: true, diagnostics: [] })
-    const mounted = mountEditor({
-      ...editorState({
-        widgetType: 'COMBO',
-        optionSource: { inputFamily: 'values' },
-        options: { options: [
-          { value: 'd0', label: 'Default' },
-          { value: '\u0000m7', label: 'Background' },
-          { value: '\u0000m2', label: 'Subject' },
-        ] },
-      }, '\u0000m7'),
-      target: {
-        kind: 'input',
-        nodeId: 'route',
-        valueKey: 'name',
-        inputFamilyOwner: {
-          graphId: 'root', nodeId: 'instance', construct: 'branches',
-          memberIds: { '\u0000m7': 'm7', '\u0000m2': 'm2' },
-        },
-      },
-    }, { dispatchTo })
-    await flushMicrotasks()
-
-    expect(mounted.root.querySelector('[data-testid="input-family-labels"]')?.textContent)
-      .toContain('Stable ID: m7')
-    expect(mounted.root.querySelector('[data-testid="input-family-label-d0"]')).toBeNull()
-    const label = mounted.root.querySelector<HTMLInputElement>('[data-testid="input-family-label-m7"]')!
-    label.value = 'Backdrop'
-    label.dispatchEvent(new InputEvent('input', { bubbles: true }))
-    mounted.root.querySelector<HTMLButtonElement>('[data-testid="input-family-label-apply"]')!.click()
-
-    expect(dispatchTo).toHaveBeenCalledWith(expect.anything(), {
-      command: 'dynamic.labelMembers',
-      params: {
-        graphId: 'root', nodeId: 'instance', construct: 'branches',
-        labels: { m7: 'Backdrop', m2: 'Subject' },
-      },
-    })
-    expect(mounted.root.querySelector('[inert]')).not.toBeNull()
-    pending.resolve({ ok: false, diagnostics: [{ severity: 'error', origin: 'command', code: 'refused', message: 'Labels refused' }] })
-    await flushMicrotasks()
-    expect(label.value).toBe('Backdrop')
-    expect(mounted.root.querySelector('[data-testid="widget-commit-error"]')?.textContent).toBe('Labels refused')
-    expect(mounted.onClose).not.toHaveBeenCalled()
-    mounted.root.querySelector<HTMLButtonElement>('[data-testid="input-family-label-apply"]')!.click()
-    await flushMicrotasks()
-    expect(mounted.root.querySelector('[data-testid="combo-dropdown"]')).toBeNull()
-    mounted.unmount()
-
-    const selection = mountEditor(editorState({
-      widgetType: 'COMBO',
-      optionSource: { inputFamily: 'values' },
-      options: { options: [{ value: 'm7', label: 'Backdrop' }, { value: 'm2', label: 'Subject' }] },
-    }, 'm7'))
-    await flushMicrotasks()
-    selection.root.querySelectorAll<HTMLButtonElement>('[data-testid="combo-option"]')[1]!.click()
-    expect(selection.dispatchTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
-      command: 'node.setValue',
-      params: expect.objectContaining({ value: 'm2' }),
-    }))
-    selection.unmount()
-  })
-
-  it('rejects duplicate input-family labels before dispatch', async () => {
-    const mounted = mountEditor(editorState({
-      widgetType: 'COMBO',
-      optionSource: { inputFamily: 'values' },
-      options: { options: [{ value: 'm0', label: 'First' }, { value: 'm1', label: 'Second' }] },
-    }, 'm0'))
-    await flushMicrotasks()
-
-    const label = mounted.root.querySelector<HTMLInputElement>('[data-testid="input-family-label-m1"]')!
-    label.value = 'First'
-    label.dispatchEvent(new InputEvent('input', { bubbles: true }))
-
-    expect(mounted.root.querySelector('[data-testid="input-family-label-error"]')?.textContent)
-      .toBe('Duplicate branch labels are not allowed')
-    expect(mounted.root.querySelector<HTMLButtonElement>('[data-testid="input-family-label-apply"]')!.disabled).toBe(true)
-    mounted.root.querySelector<HTMLButtonElement>('[data-testid="input-family-label-apply"]')!.click()
-    expect(mounted.dispatchTo).not.toHaveBeenCalled()
     mounted.unmount()
   })
 
@@ -604,7 +484,7 @@ describe('combo search', () => {
     expect(optionLabels(mounted.root)).toEqual(['euler'])
     search.dispatchEvent(new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true }))
     expect(mounted.root.querySelector('[data-testid="combo-folder"]')?.textContent).toContain('Solvers')
-    expect(mounted.dispatchTo).not.toHaveBeenCalled()
+    expect(mounted.dispatchEditTo).not.toHaveBeenCalled()
     mounted.unmount()
   })
 
@@ -617,7 +497,7 @@ describe('combo search', () => {
     expect(mounted.root.querySelector('[data-testid="multi-combo-value"]')?.textContent).toBe('euler')
     mounted.root.querySelector<HTMLButtonElement>('[data-testid="multi-combo-option"]')!.click()
     mounted.root.querySelector<HTMLButtonElement>('[data-testid="multi-combo-apply"]')!.click()
-    expect(mounted.dispatchTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+    expect(mounted.dispatchEditTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       params: expect.objectContaining({ value: ['dinkster.euler', 'dinkster.euler'] }),
     }))
     mounted.unmount()
@@ -749,8 +629,8 @@ describe('combo search', () => {
     expect(remoteChoices).toHaveBeenLastCalledWith('/api/choices/models', expect.objectContaining({
       refresh: true, timeoutMs: 3210, maxRetries: 1, refreshMs: 99,
     }))
-    expect(mounted.dispatchTo).toHaveBeenCalledTimes(1)
-    expect(mounted.dispatchTo).toHaveBeenCalledWith(tab, {
+    expect(mounted.dispatchEditTo).toHaveBeenCalledTimes(1)
+    expect(mounted.dispatchEditTo).toHaveBeenCalledWith(tab, {
       command: 'node.setValue',
       params: { graphId: 'g0', nodeId: 'n0', inputId: 'choice', value: expected },
     })
@@ -760,14 +640,14 @@ describe('combo search', () => {
 
   it.each([false, true])('manual refresh retains refusal and closes only accepted multi=%s', async (multi) => {
     const outcome = deferred<ReturnType<DocumentStore['dispatch']>>()
-    const dispatchTo = vi.fn().mockReturnValueOnce(outcome.promise).mockReturnValue({ ok: true, diagnostics: [] })
+    const dispatchEditTo = vi.fn().mockReturnValueOnce(outcome.promise).mockReturnValue({ ok: true, diagnostics: [] })
     const remoteChoices = vi.fn().mockResolvedValue(['first', 'last'])
     const scopedClient = { remoteChoices, remoteChoiceAuthority: () => 0 }
     const tab = { store: { doc: { graphs: { g0: { nodes: { n0: { values: { choice: 'old' } } } } } } } } as unknown as Tab
     const mounted = mountEditor({ ...editorState({
       widgetType: multi ? 'MULTI_COMBO' : 'COMBO', options: {},
       remote: { route: '/api/choices/models', refreshButton: true, controlAfterRefresh: 'last' },
-    }, multi ? ['old'] : 'old'), tab }, { backendForTab: () => ({ scopedClient }), dispatchTo } as unknown as Partial<AppState>)
+    }, multi ? ['old'] : 'old'), tab }, { backendForTab: () => ({ scopedClient }), dispatchEditTo } as unknown as Partial<AppState>)
     await flushMicrotasks()
     const refreshId = multi ? 'multi-combo-refresh' : 'remote-refresh'
     mounted.root.querySelector<HTMLButtonElement>(`[data-testid="${refreshId}"]`)!.click()
@@ -808,13 +688,13 @@ describe('combo search', () => {
     } as unknown as Partial<AppState>)
     initial.resolve(['automatic-a', 'automatic-b'])
     await flushMicrotasks()
-    expect(mounted.dispatchTo).not.toHaveBeenCalled()
+    expect(mounted.dispatchEditTo).not.toHaveBeenCalled()
 
     mounted.root.querySelector<HTMLButtonElement>('[data-testid="remote-refresh"]')!.click()
     values.choice = 'user-edit'
     refresh.resolve(['new-a', 'new-b'])
     await flushMicrotasks()
-    expect(mounted.dispatchTo).not.toHaveBeenCalled()
+    expect(mounted.dispatchEditTo).not.toHaveBeenCalled()
     mounted.unmount()
   })
 
@@ -834,7 +714,7 @@ describe('combo search', () => {
     expect(mounted.root.querySelector('.combo-status')?.textContent).toContain('unavailable')
     const selected = mounted.root.querySelector<HTMLElement>('.combo-option')!
     selected.click()
-    expect(mounted.dispatchTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+    expect(mounted.dispatchEditTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       params: expect.objectContaining({ value: 'selected-oov' }),
     }))
     mounted.unmount()
@@ -947,10 +827,10 @@ describe('combo search', () => {
     expect(mounted.root.querySelector('.combo-option.active')?.textContent).toBe('Seven')
     search.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
 
-    expect(mounted.dispatchTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+    expect(mounted.dispatchEditTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       params: expect.objectContaining({ value: 7 }),
     }))
-    expect(typeof mounted.dispatchTo.mock.calls[0]![1].params.value).toBe('number')
+    expect(typeof mounted.dispatchEditTo.mock.calls[0]![1].params.value).toBe('number')
     mounted.unmount()
   })
 
@@ -962,7 +842,7 @@ describe('combo search', () => {
     mounted.root.querySelector<HTMLInputElement>('[data-testid="combo-search"]')!
       .dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
 
-    expect(mounted.dispatchTo).not.toHaveBeenCalled()
+    expect(mounted.dispatchEditTo).not.toHaveBeenCalled()
     expect(mounted.onClose).not.toHaveBeenCalled()
     mounted.unmount()
   })
@@ -977,7 +857,7 @@ describe('combo search', () => {
       const input = mounted.root.querySelector<HTMLInputElement>('.widget-editor input')!
       input.value = raw
       mounted.root.querySelector<HTMLButtonElement>('[data-testid="widget-editor-commit"]')!.click()
-      expect(mounted.dispatchTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      expect(mounted.dispatchEditTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
         params: expect.objectContaining({ value: expected }),
       }))
       mounted.unmount()
@@ -991,12 +871,12 @@ describe('combo search', () => {
     const commit = mounted.root.querySelector<HTMLButtonElement>('[data-testid="widget-editor-commit"]')!
     input.value = 'Infinity'
     commit.click()
-    expect(mounted.dispatchTo).not.toHaveBeenCalled()
+    expect(mounted.dispatchEditTo).not.toHaveBeenCalled()
     expect(mounted.root.querySelector('[data-testid="widget-editor-error"]')?.textContent).toBe('Enter a finite number.')
 
     input.value = '20.25'
     commit.click()
-    expect(mounted.dispatchTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+    expect(mounted.dispatchEditTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       params: expect.objectContaining({ value: 20.25 }),
     }))
     mounted.unmount()
@@ -1008,12 +888,12 @@ describe('combo search', () => {
       ['[1,{"name":"two"},[3]]', [1, { name: 'two' }, [3]]],
     ] as const) {
       const state = { ...editorState(undefined, null), multiline: true }
-      const mounted = mountEditor({ ...state, target: { kind: 'valueSource', valueSourceId: 'v0' } })
+      const mounted = mountEditor(state)
       await flushMicrotasks()
       const textarea = mounted.root.querySelector<HTMLTextAreaElement>('.widget-editor textarea')!
       textarea.value = raw
       mounted.root.querySelector<HTMLButtonElement>('[data-testid="widget-editor-commit"]')!.click()
-      expect(mounted.dispatchTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      expect(mounted.dispatchEditTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
         params: expect.objectContaining({ value: expected }),
       }))
       mounted.unmount()

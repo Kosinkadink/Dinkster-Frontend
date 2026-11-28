@@ -120,6 +120,52 @@ describe('workflow tabs', () => {
     view.dispose()
   })
 
+  it('keeps a Board rename draft across remote names and refuses read-only renames', async () => {
+    const root = document.createElement('div')
+    document.body.append(root)
+    const [title, setTitle] = createSignal('Board')
+    const [name, setName] = createSignal<string>()
+    const [canEdit, setCanEdit] = createSignal(true)
+    const tab = { id: 'board', editorKind: 'page', get title() { return title() } }
+    const rename = vi.fn((_tab: typeof tab, value: string) => { setName(value); setTitle(value) })
+    const dispose = render(() => <WorkflowTabs
+      tabs={[tab]} activeId="board" isDirty={() => false} isFrozen={() => false}
+      isShared={() => true} setRoot={() => undefined} onActivate={() => undefined}
+      onClose={() => undefined} onPointerDown={() => undefined} onNew={() => undefined}
+      canShare={() => false} onShare={() => undefined} onRename={rename}
+      canRename={() => canEdit()} renameName={() => name()}
+    />, root)
+    const start = async (): Promise<HTMLInputElement | null> => {
+      root.querySelector('.tab-title')!.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+      await Promise.resolve()
+      return root.querySelector('input')
+    }
+    let input = (await start())!
+    expect(input.value).toBe('')
+    expect(input.placeholder).toBe('Board')
+    input.blur()
+    expect(rename).not.toHaveBeenCalled()
+    input = (await start())!
+    input.value = 'My draft'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    setName('Remote name')
+    setTitle('Remote name')
+    expect(root.querySelector('input')).toBe(input)
+    expect(input.value).toBe('My draft')
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    expect(root.querySelector('.tab-title')?.textContent).toBe('My draft')
+    input = (await start())!
+    input.value = 'Refused draft'
+    setCanEdit(false)
+    input.blur()
+    expect(root.querySelector('.tab-title')?.textContent).toBe('My draft')
+    expect(await start()).toBeNull()
+    root.querySelector('[data-tab-id="board"]')!
+      .dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 10, clientY: 10 }))
+    expect([...document.querySelectorAll('[role="menuitem"]')].some((item) => item.textContent === 'Rename')).toBe(false)
+    dispose()
+  })
+
   it('keeps the kind icon and unsaved mark while running and announces result changes', () => {
     const view = fixture()
     const first = view.root.querySelector<HTMLElement>('[data-tab-id="one"]')!
@@ -201,6 +247,44 @@ describe('workflow tabs', () => {
     expect(view.share).toHaveBeenCalledWith(tabs[2])
     expect(view.root.querySelector('[data-testid="context-menu"]')).toBeNull()
     view.dispose()
+  })
+
+  it('offers only Share and close actions for a shareable page, not an ordinary page', () => {
+    const root = document.createElement('div')
+    document.body.append(root)
+    const pages = [
+      { id: 'board', title: 'Board', editorKind: 'page' },
+      { id: 'templates', title: 'Templates', editorKind: 'page' },
+    ]
+    const [shared, setShared] = createSignal('')
+    const dispose = render(() => <WorkflowTabs
+      tabs={pages} activeId="board" isDirty={() => false} isFrozen={() => false}
+      isShared={(tab) => tab.id === shared()} setRoot={() => {}}
+      onActivate={() => {}} onClose={() => {}} onPointerDown={() => {}} onNew={() => {}}
+      onRename={() => {}} onDuplicate={() => {}} onSplitRight={() => {}} onSplitDown={() => {}}
+      onUnsplit={() => {}} onPopOut={() => {}}
+      canShare={(tab) => tab.id === 'board'} onShare={(tab) => setShared(tab.id)}
+    />, root)
+    const open = (id: string) => root.querySelector<HTMLElement>(`[data-tab-id="${id}"]`)!.dispatchEvent(
+      new MouseEvent('contextmenu', { clientX: 120, clientY: 40, bubbles: true, cancelable: true }),
+    )
+    try {
+      open('templates')
+      expect([...root.querySelectorAll('[data-item-id]')].map((row) => row.getAttribute('data-item-id')))
+        .toEqual(['workflow.close', 'workflow.closeOthers'])
+      root.querySelector('[data-testid="context-menu"]')!.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      )
+      open('board')
+      expect([...root.querySelectorAll('[data-item-id]')].map((row) => row.getAttribute('data-item-id')))
+        .toEqual(['workflow.share', 'workflow.close', 'workflow.closeOthers'])
+      root.querySelector('[data-item-id="workflow.share"]')!.dispatchEvent(
+        new MouseEvent('mousedown', { bubbles: true, cancelable: true }),
+      )
+      expect(root.querySelector('[data-testid="context-menu"]')).toBeNull()
+      expect(root.querySelector('[data-tab-id="board"] [role="tab"]')?.getAttribute('aria-label')).toContain('shared')
+      expect(root.querySelector('[data-tab-id="templates"] [role="tab"]')?.getAttribute('aria-label')).not.toContain('shared')
+    } finally { dispose() }
   })
 
   it('shows the live previews submenu with the current override checked and sets a mode', async () => {

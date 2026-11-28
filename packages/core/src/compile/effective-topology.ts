@@ -1,7 +1,7 @@
 import { diag, type Diagnostic } from '../diagnostics.js'
 import {
-  isForwardingBinding,
   isNodeBoundaryBinding,
+  resolveDynamicAddress,
   boundaryBindingKey,
   boundaryRouteKey,
   suppressedDeliveryKey,
@@ -32,13 +32,9 @@ import {
 import { checkGraphTopology, subgraphDefIdOf } from '../invariants.js'
 import type { SchemaResolver } from '../schema/derive-boundary.js'
 import { buildGraphConnectivity, elaborateInterface, elabInputsOf, elabOutputsOf, type Connectivity } from '../schema/elaborate.js'
-import {
-  buildBoundaryCrossings,
-  crossingTargets,
-  translateThroughCrossing,
-} from './crossing.js'
 import { documentNodeResolver } from './compile.js'
 import { occurrenceDynamicView } from './occurrence-view.js'
+import { boundaryItems } from '../format/document.js'
 
 export type EffectiveLinkIdentity =
   | { readonly kind: 'definition'; readonly graphId: GraphDefId; readonly linkId: LinkId }
@@ -100,25 +96,41 @@ export function occurrenceEndpointReferencesDefinition(
   return endpoint.route.some((leg) => leg.graph === graphId && leg.binding.node === nodeId)
 }
 
+export function occurrenceMemberReferenced(
+  document: WorkflowDocument,
+  graphId: string,
+  nodeId: string,
+  construct: string,
+  member: string,
+): boolean {
+  const node = document.graphs[graphId]?.nodes[nodeId]
+  const referencesMember = (ref: { readonly node: string; readonly port: string }): boolean => {
+    if (ref.node !== nodeId) return false
+    const resolved = resolveDynamicAddress(ref, node?.dynamic)
+    return resolved.kind === 'resolved' && resolved.references.some((item) =>
+      item.construct === construct && item.member === member)
+  }
+  return Object.values(document.occurrenceTopologies ?? {}).some((topology) =>
+    Object.values(topology.links).some((link) => [link.from, link.to].some((endpoint) => {
+      if (endpoint.kind === 'body') {
+        const end = endpoint.endpoint
+        return topology.bodyGraph === graphId && 'node' in end &&
+          referencesMember({ node: end.node, port: 'tap' in end ? end.tap : end.port })
+      }
+      let parent = document.graphs[document.root]
+      for (const hop of endpoint.occurrence.instancePath) {
+        const instance = parent?.nodes[hop]
+        const childId = instance && subgraphDefIdOf(instance.type)
+        parent = childId === undefined ? undefined : document.graphs[childId]
+      }
+      return parent?.id === graphId && referencesMember({ node: endpoint.occurrence.node, port: endpoint.address.port }) ||
+        endpoint.route.some((leg) => leg.graph === graphId && isNodeBoundaryBinding(leg.binding) &&
+          referencesMember({ node: leg.binding.node, port: leg.binding.kind === 'widgetTap' ? leg.binding.tap : leg.binding.port }))
+    })))
+}
+
 const portsOverlap = (a: string, b: string): boolean =>
   a === b || b.startsWith(`${a}.`) || a.startsWith(`${b}.`)
-
-/**
- * Whether two member-path qualifications can address the same family row.
- * A missing/empty path means the whole family and stays conservative;
- * two explicit paths collide only when one is a prefix of the other.
- * Occurrence-allocated member ids never reuse definition-persisted ids,
- * so disjoint explicit paths are genuinely different rows.
- */
-const memberPathsMayCollide = (
-  a: readonly (string | undefined)[] | undefined,
-  b: readonly (string | undefined)[] | undefined,
-): boolean => {
-  if (a === undefined || a.length === 0 || b === undefined || b.length === 0) return true
-  const shared = Math.min(a.length, b.length)
-  for (let i = 0; i < shared; i++) if (a[i] !== b[i]) return false
-  return true
-}
 
 export function occurrenceBoundaryTargets(
   document: WorkflowDocument,
@@ -134,23 +146,13 @@ export function occurrenceBoundaryTargets(
     parent = childId === undefined ? undefined : document.graphs[childId]
   }
   if (parent?.id === graphId && endpoint.occurrence.node === target.node &&
-      portsOverlap(endpoint.address.port, target.port) &&
-      memberPathsMayCollide(endpoint.address.members, target.members)) return true
-  // Route legs address a nested row: crossing translation composes the leg's
-  // binding member prefix with the occurrence suffix carried through the
-  // route ([...hopMembers, rebased suffix]). Mirror that composition here so
-  // a sibling definition row under the same prefix is not over-guarded.
-  // 'port' bindings discard the suffix, exactly as translation does.
-  let suffix: readonly (string | undefined)[] = endpoint.address.members ?? []
+      portsOverlap(endpoint.address.port, target.port)) return true
+  // Each route leg addresses the inner row its binding names; the
+  // occurrence address does not carry through a 'port' binding.
   for (const leg of endpoint.route) {
     if (leg.binding.kind === 'widgetTap') continue
-    const composed = isForwardingBinding(leg.binding)
-      ? [...(leg.binding.members ?? []), ...suffix]
-      : [...(leg.binding.members ?? [])]
     if (leg.graph === graphId && leg.binding.node === target.node &&
-        portsOverlap(leg.binding.port, target.port) &&
-        memberPathsMayCollide(composed, target.members)) return true
-    suffix = composed
+        portsOverlap(leg.binding.port, target.port)) return true
   }
   return false
 }
@@ -203,14 +205,13 @@ function itemForRoute(
   side: 'from' | 'to',
   boundaryId: string,
 ): BoundaryItem | undefined {
-  const items = side === 'from' ? graph.boundary?.outputs : graph.boundary?.inputs
+  const items = side === 'from' ? boundaryItems(graph.boundary, 'outputs') : boundaryItems(graph.boundary, 'inputs')
   return items?.find((item) => item.id === boundaryId)
 }
 
 /** Resolve one persisted occurrence endpoint to the concrete body coordinate. */
 function resolveOccurrenceEndpoint(
   document: WorkflowDocument,
-  resolver: SchemaResolver,
   owner: OccurrenceRef,
   bodyGraph: GraphDef,
   endpoint: OccurrenceLinkEndpoint,
@@ -221,7 +222,7 @@ function resolveOccurrenceEndpoint(
   const source = { kind: 'occurrence' as const, owner, endpoint }
   if (endpoint.kind === 'body') {
     if (isPortEndpoint(endpoint.endpoint) && endpoint.endpoint.node === '$region') {
-      if (side !== 'from' || endpoint.endpoint.port !== 'index' || endpoint.endpoint.members !== undefined ||
+      if (side !== 'from' || endpoint.endpoint.port !== 'index' ||
           resolveOwner(document, owner)?.node.region === undefined) {
         diagnostics.push(diag('error', 'compile', 'occurrence.topology.regionIndex', "'$region.index' is a source only inside its immediate region occurrence"))
         return undefined
@@ -235,7 +236,6 @@ function resolveOccurrenceEndpoint(
   }
 
   let occurrence = endpoint.occurrence
-  let address = endpoint.address
   let finalGraph: GraphDef | undefined
   let finalPath: readonly NodeId[] = []
   let finalEndpoint: LinkEndpoint | undefined
@@ -263,17 +263,6 @@ function resolveOccurrenceEndpoint(
       return undefined
     }
     const match = matches[0]!
-    if (match.binding.kind === 'valueSource') {
-      if (side !== 'from' || legIndex !== endpoint.route.length - 1 ||
-          at.bodyGraph.valueSources?.[match.binding.valueSource] === undefined) {
-        diagnostics.push(diag('error', 'compile', 'occurrence.topology.routeMissing', `value source route leg '${leg.boundaryId}' must terminate an output route at an existing source`))
-        return undefined
-      }
-      finalGraph = at.bodyGraph
-      finalPath = at.bodyPath
-      finalEndpoint = { valueSource: match.binding.valueSource }
-      continue
-    }
     if (match.binding.kind === 'widgetTap') {
       if (side !== 'from' || legIndex !== endpoint.route.length - 1) {
         diagnostics.push(diag('error', 'compile', 'occurrence.topology.routeMissing', `widget tap route leg '${leg.boundaryId}' must terminate an output route`))
@@ -295,34 +284,11 @@ function resolveOccurrenceEndpoint(
       continue
     }
     if (!isNodeBoundaryBinding(match.binding)) return undefined
-    let ref: PortRef
-    if (isForwardingBinding(match.binding)) {
-      const view = occurrenceDynamicView(document, resolver, occurrence.instancePath)
-      const instanceDynamic = view.dynamic.get(occurrence.node) ?? at.node.dynamic
-      const instanceValues = view.values.get(occurrence.node) ?? at.node.values
-      const resolveNode = documentNodeResolver(document, resolver)
-      const instanceInputs = view.inputPorts.get(occurrence.node)
-      const built = buildBoundaryCrossings(at.bodyGraph, resolver, instanceDynamic, (node) => resolveNode(at.bodyGraph.id, node), instanceValues, instanceInputs)
-      const crossing = built.crossings.get(item.id)
-      const target = crossing && crossingTargets(crossing)[match.index]
-      if (!target || built.problems.length > 0) {
-        diagnostics.push(diag('error', 'compile', 'occurrence.topology.routeMissing', `route leg '${leg.boundaryId}' in graph '${leg.graph}' has no current family crossing`))
-        return undefined
-      }
-      const translated = translateThroughCrossing(target, address)
-      if (!translated.ok) {
-        diagnostics.push(diag('error', 'compile', translated.code, translated.message))
-        return undefined
-      }
-      ref = translated.ref
-    } else {
-      ref = match.binding
-    }
+    const ref: PortRef = match.binding
     finalGraph = at.bodyGraph
     finalPath = at.bodyPath
     finalEndpoint = ref
     occurrence = { instancePath: at.bodyPath, node: ref.node }
-    address = { port: ref.port, ...(ref.members ? { members: ref.members } : {}) }
   }
   if (!finalGraph || finalGraph.id !== bodyGraph.id || !finalEndpoint) {
     diagnostics.push(diag('error', 'compile', 'occurrence.topology.routeMissing', `route for occurrence '${occurrenceKey(owner)}' does not terminate in body graph '${bodyGraph.id}'`))
@@ -331,10 +297,9 @@ function resolveOccurrenceEndpoint(
   return resolved(finalGraph.id, finalPath, finalEndpoint, source)
 }
 
-/** Resolve an authored local-link endpoint through the same crossings as compile. */
+/** Resolve an authored local-link endpoint through the same boundary routes as compile. */
 export function resolveOccurrenceLinkEndpoint(
   document: WorkflowDocument,
-  resolver: SchemaResolver,
   owner: OccurrenceRef,
   endpoint: OccurrenceLinkEndpoint,
   side: 'from' | 'to',
@@ -345,39 +310,32 @@ export function resolveOccurrenceLinkEndpoint(
     diagnostics.push(diag('error', 'compile', 'occurrence.topology.ownerMissing', `occurrence '${occurrenceKey(owner)}' does not resolve to a subgraph instance`))
     return { diagnostics }
   }
-  const resolvedEndpoint = resolveOccurrenceEndpoint(document, resolver, owner, at.bodyGraph, endpoint, side, diagnostics)
+  const resolvedEndpoint = resolveOccurrenceEndpoint(document, owner, at.bodyGraph, endpoint, side, diagnostics)
   return { ...(resolvedEndpoint ? { endpoint: resolvedEndpoint } : {}), diagnostics }
 }
 
 function projectedEndpoints(
   document: WorkflowDocument,
-  resolver: SchemaResolver,
   owner: OccurrenceRef,
   at: ResolvedOwner,
   endpoint: PortRef,
   side: 'from' | 'to',
   diagnostics: Diagnostic[],
 ): { readonly endpoint: ResolvedOccurrenceEndpoint; readonly route: readonly BoundaryRouteLeg[] }[] {
-  const items = side === 'from' ? at.bodyGraph.boundary?.outputs : at.bodyGraph.boundary?.inputs
-  const candidates = items?.filter((item) =>
-    isForwardingBinding(item.binds)
-      ? endpoint.port === item.id || endpoint.port.startsWith(`${item.id}.`)
-      : endpoint.port === item.id && endpoint.members === undefined,
-  ) ?? []
+  const items = side === 'from' ? boundaryItems(at.bodyGraph.boundary, 'outputs') : boundaryItems(at.bodyGraph.boundary, 'inputs')
+  const candidates = items?.filter((item) => endpoint.port === item.id) ?? []
   if (candidates.length !== 1) return []
   const item = candidates[0]!
   const bindings = [item.binds, ...(item.alsoBinds ?? [])]
   const out: { endpoint: ResolvedOccurrenceEndpoint; route: readonly BoundaryRouteLeg[] }[] = []
   for (const binding of bindings) {
-    // Promoted literals receive values through compilation, not consuming links.
-    if (side === 'to' && binding.kind === 'valueSource') continue
     const route = [{ graph: at.bodyGraph.id, boundaryId: item.id, binding }]
     const occurrenceEndpoint: OccurrenceLinkEndpoint = {
       kind: 'boundary', occurrence: owner,
-      address: { port: endpoint.port, ...(endpoint.members ? { members: endpoint.members } : {}) },
+      address: { port: endpoint.port },
       route,
     }
-    const target = resolveOccurrenceEndpoint(document, resolver, owner, at.bodyGraph, occurrenceEndpoint, side, diagnostics)
+    const target = resolveOccurrenceEndpoint(document, owner, at.bodyGraph, occurrenceEndpoint, side, diagnostics)
     if (target) out.push({ endpoint: target, route })
   }
   return out
@@ -401,8 +359,7 @@ function buildEffectiveOccurrenceTopology(
     return { bodyGraph: at.bodyGraph, links: [], projectedParentLinks: [], diagnostics, projectable: [] }
   }
 
-  // Force dynamic projection through the same crossing/selector operation as
-  // the drilled view. Endpoint translation below uses the same crossings.
+  // Elaborate body nodes from the same occurrence-local state as the drilled view.
   const dynamicView = occurrenceDynamicView(document, resolver, at.bodyPath)
 
   const suppressions = new Set((topology?.suppressedDeliveries ?? []).map(suppressedDeliveryKey))
@@ -426,8 +383,8 @@ function buildEffectiveOccurrenceTopology(
     }
   }
   for (const link of Object.values(topology?.links ?? {})) {
-    const from = resolveOccurrenceEndpoint(document, resolver, owner, at.bodyGraph, link.from, 'from', diagnostics)
-    const to = resolveOccurrenceEndpoint(document, resolver, owner, at.bodyGraph, link.to, 'to', diagnostics)
+    const from = resolveOccurrenceEndpoint(document, owner, at.bodyGraph, link.from, 'from', diagnostics)
+    const to = resolveOccurrenceEndpoint(document, owner, at.bodyGraph, link.to, 'to', diagnostics)
     if (!from || !to) continue
     links.push({ identity: { kind: 'occurrence', owner, linkId: link.id }, from, to })
   }
@@ -442,7 +399,7 @@ function buildEffectiveOccurrenceTopology(
     inheritedRoute: readonly BoundaryRouteLeg[],
   ): void => {
     if (isPortEndpoint(from.endpoint) && from.endpoint.node === owner.node) {
-      const targets = projectedEndpoints(document, resolver, owner, at, from.endpoint, 'from', diagnostics)
+      const targets = projectedEndpoints(document, owner, at, from.endpoint, 'from', diagnostics)
       for (const target of targets) {
         const route = [...inheritedRoute, ...target.route]
         if (delivery && suppressions.has(suppressedDeliveryKey({ kind: 'projectedLeg', delivery, route }))) continue
@@ -452,7 +409,7 @@ function buildEffectiveOccurrenceTopology(
       }
     }
     if (isPortEndpoint(to.endpoint) && to.endpoint.node === owner.node) {
-      const targets = projectedEndpoints(document, resolver, owner, at, to.endpoint, 'to', diagnostics)
+      const targets = projectedEndpoints(document, owner, at, to.endpoint, 'to', diagnostics)
       for (const target of targets) {
         const route = [...inheritedRoute, ...target.route]
         if (delivery && suppressions.has(suppressedDeliveryKey({ kind: 'projectedLeg', delivery, route }))) continue
@@ -512,12 +469,10 @@ function buildEffectiveOccurrenceTopology(
     const occupied = new Set([
       ...Object.keys(at.bodyGraph.nodes),
       ...Object.keys(at.bodyGraph.reroutes),
-      ...Object.keys(at.bodyGraph.valueSources ?? {}),
-      ...Object.keys(at.bodyGraph.selectors ?? {}),
     ])
     const validationLinks = Object.fromEntries(links.filter((link) =>
       !(isPortEndpoint(link.from.endpoint) && link.from.endpoint.node === '$region' &&
-        link.from.endpoint.port === 'index' && link.from.endpoint.members === undefined),
+        link.from.endpoint.port === 'index'),
     ).map((link, index) => {
       let id = `__effective_validation_${index}`
       while (occupied.has(id)) id += '_'
@@ -527,12 +482,8 @@ function buildEffectiveOccurrenceTopology(
     const validationGraph: GraphDef = { ...at.bodyGraph, links: validationLinks, nets: {} }
     const effectiveValidationCodes = new Set([
       'doc.link.dangling',
-      'doc.link.selectorCandidateSource',
-      'doc.link.valueSourceTarget',
       'doc.link.tapTarget',
-      'doc.link.selectorOutputTarget',
       'doc.reroute.cycle',
-      'doc.selector.cycle',
       'doc.tap.cycle',
     ])
     diagnostics.push(...checkGraphTopology(document, validationGraph).filter((diagnostic) => effectiveValidationCodes.has(diagnostic.code)))
@@ -541,20 +492,24 @@ function buildEffectiveOccurrenceTopology(
     const projectedInputs = new Map<NodeId, Set<string>>()
     const projectedInputPorts = new Map<NodeId, Set<string>>()
     const projectedOutputs = new Map<NodeId, Set<string>>()
+    const projectedOutputPorts = new Map<NodeId, Set<string>>()
     const recordProjected = (map: Map<NodeId, Set<string>>, ref: PortRef): void => {
       let addresses = map.get(ref.node)
       if (!addresses) map.set(ref.node, (addresses = new Set()))
-      addresses.add(portAddressKey(ref.port, ref.members))
+      addresses.add(portAddressKey(ref.port))
     }
     for (const link of projectedParentLinks) {
-      if (link.from.graphId === at.bodyGraph.id && isPortEndpoint(link.from.endpoint)) recordProjected(projectedOutputs, link.from.endpoint)
+      if (link.from.graphId === at.bodyGraph.id && isPortEndpoint(link.from.endpoint)) {
+        recordProjected(projectedOutputs, link.from.endpoint)
+        let ports = projectedOutputPorts.get(link.from.endpoint.node)
+        if (!ports) projectedOutputPorts.set(link.from.endpoint.node, (ports = new Set()))
+        ports.add(link.from.endpoint.port)
+      }
       if (link.to.graphId === at.bodyGraph.id && isPortEndpoint(link.to.endpoint)) {
         recordProjected(projectedInputs, link.to.endpoint)
-        if (link.to.endpoint.members === undefined || link.to.endpoint.members.length === 0) {
-          let ports = projectedInputPorts.get(link.to.endpoint.node)
-          if (!ports) projectedInputPorts.set(link.to.endpoint.node, (ports = new Set()))
-          ports.add(link.to.endpoint.port)
-        }
+        let ports = projectedInputPorts.get(link.to.endpoint.node)
+        if (!ports) projectedInputPorts.set(link.to.endpoint.node, (ports = new Set()))
+        ports.add(link.to.endpoint.port)
       }
     }
     const connectivity = (nodeId: NodeId): Connectivity => {
@@ -563,9 +518,10 @@ function buildEffectiveOccurrenceTopology(
       const outputs = projectedOutputs.get(nodeId)
       if (!inputs && !outputs) return base
       return {
-        isInputConnected: (port, members) => inputs?.has(portAddressKey(port, members)) || base.isInputConnected(port, members),
-        isOutputConnected: (port, members) => outputs?.has(portAddressKey(port, members)) || base.isOutputConnected(port, members),
+        isInputConnected: (port) => inputs?.has(portAddressKey(port)) || base.isInputConnected(port),
+        isOutputConnected: (port) => outputs?.has(portAddressKey(port)) || base.isOutputConnected(port),
         inputPorts: () => [...new Set([...(base.inputPorts?.() ?? []), ...(projectedInputPorts.get(nodeId) ?? [])])],
+        outputPorts: () => [...new Set([...(base.outputPorts?.() ?? []), ...(projectedOutputPorts.get(nodeId) ?? [])])],
       }
     }
     const resolveNode = documentNodeResolver(document, resolver)
@@ -580,16 +536,16 @@ function buildEffectiveOccurrenceTopology(
       const state = node && values && { values, ...(dynamic ? { dynamic } : {}), ...(node.additionalInputs !== undefined ? { additionalInputs: node.additionalInputs } : {}) }
       const elaborated = schema && state && elaborateInterface(schema, state, connectivity(nodeId), { promoteGhosts: false, nodeId })
       const result = {
-        inputs: new Set(elaborated ? elabInputsOf(elaborated).map((input) => portAddressKey(input.address.port, input.address.members)) : []),
-        outputs: new Set(elaborated ? elabOutputsOf(elaborated).map((output) => portAddressKey(output.address.port, output.address.members)) : []),
+        inputs: new Set(elaborated ? elabInputsOf(elaborated).filter((input) => input.spec.socketless !== true).map((input) => portAddressKey(input.address.port)) : []),
+        outputs: new Set(elaborated ? elabOutputsOf(elaborated).map((output) => portAddressKey(output.address.port)) : []),
       }
       ports.set(nodeId, result)
       return result
     }
     const validatePort = (endpoint: ResolvedOccurrenceEndpoint, side: 'source' | 'target'): void => {
       if (!isPortEndpoint(endpoint.endpoint) || endpoint.graphId !== at.bodyGraph.id) return
-      if (side === 'source' && endpoint.endpoint.node === '$region' && endpoint.endpoint.port === 'index' && endpoint.endpoint.members === undefined) return
-      const key = portAddressKey(endpoint.endpoint.port, endpoint.endpoint.members)
+      if (side === 'source' && endpoint.endpoint.node === '$region' && endpoint.endpoint.port === 'index') return
+      const key = portAddressKey(endpoint.endpoint.port)
       const available = portsFor(endpoint.endpoint.node)
       const expected = side === 'source' ? available.outputs : available.inputs
       const opposite = side === 'source' ? available.inputs : available.outputs

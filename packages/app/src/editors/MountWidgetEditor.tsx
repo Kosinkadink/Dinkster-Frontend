@@ -4,6 +4,7 @@ import { ProductButton } from '../ProductControls.js'
 import { ProductActionFooter, ProductField, ProductNotice } from '../ProductForm.js'
 import { ProductSelect } from '../ProductSelect.js'
 import { useAppMessage } from '../locale.js'
+import { failureMessage } from '../request-failure.js'
 import { WidgetEditorController, type WidgetEditorImplementationProps, type WidgetEditorProps } from '../WidgetEditorController.js'
 
 const MountImplementation: Component<WidgetEditorImplementationProps> = (props) => {
@@ -20,11 +21,11 @@ const MountImplementation: Component<WidgetEditorImplementationProps> = (props) 
     void backend.connection.fetchMountSettings().then((value) => {
       if (live) setSettings(value)
     }).catch((reason: unknown) => {
-      if (live) setError(reason instanceof Error ? reason.message : String(reason))
+      if (live) setError(failureMessage(reason, message('request.storageLoadFailed')))
     })
   } else setError(message('mountWidget.error'))
 
-  const writable = () => settings()?.mounts.filter((mount) => mount.mode === 'readwrite' && mount.state === 'ready') ?? []
+  const writable = () => settings()?.mounts.filter((mount) => mount.mode === 'readwrite' && mount.state === 'ready' && !mount.saveError) ?? []
   const options = () => {
     const mounts = writable().map((mount) => ({ id: mount.id, value: mount.id, label: mount.id, disabled: false }))
     if (selected() !== '' && !mounts.some((mount) => mount.id === selected())) {

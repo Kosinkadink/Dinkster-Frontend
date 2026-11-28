@@ -28,7 +28,7 @@ test('runs mounted host surfaces through the complete pseudo catalog', async ({ 
     return route.fulfill({ json: {
       schemaVersion: 1,
       epoch: 1,
-      dinkster: { version: 'full-pseudo-locale-e2e', schemaWire: 1 },
+      dinkster: { version: 'full-pseudo-locale-e2e', schemaWire: 2 },
       nodes: {},
     } })
   })
@@ -41,7 +41,7 @@ test('runs mounted host surfaces through the complete pseudo catalog', async ({ 
   await page.goto('/')
   await page.waitForFunction(() => window.__dinksterTest?.app !== undefined)
   await page.getByTestId('views-switcher').click()
-  await page.getByRole('menuitemradio', { name: 'App view' }).click()
+  await page.getByRole('menuitemradio', { name: 'App', exact: true }).click()
   await page.getByTestId('rail-toggle').click()
   await page.getByTestId('settings-button').click()
 

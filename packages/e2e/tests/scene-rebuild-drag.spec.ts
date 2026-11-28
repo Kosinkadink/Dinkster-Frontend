@@ -41,7 +41,7 @@ test.beforeEach(async ({ page }) => {
   const failures = await page.evaluate(async () => {
     const IMAGE = { kind: 'concrete', name: 'IMAGE' }
     const schemaOf = (type: string, items: unknown[]) =>
-      ({ type, displayName: type, category: 'test', source: 'v3', isOutputNode: false, items })
+      ({ type, displayName: type, category: 'test', source: 'v3', isOutputNode: false, body: items })
     window.__dinksterTest!.app.registerSchemas([
       schemaOf('RebuildSrcTest', [{ kind: 'output', id: 'out', type: IMAGE }]),
       schemaOf('RebuildSnkTest', [{ kind: 'input', id: 'in', type: IMAGE, optional: false }]),
@@ -62,10 +62,7 @@ test.beforeEach(async ({ page }) => {
           id: 'sub', name: 'sub',
           nodes: { inner: { id: 'inner', type: 'RebuildSrcTest', values: {} } },
           links: {}, nets: {}, reroutes: {},
-          boundary: {
-            inputs: [],
-            outputs: [{ id: 'r', binds: { kind: 'port', node: 'inner', port: 'out' } }],
-          },
+          boundary: { body: [{ kind: 'output', id: 'r', binds: { kind: 'port', node: 'inner', port: 'out' } }] },
           nextOrdinal: 10,
         },
       },

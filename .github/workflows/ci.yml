@@ -22,7 +22,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  DINKSTER_REF: 97523e2efba67d8fedf1de9f253130e7b80b2f0f
+  DINKSTER_REF: d3f7a20eb93423bb8368d94252936f6bc5f34ef2
 
 jobs:
   fast:
@@ -152,11 +152,14 @@ jobs:
       - name: Install Chromium
         timeout-minutes: 3
         run: pnpm --filter @dinkster/e2e exec playwright install chromium
-      - name: Run product screenshots
-        timeout-minutes: 15
-        run: pnpm test:visual
+      - name: Build and validate site screenshots
+        run: pnpm --filter @dinkster/site test:browser
+      - name: Validate production screenshots
+        run: pnpm --filter @dinkster/e2e exec playwright test --config=playwright.visual.config.ts
         env:
           DINKSTER_E2E_PORT: "15376"
+      - name: Validate UI screenshots and interactions
+        run: pnpm --filter @dinkster/ui test:browser
       - name: Retain browser failure evidence
         if: failure()
         uses: actions/upload-artifact@v4

@@ -16,31 +16,45 @@ import {
   executionBlockedBadge,
   executionExpandedBadge,
   executionErrorBadge,
+  isCanvasIconName,
+  LAST_RUN_BADGE,
   LOG_INFO_BADGE,
   logWarningBadge,
-  PROBLEM_BLOCKING_WARNING_BADGE,
+  mediaDiagnosticBadge,
   PROBLEM_ERROR_BADGE,
   PROBLEM_WARNING_BADGE,
+  problemBadge,
+  regionIterationBadge,
   subgraphBadge,
+  UNAVAILABLE_BADGE,
   type CompanionMap,
   type NodeBadge,
   type NodeOutputText,
   type NodePreview,
   type OutputTextMap,
-  type PortProblemMap,
+  type ProblemKind,
+  type RowProblemMap,
   type Scene,
 } from '@dinkster/canvas'
 import {
+  asNodeId,
+  asPortId,
+  boundaryItems,
   buildGraphConnectivity,
+  diag,
   deriveGlslMirrorBindings,
   deriveMirrorEstimates,
+  documentPrimitiveResolver,
   elabInputsOf,
   elaborateInterface,
   isDeprecated,
   outputsOf,
   parseOccurrenceKey,
+  primitiveOf,
   supportsOutputRepresentation,
+  withPrimitiveValue,
   effectiveWidgetDefault,
+  documentIdentityOf,
   occurrencesForView,
   runtimeIdsFor,
   subgraphDefIdOf,
@@ -49,14 +63,16 @@ import {
   type Diagnostic,
   type GraphDef,
   type Json,
+  type NodeData,
+  type NodeId,
   type NodeProgress,
   type NodeSchema,
   type NodeDecoration,
-  type NodeDecorationBadge,
   type NodeDecorationContribution,
   type ValueDiagnostic,
   type WidgetRegistry,
   type WorkflowDocument,
+  inputsOf,
 } from '@dinkster/core'
 import { imageAssetRefsOf, type DinksterValuesClient, type ExecutionLogEntry, type ExecutionState } from '@dinkster/client'
 import { deriveCompanions, liveExactnessFor, recordedProducerDisplay } from './companion-display.js'
@@ -75,14 +91,13 @@ import {
   type SelectedPreviewAsset,
 } from './node-previews.js'
 import type { NodeProblemMap } from './problem-display.js'
+import { problemBoxRows, runtimeProblemBoxLines } from './problem-box.js'
 import type { ExecutedImage, ExecutedImageBatch } from './executed-image-inventory.js'
 
 const controllerSensitiveFor = (
   artifact: NonNullable<ExecutionState['artifact']>,
   resolveSchema: ((type: string) => NodeSchema | undefined) | undefined,
 ) => {
-  const valueSourceSensitive = Object.values(artifact.snapshot.graphs).some((graph) =>
-    Object.values(graph.valueSources ?? {}).some((source) => source.controller !== undefined && source.controller !== 'fixed'))
   const controlled = new Set(Object.entries(artifact.provenance.toSource).flatMap(([runtimeId, key]) => {
     try {
       const source = parseOccurrenceKey(key)
@@ -98,7 +113,7 @@ const controllerSensitiveFor = (
       if (!node || !resolveSchema) return [runtimeId]
       const schema = resolveSchema(node.type)
       if (!schema) return [runtimeId]
-      const sensitive = schema.items.some((item) => item.kind === 'input' && item.widget?.controller === 'after_generate' &&
+      const sensitive = inputsOf(schema).some((item) => item.widget?.controller === 'after_generate' &&
         (node.controllers?.[item.id] ?? item.widget.controllerInitial ?? 'randomize') !== 'fixed')
       return sensitive ? [runtimeId] : []
     } catch {
@@ -107,7 +122,6 @@ const controllerSensitiveFor = (
   }))
   const provenRuntimeIds = new Set(Object.keys(artifact.provenance.toSource))
   return (runtimeId: string): boolean => {
-    if (valueSourceSensitive) return true
     const pending = [runtimeId]
     const seen = new Set<string>()
     while (pending.length > 0) {
@@ -135,6 +149,162 @@ const digestOutputs = (outputs: ExecutionState['outputs'][string]) => {
   const retained = Object.fromEntries(Object.entries(outputs)
     .filter(([, descriptor]) => imageAssetRefsOf(descriptor).length > 0))
   return Object.keys(retained).length > 0 ? retained : undefined
+}
+
+type RecordedAutomatic = NonNullable<ExecutionState['automaticValues']>[number]
+
+/** Calls `visit` for each automatic row of the viewed scene that the run recorded a value for. */
+function eachRecordedAutomaticRow(
+  scene: Scene,
+  execution: Pick<ExecutionState, 'artifact' | 'automaticValues'> | undefined,
+  instancePath: readonly string[] | undefined,
+  keep: (record: RecordedAutomatic) => boolean,
+  visit: (node: Scene['nodes'][number], row: Extract<Scene['nodes'][number]['layout']['rows'][number], { kind: 'widget' }>, record: RecordedAutomatic) => void,
+): void {
+  const records = execution?.automaticValues?.filter(keep) ?? []
+  const artifact = execution?.artifact
+  if (records.length === 0 || artifact === undefined || instancePath === undefined) return
+  const toSource = artifact.provenance.toSource
+  const view = occurrencesForView({ instancePath, runtimeIds: records.map((record) => record.runtimeNodeId), toSource })
+  // A field promoted to a subgraph node is recorded on the inner node that
+  // ran, under the inner input; the run's own document says which boundary
+  // item reaches it, through every subgraph in between.
+  const graphs = artifact.snapshot.graphs
+  const defOf = (graphId: string | undefined, nodeId: string): string | undefined => {
+    const type = graphId === undefined ? undefined : graphs[graphId]?.nodes[nodeId]?.type
+    return type === undefined ? undefined : subgraphDefIdOf(type)
+  }
+  let viewedGraph: string | undefined = artifact.snapshot.root
+  for (const instance of instancePath) viewedGraph = defOf(viewedGraph, instance)
+  const boundaryItemOf = (defId: string | undefined, hops: readonly string[], inputId: string): string | undefined => {
+    const [hop, ...rest] = hops
+    const inputs = defId === undefined ? undefined : boundaryItems(graphs[defId]?.boundary, 'inputs')
+    if (inputs === undefined || hop === undefined) return undefined
+    const port = rest.length === 0 ? inputId : boundaryItemOf(defOf(defId, hop), rest, inputId)
+    return inputs.find((item) => item.binds.kind === 'port' && item.binds.node === hop && item.binds.port === port)?.id
+  }
+  const keyOf = (node: Scene['nodes'][number], record: RecordedAutomatic): string | undefined => {
+    if ((view.own.get(node.id) ?? []).includes(record.runtimeNodeId)) return record.inputId
+    if (!(view.inner.get(node.id) ?? []).includes(record.runtimeNodeId)) return undefined
+    const occurrence = documentIdentityOf(record.runtimeNodeId, toSource)?.occurrence
+    if (occurrence === undefined) return undefined
+    const hops = [...occurrence.instancePath.slice(instancePath.length + 1), occurrence.node]
+    return boundaryItemOf(defOf(viewedGraph, node.id), hops, record.inputId)
+  }
+  for (const node of scene.nodes) {
+    const recorded = records.flatMap((record) => {
+      const key = keyOf(node, record)
+      return key === undefined ? [] : [{ key, record }]
+    })
+    if (recorded.length === 0) continue
+    for (const row of node.layout.rows) {
+      if (row.kind !== 'widget' || row.automatic === undefined) continue
+      const found = recorded.find((item) => item.key === row.valueKey)
+      if (found !== undefined) visit(node, row, found.record)
+    }
+  }
+}
+
+const shownValue = (value: Json): string => typeof value === 'string' ? value : JSON.stringify(value)
+
+/**
+ * The fields the viewed graph's last run filled with their default because
+ * it could not work out their automatic value, while the editor works one
+ * out now, and the fields whose value a node got at compile time differs
+ * from the one the run worked out for the field's own node: warnings
+ * anchored to the field and listed in Problems. A field that is fixed or
+ * wired is not automatic, so its warnings go; a later run replaces the
+ * records.
+ */
+export function lastRunAutomaticDiagnostics(args: {
+  readonly scene: Scene
+  readonly execution: Pick<ExecutionState, 'artifact' | 'automaticValues'> | undefined
+  readonly instancePath: readonly string[] | undefined
+}): readonly Diagnostic[] {
+  const out: Diagnostic[] = []
+  eachRecordedAutomaticRow(args.scene, args.execution, args.instancePath, (record) => !record.workedOut, (node, row, record) => {
+    if (row.automatic?.state !== 'worked-out') return
+    out.push(diag('warning', 'runtime', 'automatic.lastRunDefault',
+      `The last run could not work out ${row.label} and used the default, ${shownValue(record.value)}.`, {
+        anchor: { port: { node: asNodeId(node.id), port: asPortId(row.inputId) } },
+        data: { input: row.valueKey, runtimeId: record.runtimeNodeId },
+      }))
+  })
+  // A node that got the field's value copied in at compile time ran with
+  // that value, while the field's own node was worked out again when queued.
+  const taps = args.execution?.artifact?.automaticTaps ?? []
+  const differing = (record: RecordedAutomatic) => taps.filter((tap) =>
+    tap.runtimeNodeId === record.runtimeNodeId && tap.inputId === record.inputId && !sameJson(tap.value, record.value))
+  eachRecordedAutomaticRow(args.scene, args.execution, args.instancePath, (record) => differing(record).length > 0, (node, row, record) => {
+    // A compile passes one value on for a field, so the nodes that got it
+    // share one warning; a group per value keeps any other value apart.
+    const byValue = new Map<string, Map<string, string>>()
+    for (const tap of differing(record)) {
+      const key = JSON.stringify(tap.value)
+      let receivers = byValue.get(key)
+      if (receivers === undefined) byValue.set(key, (receivers = new Map()))
+      receivers.set(tap.receiverRuntimeId, tap.receiver)
+    }
+    for (const [key, receivers] of byValue) {
+      const names = [...receivers.values()]
+      const who = names.length === 1 ? names[0] : names.length === 2 ? `${names[0]} and ${names[1]}` : `${names.length} nodes`
+      out.push(diag('warning', 'runtime', 'automatic.lastRunTapDiffers',
+        `The last run used ${shownValue(record.value)} for ${row.label}, but ${who} got ${shownValue(JSON.parse(key) as Json)}.`, {
+          anchor: { port: { node: asNodeId(node.id), port: asPortId(row.inputId) } },
+          data: { input: row.valueKey, runtimeId: record.runtimeNodeId },
+        }))
+    }
+  })
+  return out
+}
+
+const sameJson = (a: Json, b: Json): boolean => JSON.stringify(a) === JSON.stringify(b)
+
+/**
+ * A frozen view of a past run: each automatic row shows the value that run
+ * recorded, not one worked out now, and warns only where the run used the
+ * default.
+ */
+export function withRecordedAutomaticValues(
+  scene: Scene,
+  execution: Pick<ExecutionState, 'artifact' | 'automaticValues'> | undefined,
+  instancePath: readonly string[] | undefined,
+): Scene {
+  const recorded = new Map<string, Map<string, RecordedAutomatic>>()
+  eachRecordedAutomaticRow(scene, execution, instancePath, () => true, (node, row, record) => {
+    let rows = recorded.get(node.id)
+    if (rows === undefined) recorded.set(node.id, (rows = new Map()))
+    rows.set(row.valueKey, record)
+  })
+  if (recorded.size === 0) return scene
+  const diagnostics = scene.diagnostics.filter((d) => {
+    const port = d.anchor?.port
+    return d.code !== 'automatic.default' || port === undefined ||
+      !recorded.get(port.node)?.has(String(d.data?.['input'] ?? port.port))
+  })
+  const nodes = scene.nodes.map((node) => {
+    const rows = recorded.get(node.id)
+    if (rows === undefined) return node
+    return {
+      ...node,
+      layout: {
+        ...node.layout,
+        rows: node.layout.rows.map((row) => {
+          const record = row.kind === 'widget' ? rows.get(row.valueKey) : undefined
+          if (record === undefined || row.kind !== 'widget') return row
+          if (!record.workedOut) {
+            diagnostics.push(diag('warning', 'runtime', 'automatic.default',
+              `Could not work out ${row.label}. Using the default, ${shownValue(record.value)}.`, {
+                anchor: { port: { node: asNodeId(node.id), port: asPortId(row.inputId) } },
+                data: { input: row.valueKey, runtimeId: record.runtimeNodeId },
+              }))
+          }
+          return { ...row, automatic: { value: record.value, state: record.workedOut ? 'worked-out' as const : 'default' as const } }
+        }),
+      },
+    }
+  })
+  return { ...scene, nodes, diagnostics }
 }
 
 /**
@@ -264,8 +434,6 @@ export interface SceneOverlayModel {
    * consumers, e.g. the lens context, must abstain rather than guess).
    */
   readonly ownRuntimeIds: ((nodeId: string) => readonly string[]) | undefined
-  /** Recorded selector choices (frozen tabs only); undefined = none. */
-  readonly selectorResolutions: Map<string, string> | undefined
   readonly badges: Readonly<Record<string, NodeBadge[]>>
   /**
    * Chronological run log records attributed to each scene node in this
@@ -282,7 +450,9 @@ export interface SceneOverlayModel {
   readonly blockedByNode: ReadonlyMap<string, string>
   /** Runtime expansion child counts projected onto their visible parent nodes. */
   readonly expandedByNode: ReadonlyMap<string, number>
-  readonly portProblems: PortProblemMap
+  readonly rowProblems: RowProblemMap
+  /** Nodes whose problems from the run have lost their color: changed since it (run-problem-standing.ts). */
+  readonly lastRunNodes: ReadonlySet<string>
   readonly previews: Readonly<Record<string, NodePreview>>
   /** Scene node -> source authority for host-owned media element failures. */
   readonly previewSources: Readonly<Record<string, PreviewSource>>
@@ -315,9 +485,9 @@ const decorationText = (value: unknown, field: string, max: number): string => {
   return value
 }
 
-const decorationBadge = (value: unknown): NodeDecorationBadge => {
+const decorationBadge = (value: unknown): NodeBadge => {
   if (!plainRecord(value)) throw new Error('badge must be a plain object')
-  const allowed = new Set(['id', 'glyph', 'fallbackGlyph', 'variant', 'appearance', 'placement', 'interactive', 'color'])
+  const allowed = new Set(['id', 'glyph', 'fallbackGlyph', 'variant', 'appearance', 'placement', 'interactive', 'color', 'icon'])
   if (Object.keys(value).some((key) => !allowed.has(key))) throw new Error('badge contains an unsupported field')
   const id = decorationText(value['id'], 'badge id', 128)
   if (!/^[a-z0-9][a-z0-9._-]*$/u.test(id)) throw new Error('badge id must be namespaced lowercase ASCII')
@@ -331,19 +501,19 @@ const decorationBadge = (value: unknown): NodeDecorationBadge => {
     throw new Error("badge placement must be 'above' or 'below'")
   }
   if (value['interactive'] !== undefined && value['interactive'] !== false) throw new Error('extension badges cannot be interactive')
+  const icon = value['icon']
+  if (icon !== undefined && (typeof icon !== 'string' || !isCanvasIconName(icon))) throw new Error('badge icon must name a canvas icon')
   return Object.freeze({
     id,
     glyph,
     color,
-    ...(value['fallbackGlyph'] === undefined ? {} : { fallbackGlyph: value['fallbackGlyph'] as string }),
-    ...(value['variant'] === undefined ? {} : { variant: 'label' as const }),
-    ...(value['appearance'] === undefined ? {} : { appearance: 'policy' as const }),
     ...(value['placement'] === undefined ? {} : { placement: value['placement'] as 'above' | 'below' }),
     ...(value['interactive'] === undefined ? {} : { interactive: false as const }),
+    ...(icon === undefined ? {} : { icon }),
   })
 }
 
-const normalizedDecoration = (value: unknown): NodeDecoration | undefined => {
+const normalizedDecoration = (value: unknown): (Omit<NodeDecoration, 'badges'> & { readonly badges?: readonly NodeBadge[] }) | undefined => {
   if (value === undefined) return undefined
   if (!plainRecord(value)) throw new Error('decoration must be a plain object')
   const allowed = new Set(['badges', 'color', 'titleSuffix', 'status'])
@@ -528,7 +698,14 @@ export function deriveSceneOverlays(args: {
   readonly nodeProblems?: NodeProblemMap
   /** Nodes whose runtime error badge the user dismissed for THIS run. */
   readonly dismissedErrorNodes?: ReadonlySet<string>
-  readonly portProblems?: PortProblemMap
+  readonly dismissedLogTabs?: ReadonlySet<string> | undefined
+  readonly rowProblems?: RowProblemMap
+  /**
+   * Live tabs: whether a node no longer runs as the run ran it, given the
+   * runtime ids in this view that failed (all of its runtime ids when none
+   * is known to have failed); run-problem-standing.ts. Absent = unchanged.
+   */
+  readonly runChanged?: (sceneNodeId: string, runtimeIds: readonly string[]) => boolean
   readonly resolveSchema: ((type: string) => NodeSchema | undefined) | undefined
   /**
    * Locally evaluate schema-declared expression mirrors and display the
@@ -669,17 +846,78 @@ export function deriveSceneOverlays(args: {
     }
   }
 
+  // A run's problems on a node lose their color once the node has changed
+  // since the run: no Failed state, a gray Last run tab, no row outlines.
+  // A node is judged by its failed runtime nodes, so a subgraph node follows
+  // the failed nodes inside it rather than every node inside it.
+  const lastRunNodes = new Set<string>()
+  if (!args.frozen && occ !== undefined && args.runChanged !== undefined && exec !== undefined) {
+    for (const n of scene.nodes) {
+      if (!runErrorsByNode.has(n.id) && states[n.id]?.state !== 'error') continue
+      const ids = runtimeIdsFor(occ, n.id)
+      const failed = new Set(ids.filter((id) => exec.nodes[id]?.state === 'error'))
+      for (const diagnostic of runErrorsByNode.get(n.id) ?? []) {
+        const id = diagnostic.data?.['runtimeId']
+        if (typeof id === 'string') failed.add(id)
+      }
+      if (args.runChanged(n.id, failed.size > 0 ? [...failed] : ids)) lastRunNodes.add(n.id)
+    }
+  }
+  // Once a run has ended, the live editor keeps only its errors; what ran,
+  // came from cache or was skipped is drawn in the frozen view.
+  const ended = exec !== undefined && exec.status !== 'queued' && exec.status !== 'running'
+  const shownStates = Object.fromEntries(Object.entries(states).filter(([id, progress]) =>
+    progress.state === 'error'
+      ? !lastRunNodes.has(id)
+      : args.frozen || !ended || (progress.state !== 'done' && progress.state !== 'cached' && progress.state !== 'skipped')))
+  const runtimeRows: Record<string, Record<string, ProblemKind>> = {}
+  for (const node of scene.nodes) {
+    if (lastRunNodes.has(node.id) || args.dismissedErrorNodes?.has(node.id)) continue
+    const errors = (runErrorsByNode.get(node.id) ?? []).filter((diagnostic) => diagnostic.anchor?.occurrence?.node === node.id)
+    if (errors.length === 0) continue
+    for (const line of runtimeProblemBoxLines(errors, [], 'error', problemBoxRows(node))) {
+      if (line.row !== undefined) (runtimeRows[node.id] ??= {})[line.row] = 'error'
+    }
+  }
+  let rowProblems = { ...args.rowProblems }
+  for (const [nodeId, rows] of Object.entries(runtimeRows)) rowProblems[nodeId] = { ...rowProblems[nodeId], ...rows }
+  if (lastRunNodes.size > 0 || (args.dismissedErrorNodes?.size ?? 0) > 0) {
+    const rows: Record<string, Readonly<Record<string, ProblemKind>>> = { ...rowProblems }
+    for (const id of new Set([...lastRunNodes, ...(args.dismissedErrorNodes ?? [])])) {
+      const kept: Record<string, ProblemKind> = {}
+      for (const line of args.nodeProblems?.[id] ?? []) {
+        if (line.row === undefined || line.diagnostic.origin === 'runtime') continue
+        if (kept[line.row] !== 'error') kept[line.row] = line.kind
+      }
+      if (Object.keys(kept).length > 0) rows[id] = kept
+      else delete rows[id]
+    }
+    rowProblems = rows
+  }
+
   // Resolve tap defaults from the elaborated interface, not only top-level
   // schema items: a persisted dynamic member is a real widget source too.
   // Cache one elaboration per source node for this overlay pass.
+  // A primitive's value field takes the widget its own row draws, so a field
+  // it feeds shows the value an empty primitive passes on in a run. An
+  // automatic field passes on the value its own row has in use, as a run does.
   const tapDefaults = new Map<string, ReadonlyMap<string, Json | undefined>>()
   let connectivity: ReturnType<typeof buildGraphConnectivity> | undefined
+  let resolvePrimitive: ReturnType<typeof documentPrimitiveResolver> | undefined
+  const tapSchemaOf = (node: NodeData): NodeSchema | undefined => {
+    const schema = args.resolveSchema?.(node.type)
+    const shape = schema && args.doc !== undefined ? primitiveOf(schema) : undefined
+    if (schema === undefined || shape === undefined) return schema
+    resolvePrimitive ??= documentPrimitiveResolver(args.doc!, args.resolveSchema!)
+    const effective = resolvePrimitive(gid, node, instancePath as readonly NodeId[] | undefined)
+    return effective === undefined ? schema : withPrimitiveValue(schema, shape, effective)
+  }
   const tapValueOf = (nodeId: string, inputId: string) => {
     let defaults = tapDefaults.get(nodeId)
     if (defaults === undefined) {
       const resolved = new Map<string, Json | undefined>()
       const node = args.def?.nodes[nodeId]
-      const schema = node === undefined ? undefined : args.resolveSchema?.(node.type)
+      const schema = node === undefined ? undefined : tapSchemaOf(node)
       if (node !== undefined && schema !== undefined) {
         const items = elabInputsOf(elaborateInterface(
           schema,
@@ -687,8 +925,14 @@ export function deriveSceneOverlays(args: {
           (connectivity ??= buildGraphConnectivity(args.def!))(node.id),
           { promoteGhosts: false },
         ))
+        const rows = args.scene.nodes.find((candidate) => candidate.id === nodeId)?.layout.rows ?? []
         for (const item of items) {
-          if (item.spec.widget !== undefined) resolved.set(valueKeyOf(item), effectiveWidgetDefault(item.spec.widget))
+          if (item.spec.widget === undefined) continue
+          const key = valueKeyOf(item)
+          const row = rows.find((candidate) => candidate.kind === 'widget' && candidate.valueKey === key)
+          resolved.set(key, row?.kind === 'widget' && row.automatic !== undefined
+            ? row.automatic.value
+            : effectiveWidgetDefault(item.spec.widget))
         }
       }
       defaults = resolved
@@ -742,20 +986,6 @@ export function deriveSceneOverlays(args: {
     estimates,
   })
 
-  // Frozen views show the selector branches that ACTUALLY ran: the
-  // artifact's recorded choices are authoritative (a random policy must
-  // display its recorded roll, never a fresh one). Live tabs never get
-  // resolutions - their document is editable and the policy badge already
-  // tells the truth about the NEXT run.
-  let selectorResolutions: Map<string, string> | undefined
-  if (args.frozen && exec?.artifact) {
-    const resolutions = new Map<string, string>()
-    for (const c of exec.artifact.choices ?? []) {
-      if (c.graph === gid) resolutions.set(c.selector, c.candidate)
-    }
-    if (resolutions.size > 0) selectorResolutions = resolutions
-  }
-
   const badges: Record<string, NodeBadge[]> = {}
   for (const n of scene.nodes) {
     const list: NodeBadge[] = []
@@ -765,45 +995,39 @@ export function deriveSceneOverlays(args: {
     // never a log level); dismissal hides it for this run only.
     const runErrors = runErrorsByNode.get(n.id)
     if (runErrors !== undefined && args.dismissedErrorNodes?.has(n.id) !== true) {
-      list.push(executionErrorBadge(runErrors.length))
+      list.push(lastRunNodes.has(n.id) ? LAST_RUN_BADGE : executionErrorBadge(runErrors.length))
     }
     const blocked = blockedByNode.get(n.id)
     if (blocked !== undefined) list.push(executionBlockedBadge(blocked))
     const expanded = expandedByNode.get(n.id)
     if (expanded !== undefined) list.push(executionExpandedBadge(expanded))
+    // Execution errors own their runtime tab; warnings still belong to Problems.
+    const problemLines = (args.nodeProblems?.[n.id] ?? []).filter((line) =>
+      !(line.kind === 'error' && (runErrorsByNode.has(n.id) || lastRunNodes.has(n.id)) && line.diagnostic.origin === 'runtime'))
+    const errorLines = problemLines.filter((line) => line.kind === 'error')
+    const warningLines = problemLines.filter((line) => line.kind === 'warning')
     const nodeLogs = runLogsByNode.get(n.id)
     if (nodeLogs !== undefined) {
-      const warnings = nodeLogs.reduce((total, entry) => entry.level === 'warning' ? total + 1 : total, 0)
-      if (warnings > 0) list.push(logWarningBadge(warnings))
-      if (nodeLogs.length > warnings) list.push(LOG_INFO_BADGE)
+      const warnings = nodeLogs.filter((entry) => entry.level === 'warning' &&
+        !(entry.code !== undefined && entry.origin === undefined && warningLines.some((line) =>
+          line.diagnostic.code === `runtime.${entry.code}` && line.diagnostic.data?.['runtimeId'] === entry.runtimeNodeId))).length
+      if (warnings > 0 && !args.dismissedLogTabs?.has(`${n.id}\u0000warning`)) list.push(logWarningBadge(warnings))
+      if (nodeLogs.some((entry) => entry.level !== 'warning') && !args.dismissedLogTabs?.has(`${n.id}\u0000info`)) list.push(LOG_INFO_BADGE)
     }
     for (const diagnostic of mediaDiagnosticsByNode.get(n.id) ?? []) {
       const port = diagnostic.code === 'alpha_dropped' ? diagnostic.outputId : diagnostic.inputId
       const id = `core.media.${diagnostic.code}.${diagnostic.nodeId}.${port}`
       if (list.some((badge) => badge.id === id)) continue
-      list.push({
-        id,
-        glyph: `${diagnostic.code === 'alpha_dropped' ? 'Alpha dropped' : 'Mask polarity'}: ${port}`,
-        variant: 'label',
-        placement: 'below',
-        interactive: false,
-        color: '#8a6d1f',
-      })
+      list.push(mediaDiagnosticBadge(id, `${diagnostic.code === 'alpha_dropped' ? 'Alpha dropped' : 'Mask polarity'}: ${port}`))
     }
-    for (const problem of args.nodeProblems?.[n.id] ?? []) {
-      // Execution errors already own the runtime error badge + its
-      // runtime-details popover. Keep mixed error groups, but do not
-      // duplicate a pure runtime group as a second document-error chip.
-      if (runErrorsByNode.has(n.id) && problem.kind === 'error' &&
-        problem.diagnostics.length > 0 && problem.diagnostics.every((d) => d.origin === 'runtime')) continue
-      list.push(problem.kind === 'error'
-        ? problem.diagnostics.some((diagnostic) => diagnostic.code === 'dinksterGraph.residentProcessBoundary' || diagnostic.code === 'dinksterGraph.nodeUnavailable')
-          ? { ...PROBLEM_ERROR_BADGE, glyph: 'Unavailable' }
-          : PROBLEM_ERROR_BADGE
-        : problem.kind === 'blocking-warning'
-          ? PROBLEM_BLOCKING_WARNING_BADGE
-          : PROBLEM_WARNING_BADGE)
+    // A node that cannot run here says so on its tab, with no count.
+    if (errorLines.some((line) =>
+      line.diagnostic.code === 'dinksterGraph.residentProcessBoundary' || line.diagnostic.code === 'dinksterGraph.nodeUnavailable')) {
+      list.push(UNAVAILABLE_BADGE)
+    } else if (errorLines.length > 0) {
+      list.push(problemBadge(PROBLEM_ERROR_BADGE, errorLines.length))
     }
+    if (warningLines.length > 0) list.push(problemBadge(PROBLEM_WARNING_BADGE, warningLines.length))
     if (n.isSubgraph) {
       const defId = subgraphDefIdOf(n.node.type)
       const occurrences = defId === undefined || args.doc === undefined ? 1 : Object.values(args.doc.graphs).reduce((count, graph) =>
@@ -812,15 +1036,7 @@ export function deriveSceneOverlays(args: {
     }
     else if (args.reviewReplacements === true && (args.replacementNodes?.has(n.id) || s !== undefined && isDeprecated(s))) list.push(DEPRECATED_BADGE)
     const iterationLabel = regionIterationLabels[n.id]
-    if (iterationLabel !== undefined) {
-      list.push({
-        id: 'core.region.iteration',
-        glyph: iterationLabel,
-        variant: 'label',
-        interactive: false,
-        color: '#315d73',
-      })
-    }
+    if (iterationLabel !== undefined) list.push(regionIterationBadge(iterationLabel))
     if (list.length > 0) badges[n.id] = list
   }
 
@@ -856,7 +1072,12 @@ export function deriveSceneOverlays(args: {
       outputKey: `${args.outputPreviewKeyPrefix ?? ''}\u0000${exec?.key ?? 'none'}\u0000${gid}\u0000${JSON.stringify(instancePath ?? [])}\u0000${n.id}`,
       ...(args.outputPreviewIndex === undefined ? {} : { outputIndex: args.outputPreviewIndex }),
     })
-    if (surface.preview !== undefined) previews[n.id] = surface.preview
+    // A refused output's caption row says why the preview is unavailable.
+    if (surface.preview !== undefined) {
+      previews[n.id] = surface.refusal === undefined || surface.preview.statusMessage !== undefined
+        ? surface.preview
+        : { ...surface.preview, statusMessage: surface.refusal }
+    }
     if (surface.source !== undefined) previewSources[n.id] = surface.source
     if (surface.executedOutput !== undefined) executedImages[n.id] = surface.executedOutput
     if (surface.selectedInput !== undefined) selectedInputPreviews[n.id] = surface.selectedInput
@@ -965,17 +1186,17 @@ export function deriveSceneOverlays(args: {
   }
 
   return {
-    states,
+    states: shownStates,
     companions: derived.companions,
     companionSources: derived.sources,
     ownRuntimeIds,
-    selectorResolutions,
     badges,
     runLogsByNode,
     runErrorsByNode,
     blockedByNode,
     expandedByNode,
-    portProblems: args.portProblems ?? {},
+    rowProblems,
+    lastRunNodes,
     previews,
     previewSources,
     executedImages,

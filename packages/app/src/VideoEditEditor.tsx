@@ -2,6 +2,7 @@ import { For, Show, createEffect, createMemo, createSignal, onCleanup } from 'so
 import type { Json, WidgetSpec } from '@dinkster/core'
 import type { RenditionOptions, ValuePeekResult } from '@dinkster/client'
 import type { VideoEditSource } from './video-edit-context.js'
+import { failureMessage } from './request-failure.js'
 import { Check, X } from 'lucide-solid'
 import { Icon } from './Icon.js'
 import { ProductButton, ProductCheckbox } from './ProductControls.js'
@@ -30,7 +31,6 @@ export interface VideoEditEditorProps {
   readonly previewUrl?: string
   readonly source?: VideoEditSource
   readonly sourceReason?: string
-  readonly editDisabledReason?: string
   readonly onCommit: (value: Json, strictDuration: boolean) => void
   readonly onCancel: () => void
 }
@@ -57,8 +57,8 @@ export function VideoEditEditor(props: VideoEditEditorProps) {
     setNumericErrors((errors) => ({ ...errors, [field]: valid ? undefined : `${field} must be a finite ${integer ? 'integer' : 'number'}.` }))
     if (valid) update(value)
   }
-  const editError = () => props.editDisabledReason ?? (!isVideoEditObject(props.value)
-    ? 'The imported VIDEO_EDIT is not an object. It is preserved; repair it in the raw value editor.' : undefined)
+  const editError = () => !isVideoEditObject(props.value)
+    ? 'The imported VIDEO_EDIT is not an object. It is preserved; repair it in the raw value editor.' : undefined
   createEffect(() => {
     const source = props.source
     setPeek(undefined)
@@ -68,7 +68,7 @@ export function VideoEditEditor(props: VideoEditEditorProps) {
     void source.values.peek(source.query, { signal: abort.signal }).then((result) => {
       if (!abort.signal.aborted) setPeek(result)
     }).catch((error: unknown) => {
-      if (!abort.signal.aborted) setPeek({ available: false, status: 0, reason: 'http-error', error: String(error) })
+      if (!abort.signal.aborted) setPeek({ available: false, status: 0, reason: 'http-error', error: failureMessage(error, 'Video preview unavailable.') })
     })
   })
   const facts = createMemo(() => {
@@ -112,13 +112,13 @@ export function VideoEditEditor(props: VideoEditEditorProps) {
       const timer = setTimeout(() => {
         void source.values.rendition(source.query, selected.kind, { ...selected.options, signal: abort.signal, descriptor: result.descriptor }).then((media) => {
           if (abort.signal.aborted) return
-          if (!media.available) { setState({ error: `${media.status} ${media.reason}: ${media.error}` }); return }
+          if (!media.available) { setState({ error: `Video preview unavailable. ${media.error}` }); return }
           if (!(selected.kind === 'preview' ? media.mime === 'video/mp4' : media.mime === 'image/png')) {
             setState({ error: 'The backend returned an unsupported preview format.' }); return
           }
           url = URL.createObjectURL(new Blob([media.bytes], { type: media.mime }))
           setState({ url, ...(media.colorTransform === undefined ? {} : { color: media.colorTransform }) })
-        }).catch((error: unknown) => { if (!abort.signal.aborted) setState({ error: String(error) }) })
+        }).catch((error: unknown) => { if (!abort.signal.aborted) setState({ error: failureMessage(error, 'Video preview unavailable.') }) })
       }, selected.kind === 'frame' ? 100 : 0)
       onCleanup(() => { clearTimeout(timer); abort.abort(); if (url) URL.revokeObjectURL(url) })
     })
@@ -141,7 +141,7 @@ export function VideoEditEditor(props: VideoEditEditorProps) {
   const previewAvailable = () => { const result = peek(); return result?.available && result.renditions.some((item) => item.kind === 'preview') }
   const sourceError = () => {
     const result = peek()
-    return result && !result.available ? `${result.status} ${result.reason}: ${result.error}` : props.sourceReason
+    return result && !result.available ? `Video preview unavailable. ${result.error}` : props.sourceReason
   }
   const updateTrim = (fields: Readonly<Record<string, number>>) => setDraft((value) => updateVideoEditSection(value, 'trim', fields))
   const updateCrop = (fields: Readonly<Record<string, number>>) => setDraft((value) => updateVideoEditSection(value, 'crop', fields))

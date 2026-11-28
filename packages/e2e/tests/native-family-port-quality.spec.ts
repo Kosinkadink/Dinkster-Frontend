@@ -8,88 +8,76 @@ type DynamicState = Record<string, {
   readonly seq?: number
 }>
 
-// Authored families opt into canonical positions; other families retain stable
-// mN identities. The reference-multi-latent image template is optional.
-const canonicalFamilyMembers: Record<string, Record<string, readonly string[] | null>> = {
-  'dinkster.image.batch_images_node': { images: ['image0'] },
-  'dinkster.latent.batch_latents_node': { latents: ['latent0'] },
-  'dinkster.image.batch_masks_node': { masks: ['mask0'] },
-  'dinkster.utilities.comfy_and_node': { values: ['value0'] },
-  'dinkster.utilities.comfy_or_node': { values: ['value0'] },
-  'dinkster.utilities.comfy_math_expression': { values: ['a'] },
-  'dinkster.video.concatenate_video': { videos: ['video0'] },
-  'dinkster.utilities.create_list': { inputs: ['input0'] },
-  'dinkster.image.glsl_shader': { images: ['image0'] },
-  'dinkster.3d.merge_meshes': { meshes: ['mesh0', 'mesh1'] },
-  'dinkster.3d.merge_splat': { splats: ['splat0', 'splat1'] },
-  'dinkster.conditioning.reference_multi_latent': { images: null },
-  'dinkster.misc.models.text_encode_moss_image_edit': { images: ['image_0'] },
-}
+// Node types whose live body holds a group.
+const groupNodeTypes = [
+  'dinkster.image.batch_images_node',
+  'dinkster.latent.batch_latents_node',
+  'dinkster.image.batch_masks_node',
+  'dinkster.utilities.comfy_and_node',
+  'dinkster.utilities.comfy_or_node',
+  'dinkster.utilities.comfy_math_expression',
+  'dinkster.video.concatenate_video',
+  'dinkster.utilities.create_list',
+  'dinkster.image.glsl_shader',
+  'dinkster.3d.merge_meshes',
+  'dinkster.3d.merge_splat',
+  'dinkster.conditioning.reference_multi_latent',
+  'dinkster.misc.models.text_encode_moss_image_edit',
+]
 
-type Wire15Input = {
+interface BodyRowJson {
   readonly kind: string
-  readonly id: string
-  readonly dynamic?: {
-    readonly kind: string
-    readonly materialization?: string
-    readonly optionalAfterMinimum?: boolean
-    readonly template?: readonly Wire15Input[]
-    readonly naming?:
-      | { readonly kind: 'prefix'; readonly min?: number }
-      | { readonly kind: 'names'; readonly names: readonly string[]; readonly min?: number }
-      | { readonly kind: 'native' }
-    readonly options?: readonly { readonly key: string; readonly inputs: readonly Wire15Input[] }[]
-  }
+  readonly id?: string
+  readonly rows?: readonly BodyRowJson[]
+  readonly member?: readonly BodyRowJson[]
+  readonly value?: BodyRowJson
+  readonly keys?:
+    | { readonly kind: 'numbered'; readonly prefix: string; readonly start: number; readonly pad: number }
+    | { readonly kind: 'named'; readonly names: readonly string[] }
+  readonly grows?: unknown
+  readonly minMembers?: number
+  readonly maxMembers?: number
+  readonly options?: readonly { readonly key: string; readonly rows: readonly BodyRowJson[] }[]
+  readonly shared?: readonly BodyRowJson[]
+  readonly required?: boolean
+  readonly default?: string
+  readonly leader?: string
 }
 
-function requiredWire15State(
-  nodeType: string,
-  items: readonly Wire15Input[],
+/**
+ * The dynamic state a new node must store: a group that grows by hand keeps
+ * its first `minMembers` keys (numbered keys also keep the counter), and a
+ * required choice keeps the option it starts on; both are followed down the
+ * stored members and the chosen option.
+ */
+function requiredState(
+  rows: readonly BodyRowJson[],
   prefix = '',
   result: DynamicState = {},
+  shared: readonly BodyRowJson[] = [],
 ): DynamicState {
-  for (const item of items) {
-    if (item.kind !== 'input') continue
-    const dynamic = item.dynamic
-    const construct = prefix === '' ? item.id : `${prefix}.${item.id}`
-    if (
-      dynamic?.kind === 'autogrow' &&
-      dynamic.materialization === 'wire15' &&
-      dynamic.naming !== undefined &&
-      dynamic.template !== undefined
-    ) {
-      if (dynamic.naming.kind === 'native') continue
-      const min = dynamic.naming.min ?? 0
-      if (min === 0) continue
-      const canonical = canonicalFamilyMembers[nodeType]?.[construct]
-      if (canonical !== undefined) {
-        expect(dynamic.optionalAfterMinimum, `${nodeType}:${construct}: canonical declaration`).toBe(true)
-      }
-      if (dynamic.optionalAfterMinimum) {
-        expect(canonical, `${nodeType}:${construct}: authored canonical expectation`).not.toBeUndefined()
-        if (canonical === null) continue
-      }
-      const members = dynamic.optionalAfterMinimum
-        ? canonical!
-        : dynamic.naming.kind === 'names'
-          ? dynamic.naming.names.slice(0, min)
-          : Array.from({ length: min }, (_, index) => `m${index}`)
-      result[construct] = {
-        members,
-        ...(dynamic.naming.kind === 'prefix' ? { seq: min } : {}),
-      }
-      for (const member of members) requiredWire15State(nodeType, dynamic.template, `${construct}.${member}`, result)
+  for (const raw of rows) {
+    if (raw.kind === 'section' || raw.kind === 'row') {
+      requiredState(raw.rows ?? [], prefix, result, shared)
       continue
     }
-    if (
-      dynamic?.kind !== 'dynamicCombo' ||
-      dynamic.materialization !== 'wire15' ||
-      dynamic.options === undefined
-    ) continue
-    const option = dynamic.options[0]
-    if (option === undefined) continue
-    result[construct] = { selected: option.key }
-    requiredWire15State(nodeType, option.inputs, construct, result)
+    const row = raw.kind === 'use' ? shared.find((candidate) => candidate.id === raw.id) : raw
+    if (row === undefined) continue
+    const path = `${prefix}${row.id}`
+    if (row.kind === 'group' && typeof row.grows === 'string' && (row.minMembers ?? 0) > 0 && row.keys !== undefined) {
+      const keys = row.keys
+      const count = Math.min(row.minMembers!, row.maxMembers ?? Infinity, keys.kind === 'named' ? keys.names.length : Infinity)
+      const members = Array.from({ length: count }, (_, index) => keys.kind === 'named'
+        ? keys.names[index]!
+        : `${keys.prefix}${String(keys.start + index).padStart(keys.pad, '0')}`)
+      result[path] = { members, ...(keys.kind === 'numbered' ? { seq: count } : {}) }
+      if (row.member !== undefined) for (const key of members) requiredState(row.member, `${path}.${key}.`, result)
+    } else if (row.kind === 'choice' && row.leader === undefined && row.required !== false && row.options !== undefined) {
+      const option = row.options.find((candidate) => candidate.key === (row.default ?? row.options![0]?.key))
+      if (option === undefined) continue
+      result[path] = { selected: option.key }
+      requiredState(option.rows, `${path}.`, result, row.shared ?? [])
+    }
   }
   return result
 }
@@ -124,7 +112,7 @@ async function placeFromPalette(
   })
   await page.mouse.dblclick(point.x, point.y)
   await page.getByTestId('palette-search').fill(type)
-  const option = page.locator(`[data-node-type="${type}"]`).getByRole('option')
+  const option = page.locator(`[data-key="entry:${type}"]`)
   await expect(option).toBeVisible()
   await option.click()
   await page.mouse.click(point.x, point.y)
@@ -183,22 +171,19 @@ test.beforeEach(async ({ page, request }) => {
   await waitForWorkspaceReady(page)
 })
 
-test('every live wire-15 family node persists minimums and reloads with a growth target', async ({ page }) => {
+test('every live group node persists minimums and reloads with member controls', async ({ page }) => {
   const familyNodeTypes = await page.evaluate(() => {
     const registry = window.__dinksterTest!.app.backends.get()[0]!.registry.get()!
-    const hasAutogrow = (items: readonly unknown[]): boolean => items.some((value) => {
-      if (typeof value !== 'object' || value === null) return false
-      const item = value as { kind?: string; dynamic?: { kind?: string; template?: readonly unknown[]; options?: readonly { inputs?: readonly unknown[] }[] } }
-      if (item.kind !== 'input' || item.dynamic === undefined) return false
-      if (item.dynamic.kind === 'autogrow') return true
-      return (item.dynamic.template !== undefined && hasAutogrow(item.dynamic.template)) ||
-        item.dynamic.options?.some((option) => option.inputs !== undefined && hasAutogrow(option.inputs)) === true
-    })
+    type Row = { kind?: string; rows?: readonly Row[]; member?: readonly Row[]; options?: readonly { rows: readonly Row[] }[]; shared?: readonly Row[] }
+    const hasGroup = (rows: readonly Row[]): boolean => rows.some((row) =>
+      row.kind === 'group' ||
+      ((row.kind === 'section' || row.kind === 'row' || row.kind === 'typeChoice') && hasGroup(row.rows ?? [])) ||
+      (row.kind === 'choice' && (hasGroup(row.shared ?? []) || row.options?.some((option) => hasGroup(option.rows)) === true)))
     return [...registry.schemas].flatMap(([type, schema]) =>
-      hasAutogrow((schema as { readonly items: readonly unknown[] }).items) ? [type] : [])
+      hasGroup((schema as { readonly body: readonly Row[] }).body) ? [type] : [])
   })
   expect(familyNodeTypes.length).toBeGreaterThan(0)
-  expect(familyNodeTypes).toEqual(expect.arrayContaining(Object.keys(canonicalFamilyMembers)))
+  expect(familyNodeTypes).toEqual(expect.arrayContaining(groupNodeTypes))
 
   for (const type of familyNodeTypes) {
     await openBlank(page, `fresh-${type}`)
@@ -209,33 +194,29 @@ test('every live wire-15 family node persists minimums and reloads with a growth
       const doc = window.__dinksterTest!.app.activeTab()!.store.doc
       const stored = doc.graphs[doc.root]!.nodes[nodeId]!
       const schema = window.__dinksterTest!.app.backends.get()[0]!.registry.get()!.schemas.get(type)! as {
-        readonly items: readonly unknown[]
+        readonly body: readonly unknown[]
       }
       return {
         dynamic: stored.dynamic ?? {},
-        schemaItems: schema.items,
-        hasGrowthTarget:
-          node.layout.pins.some((pin) => pin.ghost === true) ||
+        schemaBody: schema.body,
+        hasMemberControl:
+          node.layout.pins.some((pin) => pin.familyMember === true) ||
           node.layout.rows.some((row) => row.kind === 'growth'),
         underMinimum: scene.diagnostics
           .filter((diagnostic) => diagnostic.code === 'elab.autogrow.underMin')
           .map((diagnostic) => diagnostic.message),
       }
     }, { nodeId, type })
-    const required = requiredWire15State(type, result.schemaItems as Wire15Input[])
-    for (const [construct, state] of Object.entries(required)) {
-      expect(result.dynamic[construct], `${type}:${construct}`).toEqual(state)
-    }
-    for (const [construct, members] of Object.entries(canonicalFamilyMembers[type] ?? {})) {
-      if (members === null) expect(result.dynamic[construct], `${type}:${construct}:optional`).toBeUndefined()
-    }
-    // These nodes expose only the hidden dependencies family in loops.py.
-    const visibleGrowth = ![
+    const required = requiredState(result.schemaBody as BodyRowJson[])
+    // A new node stores exactly that state: an optional group stores no member.
+    expect(result.dynamic, type).toEqual(required)
+    // These nodes hold only the hidden dependencies group in loops.py.
+    const visibleMembers = ![
       'dinkster.utilities.loop_iteration',
       'dinkster.utilities.loop_progress',
       'dinkster.utilities.loop_result',
     ].includes(type)
-    expect(result.hasGrowthTarget, type).toBe(visibleGrowth)
+    expect(result.hasMemberControl, type).toBe(visibleMembers)
     expect(result.underMinimum, type).toEqual([])
 
     await page.evaluate(async ({ type }) => {
@@ -255,21 +236,16 @@ test('every live wire-15 family node persists minimums and reloads with a growth
       const doc = app.activeTab()!.store.doc
       return {
         dynamic: doc.graphs[doc.root]!.nodes[nodeId]!.dynamic ?? {},
-        hasGrowthTarget:
-          node.layout.pins.some((pin) => pin.ghost === true) ||
+        hasMemberControl:
+          node.layout.pins.some((pin) => pin.familyMember === true) ||
           node.layout.rows.some((row) => row.kind === 'growth'),
         underMinimum: scene.diagnostics
           .filter((diagnostic) => diagnostic.code === 'elab.autogrow.underMin')
           .map((diagnostic) => diagnostic.message),
       }
     }, { nodeId })
-    for (const [construct, state] of Object.entries(required)) {
-      expect(reloaded.dynamic[construct], `${type}:${construct}:reload`).toEqual(state)
-    }
-    for (const [construct, members] of Object.entries(canonicalFamilyMembers[type] ?? {})) {
-      if (members === null) expect(reloaded.dynamic[construct], `${type}:${construct}:optional:reload`).toBeUndefined()
-    }
-    expect(reloaded.hasGrowthTarget, `${type}:reload`).toBe(visibleGrowth)
+    expect(reloaded.dynamic, `${type}:reload`).toEqual(required)
+    expect(reloaded.hasMemberControl, `${type}:reload`).toBe(visibleMembers)
     expect(reloaded.underMinimum, `${type}:reload`).toEqual([])
   }
 })
@@ -281,7 +257,7 @@ test('Math Expression keeps named inputs ordered through growth and compaction',
   await drag(page, source, { x: 800, y: 500 })
   await expect(page.getByTestId('node-palette')).toBeVisible()
   await page.getByTestId('palette-search').fill('dinkster.utilities.comfy_math_expression')
-  await page.locator('[data-node-type="dinkster.utilities.comfy_math_expression"]').getByRole('option').click()
+  await page.locator('[data-key="entry:dinkster.utilities.comfy_math_expression"]').click()
 
   const mathId = await expect.poll(() => page.evaluate(() => {
     const doc = window.__dinksterTest!.app.activeTab()!.store.doc
@@ -302,7 +278,7 @@ test('Math Expression keeps named inputs ordered through growth and compaction',
   expect(state).toEqual({ members: ['a'], targets: ['values.a'] })
 
   const next = await pinPoint(page, mathId, 'in', 'values.b')
-  await drag(page, source, next)
+  await drag(page, await pinPoint(page, sourceId, 'out', 'FLOAT'), next)
   state = await page.evaluate((mathId) => {
     const doc = window.__dinksterTest!.app.activeTab()!.store.doc
     const graph = doc.graphs.g0!
@@ -328,7 +304,7 @@ test('Math Expression keeps named inputs ordered through growth and compaction',
       valueWidgets: node.layout.rows.filter((row) =>
         row.kind === 'widget' && row.inputId?.startsWith('values.') === true,
       ).map((row) => row.inputId!),
-      pairedRows: node.layout.rows.filter((row) => row.kind === 'ports').map((row) => ({
+      portRows: node.layout.rows.filter((row) => row.kind === 'ports').map((row) => ({
         input: row.input?.portId,
         output: row.output?.portId,
       })),
@@ -341,10 +317,13 @@ test('Math Expression keeps named inputs ordered through growth and compaction',
     { port: 'values.c', ghost: true },
   ]))
   expect(reloaded.valueWidgets).toEqual([])
-  expect(reloaded.pairedRows).toEqual([
-    { input: 'values.a', output: 'FLOAT' },
-    { input: 'values.b', output: 'INT' },
-    { input: 'values.c', output: 'BOOL' },
+  expect(reloaded.portRows).toEqual([
+    { input: 'values.a', output: undefined },
+    { input: 'values.b', output: undefined },
+    { input: 'values.c', output: undefined },
+    { input: undefined, output: 'FLOAT' },
+    { input: undefined, output: 'INT' },
+    { input: undefined, output: 'BOOL' },
   ])
 
   const preserved = await page.evaluate(async (mathId) => {
@@ -398,9 +377,8 @@ test('Math Expression keeps named inputs ordered through growth and compaction',
     value: 2.5,
     links: [{ id: preserved.bLinkId, target: 'values.b' }],
     inputs: [
-      { port: 'values.a', ghost: false },
       { port: 'values.b', ghost: false },
-      { port: 'values.c', ghost: true },
+      { port: 'values.a', ghost: true },
     ],
   })
   const minimapToggle = page.getByTestId('minimap-toggle')
@@ -421,9 +399,8 @@ test('Math Expression keeps named inputs ordered through growth and compaction',
     value: 2.5,
     links: [{ id: preserved.bLinkId, target: 'values.b' }],
     inputs: [
-      { port: 'values.a', ghost: false },
       { port: 'values.b', ghost: false },
-      { port: 'values.c', ghost: true },
+      { port: 'values.a', ghost: true },
     ],
   })
 })

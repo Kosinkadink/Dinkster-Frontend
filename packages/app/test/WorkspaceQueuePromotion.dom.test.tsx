@@ -70,7 +70,7 @@ const outputSchema: NodeSchema = {
   category: 'test',
   source: 'v3',
   isOutputNode: true,
-  items: [],
+  body: [],
 }
 
 const workflow = (): WorkflowDocument => ({
@@ -140,7 +140,7 @@ const workspaceApp = async (startSharedWorkspace = true): Promise<{
 describe('workspace promotion queueing', () => {
   it.each(['promoted', 'edited', 'reopened'] as const)('applies a staged asset only to its unchanged continuation: %s', async (action) => {
     const { app, enableAuthority } = await workspaceApp(false)
-    const schema: NodeSchema = { ...outputSchema, items: [{ kind: 'input', id: 'asset', optional: false,
+    const schema: NodeSchema = { ...outputSchema, body: [{ kind: 'input', id: 'asset', optional: false,
       type: { kind: 'concrete', name: 'ASSET' },
       widget: { widgetType: 'ASSET', kind: 'model/checkpoint', options: { accept: ['application/x-safetensors'] } },
     }] }

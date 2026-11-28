@@ -64,7 +64,7 @@ test.beforeEach(async ({ page }, testInfo) => {
   if (testInfo.annotations.some((annotation) => annotation.type === 'mock-name-dispatch')) {
     await page.route(/\/api\//, (route) => route.fulfill({ status: 503, json: {} }))
     await page.route('**/api/nodes*', (route) => route.fulfill({ json: {
-      schemaVersion: 1, epoch: 1, dinkster: { version: 'name-fixture', schemaWire: 1 }, nodes: {},
+      schemaVersion: 1, epoch: 1, dinkster: { version: 'name-fixture', schemaWire: 2 }, nodes: {},
     } }))
     await page.routeWebSocket('**/api/events?*', () => {})
     await page.goto('/')
@@ -79,11 +79,11 @@ test.beforeEach(async ({ page }, testInfo) => {
     await page.route('/object_info', (route) => route.fulfill({ json: {} }))
   }
   await page.goto('/')
+  await waitForWorkspaceReady(page)
   await expect.poll(() => page.evaluate(() => {
     const backend = window.__dinksterTest!.app.backends.get()[0]!
     return backend.schemaState.get().status === 'ready' && backend.workerCatalog.get().status === 'ready'
   })).toBe(true)
-  await waitForWorkspaceReady(page)
   await identityViewport(page)
 })
 
@@ -97,7 +97,7 @@ documentTest('canvas name prompts await acceptance and keep refused or newer dra
   await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
-      type: 'NameTest', displayName: 'Original name', category: 'test', source: 'v3', isOutputNode: false, items: [],
+      type: 'NameTest', displayName: 'Original name', category: 'test', source: 'v3', isOutputNode: false, body: [],
     }])
     await app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'name-dispatch', root: 'g0',
@@ -379,6 +379,9 @@ test('oversized root and child menus stay in a short viewport, flip left, and re
   await page.addStyleTag({ content: '.context-menu .menu-item { padding-top: 30px; padding-bottom: 30px; }' })
   await page.getByRole('button', { name: 'Toggle right rail' }).click()
   await page.getByRole('button', { name: 'Hide minimap' }).click()
+  // The seed's migration notice can cover the node header in this short viewport.
+  const notice = page.getByTestId('fixes-notice')
+  if (await notice.isVisible()) await notice.getByRole('button', { name: 'Dismiss', exact: true }).click()
   const canvas = await page.getByTestId('graph-canvas').boundingBox()
   expect(canvas).not.toBeNull()
   await page.evaluate(({ canvasWidth, canvasHeight }) => {
@@ -464,18 +467,23 @@ async function openSectionedWorkflow(page: Page): Promise<void> {
         category: 'test',
         source: 'v3',
         isOutputNode: false,
-        items: [
+        body: [
           { kind: 'input', id: 'a', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
-          { kind: 'section', id: 'adv', displayName: 'Advanced' },
           {
-            kind: 'input',
-            id: 'w',
-            type: { kind: 'concrete', name: 'INT' },
-            optional: false,
-            section: 'adv',
-            widget: { widgetType: 'INT', options: {}, default: 20 },
+            kind: 'section',
+            id: 'adv',
+            displayName: 'Advanced',
+            rows: [
+              {
+                kind: 'input',
+                id: 'w',
+                type: { kind: 'concrete', name: 'INT' },
+                optional: false,
+                widget: { widgetType: 'INT', options: {}, default: 20 },
+              },
+              { kind: 'input', id: 'b', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
+            ],
           },
-          { kind: 'input', id: 'b', type: { kind: 'concrete', name: 'IMAGE' }, optional: false, section: 'adv' },
           { kind: 'output', id: 'x', type: { kind: 'concrete', name: 'IMAGE' } },
         ],
       },
@@ -485,7 +493,7 @@ async function openSectionedWorkflow(page: Page): Promise<void> {
         category: 'test',
         source: 'v3',
         isOutputNode: false,
-        items: [{ kind: 'output', id: 'out0', type: { kind: 'concrete', name: 'IMAGE' } }],
+        body: [{ kind: 'output', id: 'out0', type: { kind: 'concrete', name: 'IMAGE' } }],
       },
     ])
     await app.openDocument(
@@ -587,9 +595,9 @@ documentTest('noodle into a collapsed section stays anchored on the header row',
     const r = window.__dinksterTest!.renderer!
     const scene = r.getScene()
     const node = scene.nodes.find((n) => n.id === 's0')!
-    const header = node.layout.rows.find((row) => row.kind === 'section')!
+    const closedBox = node.layout.boxes!.find((box) => box.id === 'adv' && box.closed)!
     const link = scene.links.find((l) => l.to.kind === 'port' && l.to.node === 's0')!
-    return { linkY: link.y2, headerCenter: node.y + header.y + header.height / 2 }
+    return { linkY: link.y2, headerCenter: node.y + closedBox.y + closedBox.height / 2 }
   })
   expect(anchored.linkY).toBe(anchored.headerCenter)
 })
@@ -751,7 +759,7 @@ documentTest('create empty subgraph drills in and one undo removes the definitio
   await menuItem(page, 'core.canvas.createSubgraph').click()
   await expect(page.getByTestId('graph-breadcrumb')).toBeVisible()
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.graphStack.get().at(-1))).toBe('g0')
-  expect(await page.evaluate(() => (window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0 as any)?.boundary)).toEqual({ inputs: [], outputs: [] })
+  expect(await page.evaluate(() => (window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0 as any)?.boundary)).toEqual({ body: [] })
   await page.keyboard.press('Control+z')
   await expect(page.getByTestId('graph-breadcrumb')).not.toBeVisible()
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0)).toBeUndefined()

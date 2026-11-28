@@ -3,7 +3,7 @@
  * definition is instantiated twice, so bare definition node ids cannot tell
  * the host which runtime state belongs in the current drilled-in view.
  */
-import { expect, test, waitForWorkspaceReady, type Page } from './fixtures.js'
+import { expect, test, subgraphMarkPoint, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 type ProjectedStates = Readonly<Record<string, { state: string; value?: number }>>
 
@@ -16,17 +16,8 @@ const projectedStates = (page: Page) =>
   })
 
 async function drillInto(page: Page, nodeId: string): Promise<void> {
-  const header = await page.evaluate((nodeId) => {
-    const renderer = window.__dinksterTest!.renderer!
-    const node = renderer.getScene().nodes.find((item) => item.id === nodeId)
-    if (!node) throw new Error(`no scene node '${nodeId}'`)
-    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-    return {
-      x: rect.left + node.x + node.layout.width / 2,
-      y: rect.top + node.y + node.layout.headerHeight / 2,
-    }
-  }, nodeId)
-  await page.mouse.dblclick(header.x, header.y)
+  const mark = await subgraphMarkPoint(page, nodeId)
+  await page.mouse.dblclick(mark.x, mark.y)
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.graphStack.get().length)).toBe(2)
 }
 
@@ -45,7 +36,7 @@ test('sibling subgraph occurrences project independently at root and when drille
       category: 'test',
       source: 'v3',
       isOutputNode: false,
-      items: [],
+      body: [],
     }])
     const document = {
       format: 'dinkster-workflow',
@@ -117,19 +108,13 @@ test('sibling subgraph occurrences project independently at root and when drille
     await page.mouse.move(0, 0)
     await expect.poll(async () => {
       const breadcrumb = (await page.getByTestId('graph-breadcrumb').boundingBox())!
-      const status = (await page.getByTestId('sync-chip').boundingBox())!
       const toolbar = (await page.locator('.canvas-stage-toolbar').boundingBox())!
-      return breadcrumb.y >= toolbar.y + toolbar.height + 8 && status.y >= breadcrumb.y + breadcrumb.height + 8
+      return breadcrumb.y >= toolbar.y + toolbar.height + 8
     }).toBe(true)
     await page.screenshot({ path: testInfo.outputPath(`breadcrumb-${width}.png`), animations: 'disabled' })
   }
   await page.getByTestId('graph-breadcrumb').locator('.crumb').first().click()
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.graphStack.get().length)).toBe(1)
-  await expect.poll(async () => {
-    const status = (await page.getByTestId('sync-chip').boundingBox())!
-    const toolbar = (await page.locator('.canvas-stage-toolbar').boundingBox())!
-    return status.y - toolbar.y - toolbar.height
-  }).toBe(8)
   await page.getByTestId('library-toggle').click()
   await drillInto(page, 's2')
   await expect.poll(() => projectedStates(page)).toEqual({

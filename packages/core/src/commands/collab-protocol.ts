@@ -4,7 +4,7 @@ import type { WirePatchOp } from './session.js'
 
 export const COLLAB_PROTOCOL_VERSION = 1
 
-export type CollabDocumentKind = 'workflow' | 'image'
+export type CollabDocumentKind = 'workflow' | 'image' | 'board'
 
 export interface CollabSessionDescriptor {
   readonly protocolVersion: number
@@ -13,8 +13,21 @@ export interface CollabSessionDescriptor {
   readonly documentId: string
   /** Omitted by protocol-v1 workflow-only servers and interpreted as workflow. */
   readonly documentKind?: CollabDocumentKind
+  readonly title?: string
+  readonly canEdit?: boolean
   readonly revision: number
   readonly snapshotRevision: number
+}
+
+export interface NumericCorrection {
+  readonly owner: { readonly graphId: string; readonly nodeId: string; readonly valueKey: string }
+  readonly causes: readonly {
+    readonly graphId: string
+    readonly nodeId: string
+    readonly instancePath: readonly string[]
+    readonly valueKey: string
+    readonly stamp: string
+  }[]
 }
 
 export interface CollabClientOp {
@@ -23,6 +36,7 @@ export interface CollabClientOp {
   readonly actorId: string
   readonly baseRevision: number
   readonly patch: readonly WirePatchOp[]
+  readonly numericCorrections?: readonly NumericCorrection[]
 }
 
 export interface CollabServerOp {
@@ -31,6 +45,7 @@ export interface CollabServerOp {
   readonly baseRevision: number
   readonly revision: number
   readonly patch: readonly WirePatchOp[]
+  readonly numericCorrections?: readonly NumericCorrection[]
   readonly timestamp: number
   readonly replayed?: boolean
 }
@@ -40,6 +55,8 @@ export type PostOpOutcome =
   | { readonly kind: 'stale-base'; readonly revision: number }
   | { readonly kind: 'snapshot-required' }
   | { readonly kind: 'protocol-unsupported'; readonly supported: readonly number[] }
+  /** The server judged the op and stored none of it, such as a number outside its limits. */
+  | { readonly kind: 'refused'; readonly code: string; readonly message: string }
   | { readonly kind: 'forbidden' | 'actor-principal-mismatch' | 'rate-limited'; readonly diagnostic: CollabDenial }
   | { readonly kind: 'error'; readonly message: string }
 
@@ -66,6 +83,8 @@ export type PutSnapshotOutcome = { readonly kind: 'ok' } | { readonly kind: 'con
 
 export type CollabConnectionEvent =
   | { readonly kind: 'connected'; readonly descriptor: CollabSessionDescriptor }
+  | { readonly kind: 'session-title'; readonly title: string }
+  | { readonly kind: 'session-permissions'; readonly canEdit: boolean }
   | { readonly kind: 'disconnected' }
   | { readonly kind: 'op'; readonly op: CollabServerOp }
   | { readonly kind: 'presence'; readonly actorId: string; readonly payload?: Json }
@@ -86,6 +105,9 @@ export interface CollabConnection {
 
 export const isValidCollabRevision = (value: unknown): value is number =>
   typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+
+export const isValidCollabTitle = (value: unknown): value is string =>
+  typeof value === 'string' && value.trim().length > 0 && Array.from(value).length <= 200
 
 const WIRE_PATCH_OPS: ReadonlySet<string> = new Set(['add', 'remove', 'replace'])
 const FORBIDDEN_SEGMENTS: ReadonlySet<string> = new Set(['__proto__', 'constructor', 'prototype'])
@@ -124,6 +146,26 @@ export function validateCollabServerOp(raw: unknown): string | null {
   if (typeof op.timestamp !== 'number' || !Number.isFinite(op.timestamp)) {
     return 'op envelope: invalid timestamp'
   }
+  if (op.numericCorrections !== undefined) {
+    if (!Array.isArray(op.numericCorrections)) return 'op envelope: invalid numericCorrections'
+    const owners = new Set<string>()
+    const address = (raw: unknown, keys: readonly string[]): raw is Record<string, unknown> => {
+      if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return false
+      const value = raw as Record<string, unknown>
+      return Object.keys(value).length === keys.length && keys.every((key) => key === 'instancePath'
+        ? Array.isArray(value[key]) && value[key].every((part: unknown) => typeof part === 'string' && part.length > 0)
+        : typeof value[key] === 'string' && value[key].length > 0)
+    }
+    for (const entry of op.numericCorrections) {
+      if (entry === null || typeof entry !== 'object' || Object.keys(entry).length !== 2 ||
+        !address(entry.owner, ['graphId', 'nodeId', 'valueKey']) || !Array.isArray(entry.causes) || entry.causes.length === 0 ||
+        !entry.causes.every((cause: unknown) => address(cause, ['graphId', 'nodeId', 'valueKey', 'instancePath', 'stamp'])))
+        return 'op envelope: invalid numeric correction'
+      const key = JSON.stringify([entry.owner.graphId, entry.owner.nodeId, entry.owner.valueKey])
+      if (owners.has(key)) return 'op envelope: duplicate numeric correction owner'
+      owners.add(key)
+    }
+  }
   const patch = validateCollabWirePatchShape(op.patch)
   return patch === null ? null : `op envelope: ${patch}`
 }
@@ -140,6 +182,8 @@ export function validateCollabDescriptor(
   }
   if (descriptor.sessionId !== sessionId) return 'descriptor: sessionId mismatch'
   if ((descriptor.documentKind ?? 'workflow') !== documentKind) return 'descriptor: documentKind mismatch'
+  if (descriptor.title !== undefined && !isValidCollabTitle(descriptor.title)) return 'descriptor: invalid title'
+  if (descriptor.canEdit !== undefined && typeof descriptor.canEdit !== 'boolean') return 'descriptor: invalid canEdit'
   if (!isValidCollabRevision(descriptor.revision)) return 'descriptor: invalid revision'
   if (!isValidCollabRevision(descriptor.snapshotRevision) || descriptor.snapshotRevision > descriptor.revision) {
     return 'descriptor: invalid snapshotRevision'

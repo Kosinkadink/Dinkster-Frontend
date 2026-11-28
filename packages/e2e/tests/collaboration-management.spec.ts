@@ -222,7 +222,7 @@ test('sharing keeps a local edit undoable with Ctrl+Z', async ({ page }) => {
   const baseline = await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{ type: 'ShareUndoProof', displayName: 'Share undo proof', category: 'test',
-      source: 'v3', isOutputNode: false, items: [] }])
+      source: 'v3', isOutputNode: false, body: [] }])
     const tab = app.activeTab()!
     const graphId = tab.store.doc.root
     const count = Object.keys(tab.store.doc.graphs[graphId]!.nodes).length
@@ -292,8 +292,9 @@ test('production watcher keeps remote close truthful when an in-flight end fails
   await expect(page.getByTestId('collab-session')).toHaveCount(1)
 
   await page.getByTestId('collab-end').click()
-  await page.getByTestId('collab-end-confirm-button').click()
-  await expect(page.getByTestId('collab-end-confirm-button')).toHaveAttribute('aria-busy', 'true')
+  await expect(page.getByTestId('collab-end-confirm').getByRole('button', { name: 'Cancel', exact: true })).toBeFocused()
+  await page.getByRole('button', { name: 'End session for everyone', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'End session for everyone', exact: true })).toHaveAttribute('aria-busy', 'true')
   await page.evaluate(() => {
     const fixture = (window as unknown as {
       __collabAuthorityFixture: { emitClosed(): void }
@@ -443,7 +444,7 @@ test('successful end invalidates in-flight discovery and preserves its announcem
   await openCollaboration(page)
 
   await page.getByTestId('collab-end').click()
-  await page.getByTestId('collab-end-confirm-button').click()
+  await page.getByRole('button', { name: 'End session for everyone', exact: true }).click()
   await expect(page.getByTestId('collab-unshared')).toBeFocused()
   await expect(page.getByTestId('collab-panel').getByRole('status').first()).toHaveText(
     'The collaboration session ended for everyone. The workflow is available locally.',

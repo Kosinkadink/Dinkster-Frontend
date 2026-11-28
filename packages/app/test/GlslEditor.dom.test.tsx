@@ -16,23 +16,23 @@ layout(location = 0) out vec4 fragColor0;
 void main() { fragColor0 = vec4(0.25); }`
 
 const payload = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   nodes: {
     'dinkster.image.glsl_shader': {
-      schemaVersion: 1,
+      schemaVersion: 2,
       displayName: 'GLSL Shader',
       category: 'image/shader',
       idempotent: false,
       outputNode: true,
       editorRole: 'glsl',
-      interface: [
+      body: [
         {
-          role: 'input', id: 'fragment_shader', required: false,
+          kind: 'input', id: 'fragment_shader', required: false,
           type: { kind: 'concrete', types: ['STRING'] },
           default: INITIAL_SOURCE,
           widget: { type: 'STRING', multiline: true },
         },
-        { role: 'output', id: 'image0', type: { kind: 'concrete', types: ['IMAGE'] } },
+        { kind: 'output', id: 'image0', type: { kind: 'concrete', types: ['IMAGE'] } },
       ],
     },
   },
@@ -104,9 +104,9 @@ afterEach(() => {
 describe('GlslEditor', () => {
   it('selects the preview output, shows runner diagnostics, and applies the exact source', async () => {
     const mounted = await mount()
-    const select = mounted.root.querySelector<HTMLSelectElement>('select[aria-label="Preview output"]')!
-    select.value = '2'
-    select.dispatchEvent(new Event('change', { bubbles: true }))
+    mounted.root.querySelector<HTMLButtonElement>('[role="combobox"][aria-label="Preview output"]')!.click()
+    const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((entry) => entry.textContent === 'fragColor2')!
+    option.click()
     await vi.waitFor(() => expect(mounted.runner.render).toHaveBeenLastCalledWith(expect.objectContaining({
       output: 2,
       images: { u_image1: expect.any(HTMLImageElement) },

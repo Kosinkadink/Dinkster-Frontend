@@ -31,7 +31,7 @@ test('Advanced proxies restore endpoints and scalar-list sockets stay distinct',
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'advanced-prominence-e2e', schemaWire: 1 },
+    dinkster: { version: 'advanced-prominence-e2e', schemaWire: 2 },
     nodes: {},
   } }))
   await page.route('/api/diagnostics', (route) => route.fulfill({ json: {} }))
@@ -44,56 +44,59 @@ test('Advanced proxies restore endpoints and scalar-list sockets stay distinct',
     window.__dinksterTest!.app.registerSchemas([
       {
         type: 'ImageSourceE2E', displayName: 'Image Source', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'output', id: 'image', type: concrete('IMAGE') }],
+        body: [{ kind: 'output', id: 'image', type: concrete('IMAGE') }],
       },
       {
         type: 'ImageSinkE2E', displayName: 'Image Sink', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'input', id: 'image', type: concrete('IMAGE'), optional: false }],
+        body: [{ kind: 'input', id: 'image', type: concrete('IMAGE'), optional: false }],
       },
       {
         type: 'FloatSinkE2E', displayName: 'Float Sink', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'input', id: 'value', type: concrete('FLOAT'), optional: false }],
+        body: [{ kind: 'input', id: 'value', type: concrete('FLOAT'), optional: false }],
       },
       {
         type: 'AdvancedE2E', displayName: 'Advanced Controls', category: 'test', source: 'v3', isOutputNode: false,
-        items: [
+        body: [
           { kind: 'input', id: 'image', type: concrete('IMAGE'), optional: false },
-          { kind: 'input', id: 'reference', type: concrete('IMAGE'), optional: true, advanced: true },
           {
             kind: 'input', id: 'caption', type: concrete('STRING'), optional: true,
             widget: { widgetType: 'STRING', options: {}, default: '' },
           },
           {
-            kind: 'input', id: 'strength', type: concrete('FLOAT'), optional: true, advanced: true,
-            widget: { widgetType: 'FLOAT', options: {}, default: 1 },
+            kind: 'section', id: 'advanced', displayName: 'Advanced', collapsedByDefault: true,
+            rows: [
+              { kind: 'input', id: 'reference', type: concrete('IMAGE'), optional: true },
+              {
+                kind: 'input', id: 'strength', type: concrete('FLOAT'), optional: true,
+                widget: { widgetType: 'FLOAT', options: {}, default: 1 },
+              },
+            ],
           },
           { kind: 'output', id: 'image', type: concrete('IMAGE') },
         ],
       },
       {
         type: 'WidgetSourceE2E', displayName: 'Widget Output', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{
+        body: [{
           kind: 'input', id: 'amount', type: concrete('FLOAT'), optional: true,
           widget: { widgetType: 'FLOAT', options: {}, default: 1 },
         }],
       },
       {
         type: 'CreateListE2E', displayName: 'Create List', category: 'test', source: 'v3', isOutputNode: false,
-        items: [
+        body: [
           {
-            kind: 'input', id: 'items', type: { kind: 'wildcard' }, optional: false,
-            dynamic: {
-              kind: 'autogrow',
-              template: [{ kind: 'input', id: 'item', type: variable, optional: false }],
-              naming: { kind: 'prefix', prefix: 'items', min: 1, max: 8 },
-            },
+            kind: 'group', id: 'items',
+            value: { kind: 'input', id: 'item', type: variable, optional: false },
+            keys: { kind: 'numbered', prefix: 'item', start: 0, pad: 0 },
+            grows: 'link', minMembers: 1, maxMembers: 8,
           },
           { kind: 'output', id: 'list', type: { kind: 'list', element: variable } },
         ],
       },
       {
         type: 'GenericInputE2E', displayName: 'Scalar or List', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'input', id: 'value', type: variable, optional: false }],
+        body: [{ kind: 'input', id: 'value', type: variable, optional: false }],
       },
     ])
     const failures = (await window.__dinksterTest!.app.openDocument({
@@ -107,7 +110,7 @@ test('Advanced proxies restore endpoints and scalar-list sockets stay distinct',
         generic: { id: 'generic', type: 'GenericInputE2E', values: {} },
         list: {
           id: 'list', type: 'CreateListE2E', values: {},
-          dynamic: { items: { members: ['m0'], seq: 1 } },
+          dynamic: { items: { members: ['item0'], seq: 1 } },
         },
       }, links: {
         imageIn: {
@@ -133,7 +136,7 @@ test('Advanced proxies restore endpoints and scalar-list sockets stay distinct',
         widgetItem: {
           id: 'widgetItem',
           from: { node: 'widget', tap: 'amount' },
-          to: { node: 'list', port: 'items.item', members: ['m0'] },
+          to: { node: 'list', port: 'items.item0' },
         },
       }, nets: {}, reroutes: {}, nextOrdinal: 6 } },
       view: { graphs: { g0: { nodes: {
@@ -156,6 +159,7 @@ test('Advanced proxies restore endpoints and scalar-list sockets stay distinct',
     const list = scene.nodes.find((node) => node.id === 'list')!
     const advancedRow = advanced.layout.rows.find((row) =>
       row.kind === 'section' && row.sectionId === 'advanced')!
+    const advancedBox = advanced.layout.boxes!.find((box) => box.id === 'advanced')!
     const caption = advanced.layout.rows.find((row) => row.kind === 'widget' && row.inputId === 'caption')!
     const advancedPins = advanced.layout.pins
       .filter((pin) => pin.portId === 'reference' || pin.portId === 'strength' && pin.widgetTap === true)
@@ -167,7 +171,7 @@ test('Advanced proxies restore endpoints and scalar-list sockets stay distinct',
       }))
     const listPins = list.layout.pins.map((pin) => ({
       direction: pin.direction,
-      members: pin.address.members,
+      port: pin.address.port,
       ghost: pin.ghost,
       type: pin.type,
     }))
@@ -175,9 +179,9 @@ test('Advanced proxies restore endpoints and scalar-list sockets stay distinct',
       advancedY: advancedRow.y,
       advancedCollapsed: advancedRow.kind === 'section' && advancedRow.collapsed,
       ordinaryBeforeAdvanced: caption.y + caption.height <= advancedRow.y,
-      advancedHeaderY: advanced.y + advancedRow.y + advancedRow.height / 2,
+      advancedHeaderY: advanced.y + (advancedBox.y + advancedRow.y + advancedRow.height) / 2,
       advancedPins,
-      group: advanced.layout.advancedGroup,
+      box: advancedBox,
       listPins,
       widgetLink: scene.links.find((link) => link.id === 'widgetItem'),
       advancedLinks: scene.links
@@ -198,7 +202,7 @@ test('Advanced proxies restore endpoints and scalar-list sockets stay distinct',
   const collapsed = await presentation()
   expect(collapsed.advancedCollapsed).toBe(true)
   expect(collapsed.ordinaryBeforeAdvanced).toBe(true)
-  expect(collapsed.group).toBeUndefined()
+  expect(collapsed.box).toMatchObject({ kind: 'section', closed: true })
   expect(collapsed.advancedPins).toEqual([
     expect.objectContaining({ portId: 'reference', direction: 'in' }),
     expect.objectContaining({ portId: 'strength', direction: 'out', widgetTap: true }),
@@ -217,8 +221,8 @@ test('Advanced proxies restore endpoints and scalar-list sockets stay distinct',
     }),
   ])
   expect(collapsed.listPins).toEqual(expect.arrayContaining([
-    expect.objectContaining({ direction: 'in', members: ['m0'], ghost: undefined, type: { kind: 'concrete', name: 'FLOAT' } }),
-    expect.objectContaining({ direction: 'in', ghost: true, type: { kind: 'concrete', name: 'FLOAT' } }),
+    expect.objectContaining({ direction: 'in', port: 'items.item0', ghost: undefined, type: { kind: 'concrete', name: 'FLOAT' } }),
+    expect.objectContaining({ direction: 'in', port: 'items.item1', ghost: true, type: { kind: 'concrete', name: 'FLOAT' } }),
     expect.objectContaining({ direction: 'out', type: { kind: 'list', element: { kind: 'concrete', name: 'FLOAT' } } }),
   ]))
   expect(collapsed.widgetLink).toMatchObject({
@@ -233,7 +237,8 @@ test('Advanced proxies restore endpoints and scalar-list sockets stay distinct',
   const expanded = await presentation()
   expect(expanded.advancedY).toBe(collapsed.advancedY)
   expect(expanded.ordinaryBeforeAdvanced).toBe(true)
-  expect(expanded.group).toBeDefined()
+  expect(expanded.box).toMatchObject({ kind: 'section' })
+  expect(expanded.box.closed).toBeUndefined()
   expect(expanded.advancedPins.every((pin) => pin.y !== expanded.advancedHeaderY)).toBe(true)
   expect(expanded.advancedLinks).not.toEqual(collapsed.advancedLinks)
   expect(expanded.graph).toBe(collapsed.graph)

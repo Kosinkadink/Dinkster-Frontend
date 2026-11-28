@@ -8,31 +8,31 @@ const PRINCIPAL = { principalId: 'issue-347-user', kind: 'human' }
 const catalog = {
   schemaVersion: 1,
   epoch: 1,
-  dinkster: { version: 'issue-347-runtime', schemaWire: 1 },
+  dinkster: { version: 'issue-347-runtime', schemaWire: 2 },
   nodes: {
     RuntimeScalar: {
-      schemaVersion: 1, nodeType: 'RuntimeScalar', displayName: 'Runtime Scalar',
+      schemaVersion: 2, nodeType: 'RuntimeScalar', displayName: 'Runtime Scalar',
       category: 'test', signature: 'runtime-scalar-v1',
-      interface: [{ role: 'output', id: 'value', type: { kind: 'concrete', types: ['FLOAT'] } }],
+      body: [{ kind: 'output', id: 'value', type: { kind: 'concrete', types: ['FLOAT'] } }],
     },
     MathExpression: {
-      schemaVersion: 1, nodeType: 'MathExpression', displayName: 'Math Expression',
+      schemaVersion: 2, nodeType: 'MathExpression', displayName: 'Math Expression',
       category: 'test', outputNode: true, signature: 'math-expression-v1',
-      interface: [
-        { role: 'input', id: 'x', required: true, type: { kind: 'concrete', types: ['FLOAT'] },
+      body: [
+        { kind: 'input', id: 'x', required: true, type: { kind: 'concrete', types: ['FLOAT'] },
           default: 0, widget: { type: 'NUMBER', min: -1_000_000, max: 1_000_000 } },
-        { role: 'input', id: 'expression', required: true, type: { kind: 'concrete', types: ['STRING'] },
+        { kind: 'input', id: 'expression', required: true, type: { kind: 'concrete', types: ['STRING'] },
           default: 'x * 2', widget: { type: 'STRING', multiline: false } },
-        { role: 'output', id: 'value', type: { kind: 'concrete', types: ['FLOAT'] } },
+        { kind: 'output', id: 'value', type: { kind: 'concrete', types: ['FLOAT'] } },
       ],
     },
     OtherBranch: {
-      schemaVersion: 1, nodeType: 'OtherBranch', displayName: 'Other Branch',
+      schemaVersion: 2, nodeType: 'OtherBranch', displayName: 'Other Branch',
       category: 'test', outputNode: true, signature: 'other-branch-v1',
-      interface: [
-        { role: 'input', id: 'value', required: true, type: { kind: 'concrete', types: ['INT'] },
+      body: [
+        { kind: 'input', id: 'value', required: true, type: { kind: 'concrete', types: ['INT'] },
           default: 3, widget: { type: 'NUMBER', min: -1_000_000, max: 1_000_000 } },
-        { role: 'output', id: 'value', type: { kind: 'concrete', types: ['INT'] } },
+        { kind: 'output', id: 'value', type: { kind: 'concrete', types: ['INT'] } },
       ],
     },
   },
@@ -59,7 +59,7 @@ const workflow = {
   } } } },
 }
 
-test('runtime scalar survives an unrelated branch and browser reload with cached provenance', async ({ page }, info) => {
+test('runtime scalar and coded warnings survive an unrelated branch and browser reload', async ({ page }, info) => {
   test.setTimeout(120_000)
   const PROOF_DIR = info.outputPath('proof')
   await mkdir(PROOF_DIR, { recursive: true })
@@ -85,6 +85,17 @@ test('runtime scalar survives an unrelated branch and browser reload with cached
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: {}, devices: [] } }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: servedCatalog }))
+  await page.route('/api/runs/*/journal*', (route) => {
+    const url = new URL(route.request().url())
+    const runId = url.pathname.split('/').at(-2)
+    const records = runId === 'run-a' && Number(url.searchParams.get('after')) < 1
+      ? [{ seq: 1, name: 'log', durable: true, timestamp: 105, payload: {
+          type: 'node_event', event: 'log', jobId: 'job-a', runId: 'run-a', clientId: CLIENT_ID,
+          nodeId: 'producer', seq: 1, data: { level: 'warning', code: 'count_mismatch', message: 'Expected 3 items; received 1' },
+        } }]
+      : []
+    return route.fulfill({ json: { records, latestSeq: runId === 'run-a' ? 1 : 0, coalescedBelow: 0 } })
+  })
   await page.route('/api/history/*', (route) => {
     const runId = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!)
     const jobId = runId === 'run-a' ? 'job-a' : runId === 'run-b' ? 'job-b' : ''
@@ -172,6 +183,8 @@ test('runtime scalar survives an unrelated branch and browser reload with cached
       math: { state: 'done', outputs: { value: { typeId: 'FLOAT', value: 15 } } },
       other: { state: 'done', outputs: { value: { typeId: 'INT', value: 3 } } },
     } })
+    store.apply({ kind: 'log', execution: runA, timestamp: 105, seq: 1,
+      runtimeNodeId: 'producer', level: 'warning', code: 'count_mismatch', message: 'Expected 3 items; received 1' })
     store.apply({ kind: 'completed', execution: runA, timestamp: 110 })
     store.hydrateSubmittedBy(runA, principal)
 
@@ -201,6 +214,8 @@ test('runtime scalar survives an unrelated branch and browser reload with cached
 
   await page.reload()
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.store.executions.get().size), { timeout: 15_000 }).toBe(2)
+  await expect.poll(() => page.evaluate(() => [...window.__dinksterTest!.app.store.executions.get().values()]
+    .find((run) => run.ref.prompt === 'job-a')?.warnings?.map((warning) => warning.message))).toEqual(['Expected 3 items; received 1'])
   await page.getByTestId('canvas-widget-a11y').filter({ hasText: 'Math Expression, x' }).focus()
   await expect(page.getByTestId('app-tooltip')).toContainText('Retained last-resolved value: 7.5')
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
