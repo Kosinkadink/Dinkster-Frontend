@@ -928,6 +928,10 @@ button.dinkster-row-main { cursor: pointer; }
 .dinkster-project-fact dt { color: var(--dinkster-text-secondary); white-space: nowrap; }
 .dinkster-project-fact dd { display: flex; align-items: center; justify-content: space-between; gap: var(--dinkster-space-12); min-width: 0; margin: 0; }
 .dinkster-project-fact-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dinkster-project-fact-value:has(.dinkster-path) { flex: 1; display: block; white-space: nowrap; overflow: visible; }
+.dinkster-project-fact-value:has(.dinkster-path) > .dinkster-page-load-answer { display: block; }
+.dinkster-path { position: relative; display: block; min-width: 0; overflow: clip; font: inherit; font-family: var(--dinkster-font-mono); white-space: pre; user-select: text; }
+.dinkster-path-measure { position: absolute; width: max-content; visibility: hidden; pointer-events: none; white-space: pre; user-select: none; }
 .dinkster-project-fact-detail { color: var(--dinkster-text-secondary); }
 .dinkster-project-section { display: grid; gap: var(--dinkster-space-12); min-width: 0; }
 .dinkster-project-section-header { display: flex; align-items: center; justify-content: space-between; gap: var(--dinkster-space-12); min-height: var(--dinkster-control-compact-height); }

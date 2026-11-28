@@ -2,6 +2,9 @@ import { createSignal, onCleanup, onMount, Show } from 'solid-js'
 import {
   attachDomTooltips,
   ProductButton,
+  ProductPath,
+  ProductProjectFacts,
+  ProductProjectsView,
   ProductSection,
   ProductTooltip,
   TooltipController,
@@ -37,6 +40,14 @@ export function TooltipsGallery() {
           <ProductButton data-tooltip-label="This description wraps to the available width without covering the control it describes. The same tooltip renderer serves DOM controls and painted canvas targets.">Long description</ProductButton>
           <ProductButton data-tooltip-label="Memory currently in use" data-tooltip-detail="Includes loaded models and the current execution.|Values refresh as execution changes.">Memory details</ProductButton>
         </div>
+      </ProductSection>
+      <ProductSection title="Folder paths">
+        <ProductProjectsView>
+        <ProductProjectFacts label="Folder paths" columns={[
+          [{ label: 'Long path', value: <ProductPath value="/home/sam/workspaces/generation-projects/shared-installations/dinkster/nightly" /> }],
+          [{ label: 'Short path', value: <ProductPath value="/dk" /> }],
+        ]} />
+        </ProductProjectsView>
       </ProductSection>
       <Show when={tip()}>{(visible) => <ProductTooltip tip={visible()} label="Context help" />}</Show>
     </div>
