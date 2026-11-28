@@ -1252,7 +1252,6 @@
   "outputs.pages.next": "Next output page",
   "outputs.pages.position": "{first}-{last} of {count}",
   "resources.ofTotal": "of {total}",
-  "resources.updated": "Resources updated.",
   "resources.used": "Used",
   "resources.models": "Models",
   "resources.heldUnused": "Held, unused",

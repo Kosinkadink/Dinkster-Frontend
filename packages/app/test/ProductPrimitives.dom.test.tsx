@@ -132,12 +132,24 @@ describe('product control primitives', () => {
       type('2 KB')
       blur()
       expect(commit.mock.calls).toEqual([[1610612736], [2048]])
-      setError('Server refused the change')
+      setDisabled(true)
+      setValue(2048)
       await flush()
-      expect(input.value).toBe('1.5 GB')
+      setValue(1610612736)
+      setError('Server refused the change')
+      setDisabled(false)
+      await flush()
+      expect(input.value).toBe('2 KB')
       expect(root.querySelector('[role="alert"]')!.textContent).toContain(
         'Server refused the change',
       )
+      blur()
+      expect(commit.mock.calls).toEqual([[1610612736], [2048]])
+      input.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+      )
+      expect(input.value).toBe('1.5 GB')
+      expect(input.getAttribute('aria-invalid')).toBeNull()
       setDisabled(true)
       await flush()
       type('3 GB')

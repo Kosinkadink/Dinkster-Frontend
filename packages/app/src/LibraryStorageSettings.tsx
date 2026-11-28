@@ -51,16 +51,15 @@ export function LibraryStorageSettings(props: {
   const save = async (next: number | null, id: string): Promise<void> => {
     const previous = status()
     if (busy() || !previous?.policyAvailable || next === previous.limitBytes) return
-    setLimit(next)
     setBusy(true)
     setSaveError(undefined)
     try {
       await props.connection.updateLibraryStorageLimit(next)
       if (!current) return
+      setLimit(next)
       setStatus({ ...previous, limitBytes: next })
     } catch (cause) {
       if (current) {
-        setLimit(previous.limitBytes)
         setSaveError({ id, text: failureMessage(cause) })
       }
       return
@@ -115,11 +114,11 @@ export function LibraryStorageSettings(props: {
           <For each={['library-storage-limited', ...(limit() !== null && loaded().policyAvailable ? ['library-storage-limit'] : [])]}>{(id) => {
             const label = () => message(id === 'library-storage-limited' ? 'storageSettings.limited' : 'storageSettings.limit')
             return <ProductSettingRow id={id} label={label()} modified={false} resetLabel=""
-              error={saveError()?.id === id ? saveError()?.text : undefined}
+              error={id === 'library-storage-limited' && saveError()?.id === id ? saveError()?.text : undefined}
               menuLabel={message('settingsPage.actions', { name: label() })} copyIdLabel={message('runtimeSettings.page.copyId')}
               onReset={() => {}} onCopyId={() => props.onCopyId?.(id)} menuItems={[{ label: message('runtimeSettings.page.copyId'), description: id, disabled: !props.onCopyId, onSelect: () => props.onCopyId?.(id) }]}>
               <Show when={id === 'library-storage-limited'} fallback={<ProductByteSizeInput id={id} aria-label={label()} value={limit()!}
-                minimum={1} disabled={busy()} aria-invalid={saveError()?.id === id ? 'true' : undefined} aria-describedby={saveError()?.id === id ? `${id}-error` : undefined}
+                minimum={1} disabled={busy()} error={saveError()?.id === id ? saveError()?.text : undefined}
                 onCommit={(next) => { void save(next, id) }} />}>
                 <ProductSwitch id={id} label={label()} checked={loaded().policyAvailable && limit() !== null} disabled={busy() || !loaded().policyAvailable}
                   aria-describedby={saveError()?.id === id ? `${id}-error` : undefined} onChange={(limited) => { void save(limited ? 21474836480 : null, id) }} />

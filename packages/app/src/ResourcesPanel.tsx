@@ -3,7 +3,7 @@ import { ChevronRight } from 'lucide-solid'
 import { RuntimeSettingsError } from '@dinkster/client'
 import type { DinksterConnection, MemoryGovernorDevice, MemoryStatus, RuntimeSettings } from '@dinkster/client'
 import { formatByteProgress, formatByteSize } from '@dinkster/core'
-import { ProductButton, ProductByteSizeInput, ProductDisclosure, ProductErrorBanner, ProductFacts, ProductField, ProductIcon, ProductNotice, ProductResourceUsage, ProductToast, type ProductResourceSample, type ProductResourceSegment } from '@dinkster/ui'
+import { ProductButton, ProductByteSizeInput, ProductDisclosure, ProductErrorBanner, ProductFacts, ProductField, ProductIcon, ProductNotice, ProductResourceUsage, type ProductResourceSample, type ProductResourceSegment } from '@dinkster/ui'
 import { MemoryStatusController } from './memory-status.js'
 import { ProductSlider } from './ProductSlider.js'
 import { useSignal } from './solid-adapter.js'
@@ -39,7 +39,6 @@ function BackendResources(props: { readonly backend: ResourceBackend; readonly m
   const [telemetryError, setTelemetryError] = createSignal('')
   const [budgetDraft, setBudgetDraft] = createSignal<Readonly<Record<string, number>>>({})
   const [headroomDraft, setHeadroomDraft] = createSignal<number>()
-  const [notification, setNotification] = createSignal<{ message: string }>()
   const [pending, setPending] = createSignal(false)
   const [clock, setClock] = createSignal(Date.now())
   const [receivedAt, setReceivedAt] = createSignal(0)
@@ -99,10 +98,9 @@ function BackendResources(props: { readonly backend: ResourceBackend; readonly m
       await run()
       accept(await connection().fetchMemoryStatus(), false)
       controller?.refreshDetails()
-      setNotification({ message: message('resources.updated') })
     } catch (cause) {
-      if (budgetDevice !== undefined && cause instanceof RuntimeSettingsError && cause.body?.error === 'invalid-settings') {
-        setBudgetError({ device: budgetDevice, text: message('resources.invalidBudget') })
+      if (budgetDevice !== undefined) {
+        setBudgetError({ device: budgetDevice, text: cause instanceof RuntimeSettingsError && cause.body?.error === 'invalid-settings' ? message('resources.invalidBudget') : failureMessage(cause, message('request.resourcesSaveFailed')) })
       } else setError(failureMessage(cause, message('request.resourcesSaveFailed')))
     }
     finally { setPending(false) }
@@ -237,6 +235,5 @@ function BackendResources(props: { readonly backend: ResourceBackend; readonly m
         </div>
       </div>
     </Show>
-    <ProductToast notification={notification()} onDismiss={() => setNotification(undefined)} />
   </section>
 }

@@ -1261,7 +1261,6 @@
   "outputs.pages.next": "下一页输出",
   "outputs.pages.position": "第 {first}-{last} 项，共 {count} 项",
   "resources.ofTotal": "/ {total}",
-  "resources.updated": "资源已更新。",
   "resources.used": "已用",
   "resources.models": "模型",
   "resources.heldUnused": "保留未用",
