@@ -550,6 +550,20 @@ describe('buildScene', () => {
     expect(emptyOutput).toBeDefined()
     expect(emptyOutput!.type).toEqual({ kind: 'wildcard' })
     expect(emptyOutput!.kept).toBeUndefined()
+    const oldField: TypeExpr = { kind: 'record_field', input: 'oldRecord', index: 'oldField' }
+    const freshField: TypeExpr = { kind: 'record_field', input: 'record', index: 'field' }
+    for (const elements of [[oldField, freshField], [freshField, oldField]]) {
+      schema = { ...schema, body: [
+        ...emptyBody.filter((item) => item.kind !== 'output'),
+        { kind: 'input', id: 'oldRecord', type: { kind: 'record', name: 'pack.old', fields: [] }, optional: false },
+        { kind: 'input', id: 'oldField', type: { kind: 'concrete', name: 'COMBO' }, optional: false,
+          widget: { widgetType: 'COMBO', options: {}, default: seed } },
+        { kind: 'output', id: 'value', type: { kind: 'tuple', elements } },
+      ] }
+      const output = scene().nodes[0]!.elaborated!.items.find((item) => item.kind === 'output')!
+      expect(output.kind === 'output' && output.kept).toContain('was removed')
+      expect(output.spec.hidden).toBe(true)
+    }
     schema = { ...schema, body: [...emptyBody, { kind: 'input', id: 'replacement', optional: false,
       type: { kind: 'record_field', input: 'record', index: 'field' } }] }
     const replacement = scene().nodes[0]!.elaborated!.items.find((item) => item.kind === 'input' && item.spec.id === 'replacement')!

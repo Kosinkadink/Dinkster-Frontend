@@ -2792,7 +2792,7 @@ function elaboratePass(
   for (const [index, item] of items.entries()) {
     if (item.kind === 'output') {
       let kept: string | undefined
-      const type = project(item.spec.type, (message) => { kept = message })
+      const type = project(item.spec.type, (message) => { if (message !== undefined) kept = message })
       items[index] = { ...item, spec: { ...item.spec, type,
         ...(kept === undefined ? {} : { optional: true, ...(!connectivity.isOutputConnected(item.address.port) ? { hidden: true as const } : {}) }),
       }, ...(kept === undefined ? {} : { kept }) }
