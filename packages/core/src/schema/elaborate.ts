@@ -2702,6 +2702,7 @@ function elaboratePass(
           })
           const rows: NonNullable<ElaboratedInput['recordSelectionRows']>[number][] = []
           let record: TypeExpr = source
+          let recordName = source.name
           let parent: Json = stored
           for (let depth = 0; record.kind === 'record'; depth++) {
             const prefix = path.slice(0, depth)
@@ -2724,10 +2725,11 @@ function elaboratePass(
               else options.push(final)
               value = stored
             }
-            rows.push({ record: record.name, value, options })
+            rows.push({ record: recordName, value, options })
             if (field === undefined || depth >= path.length || field.type.kind !== 'record' || !fits && depth === path.length - 1) break
             parent = value
             record = field.type
+            recordName = field.name
           }
           const index = items.indexOf(selector)
           items[index] = { ...selector, ...(Array.isArray(widget.options['options']) ? { recordSelectionRows: rows } : {}),

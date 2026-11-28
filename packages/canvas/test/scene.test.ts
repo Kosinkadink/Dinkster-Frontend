@@ -23,6 +23,7 @@ import {
   loadDocument,
   normalizedComboOptions,
   parseDinksterSchema,
+  registerCatalog,
   type Json,
   type NodeProgress,
   type NodeSchema,
@@ -439,6 +440,7 @@ describe('buildScene', () => {
   })
 
   it('selects nested record fields one level at a time through one saved value and undo', () => {
+    registerCatalog('en', { 'canvas.record.fieldOf': 'Field of {record}' })
     const atom = { kind: 'concrete', types: ['INT'] }
     const inner = { kind: 'record', types: ['pack.settings'], fields: [
       { id: 'seed-id', name: 'seed', type: atom, optional: false },
@@ -475,6 +477,7 @@ describe('buildScene', () => {
     const start = rows()
     expect(start).toHaveLength(2)
     expect(start.map((row) => row.label)).toEqual(['field', ''])
+    expect(start.map((row) => row.name)).toEqual(['Field of pack.bundle', 'Field of settings'])
     expect(new Set(start.map((row) => row.valueKey)).size).toBe(2)
     expect(start.map((row) => row.familyOwner?.valueKey)).toEqual(['field', 'field'])
     expect(normalizedComboOptions(start[0]!.spec).map((option) => option.label)).toEqual(['settings', 'number'])
