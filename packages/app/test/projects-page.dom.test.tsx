@@ -16,8 +16,15 @@ import {
   type ProjectsSource,
 } from '../src/projects-page/ProjectsPage.js'
 
+function installationFactsReply(input: unknown): Response | undefined {
+  const url = new URL(String(input), 'http://localhost')
+  return url.pathname.endsWith('/facts')
+    ? Response.json({ root: url.searchParams.get('root'), current: 1, build: { version: '0.0.19', variant: 'linux-cpu' }, engines: [] })
+    : undefined
+}
+
 beforeEach(() => {
-  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+  vi.stubGlobal('fetch', vi.fn(async (input) => installationFactsReply(input) ?? new Response(JSON.stringify({
     plan: { id: 'p1', root: '/install/nightly', channel: 'nightly', variant: 'linux-nvidia',
       buildLabel: 'NVIDIA graphics card build', buildReason: 'Supported card',
       engineRelease: 'r1', baseId: 'b1', detectedCards: [], choices: [], gpus: [],
@@ -96,6 +103,57 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
 const rows = () => [...document.querySelectorAll('[role="option"]')].map((row) => row.textContent)
 const loading = (label: string) => [...document.querySelectorAll('[role="status"]')].find((node) => node.textContent === label)
 
+it('keeps recorded facts with their selected installation through late replies, failures and retry', async () => {
+  let finishStable: (response: Response) => void = () => {}
+  let stableRead = new Promise<Response>((resolve) => { finishStable = resolve })
+  let nightlyUnavailable = false
+  let noBuild = false
+  vi.stubGlobal('fetch', vi.fn(async (input) => {
+    const url = new URL(String(input), 'http://localhost')
+    if (url.pathname.endsWith('/facts')) {
+      if (url.searchParams.get('root') === stable.root) return stableRead
+      return nightlyUnavailable
+        ? Response.json({ error: 'facts-unavailable', message: 'Selected snapshot cannot be read' }, { status: 503 })
+        : Response.json({ root: nightly.root, current: noBuild ? null : 7,
+          build: noBuild ? null : { version: '0.3.7', variant: 'linux-cuda128' }, engines: [] })
+    }
+    return Response.json({ sandboxPacks: false, available: true, detail: '' })
+  }))
+  const dispose = render(() => <InstallationsView source={{ installations: async () => ({
+    all: [stable, nightly], open: stable, engine: 'ready',
+  }) }} />, document.body)
+  await settle()
+  document.querySelectorAll<HTMLElement>('[role="option"]')[1]!.click()
+  await settle()
+  const facts = () => document.querySelector('[aria-label="About this installation"]')!
+  expect(facts().textContent).toContain(nightly.root)
+  expect(facts().textContent).toContain('linux-cuda128')
+  expect(facts().textContent).toContain('0.3.7')
+  finishStable(Response.json({ root: stable.root, current: 2, build: { version: '0.1.2', variant: 'linux-cpu' }, engines: [] }))
+  await settle()
+  expect(facts().textContent).not.toContain('0.1.2')
+  stableRead = Promise.resolve(Response.json({ root: stable.root, current: 2, build: { version: '0.1.2', variant: 'linux-cpu' }, engines: [] }))
+  document.querySelectorAll<HTMLElement>('[role="option"]')[0]!.click()
+  await settle()
+  expect(facts().textContent).toContain('0.1.2')
+  nightlyUnavailable = true
+  document.querySelectorAll<HTMLElement>('[role="option"]')[1]!.click()
+  await settle()
+  expect(document.body.textContent).toContain('Selected snapshot cannot be read')
+  expect(document.querySelector('[aria-label="About this installation"]')).toBeNull()
+  nightlyUnavailable = false
+  noBuild = true
+  ;[...document.querySelectorAll('button')].find((button) => button.textContent === 'Try again')!.click()
+  await settle()
+  expect(facts().textContent).toContain('No selected build')
+  expect(facts().textContent).not.toContain('0.3.7')
+  noBuild = false
+  globalThis.dispatchEvent(new Event('focus'))
+  await settle()
+  expect(facts().textContent).toContain('0.3.7')
+  dispose()
+})
+
 it('selects installations independently of the running engine and opens setup in the detail pane', async () => {
   const dispose = render(() => <InstallationsView source={{ installations: async () => ({
     all: [stable, nightly], open: nightly, engine: 'ready',
@@ -152,6 +210,8 @@ it('reads saved sandbox authority per installation and keeps unavailable prerequ
   let available = false
   const saved = new Map([[stable.root, false], [nightly.root, true]])
   vi.stubGlobal('fetch', vi.fn(async (input, init) => {
+    const facts = installationFactsReply(input)
+    if (facts) return facts
     const url = new URL(String(input), 'http://localhost')
     const root = url.searchParams.get('root')!
     if (init?.method === 'PUT') {
@@ -195,6 +255,8 @@ it('shows pack requests and edits all internet addresses with provenance and fie
   let addresses = [{ address: 'https://models.example', source: 'pack' }, { address: 'https://mirror.example', source: 'user' }]
   let packRead: Promise<void> | undefined
   vi.stubGlobal('fetch', vi.fn(async (input, init) => {
+    const facts = installationFactsReply(input)
+    if (facts) return facts
     const url = new URL(String(input), 'http://localhost')
     if (url.pathname.endsWith('/readiness')) return Response.json({ sandboxPacks: true, available: true, detail: '' })
     if (url.pathname.endsWith('/internet')) {
@@ -268,6 +330,8 @@ it('shows pack requests and edits all internet addresses with provenance and fie
 it('does not turn unavailable pack metadata into an empty installed pack list', async () => {
   let unavailable = true
   vi.stubGlobal('fetch', vi.fn(async (input) => {
+    const facts = installationFactsReply(input)
+    if (facts) return facts
     const path = new URL(String(input), 'http://localhost').pathname
     if (path.endsWith('/readiness')) return Response.json({ sandboxPacks: true, available: true, detail: '' })
     return unavailable

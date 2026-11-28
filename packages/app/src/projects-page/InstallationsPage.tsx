@@ -10,10 +10,48 @@ import {
   ProductProjectRows,
   ProductProjectsView,
 } from '@dinkster/ui'
+import { requestFailure, requestFetch } from '@dinkster/client'
 import { useAppMessage } from '../locale.js'
 import { SetupForm, type SetupStatus } from '../SetupForm.js'
+import { failureMessage } from '../request-failure.js'
 import type { EngineState, PageInstallation, ProjectsSource } from './ProjectsPage.js'
 import { InstallationSandbox } from './InstallationSandbox.js'
+
+const fetchRequest = requestFetch((url, init) => fetch(url, init))
+
+interface InstallationFacts {
+  readonly build: { readonly version: string; readonly variant: string } | null
+}
+
+function SelectedInstallationFacts(props: { readonly root: string }) {
+  const message = useAppMessage()
+  const page = createPageLoad<InstallationFacts>()
+  const read = async () => {
+    try {
+      const response = await fetchRequest(`/supervisor/installations/facts?${new URLSearchParams({ root: props.root })}`, { cache: 'no-store' })
+      if (!response.ok) throw await requestFailure(response)
+      return await response.json() as InstallationFacts
+    } catch (failure) {
+      throw new Error(failureMessage(failure))
+    }
+  }
+  const refresh = () => { void page.load(read) }
+  refresh()
+  onMount(() => {
+    globalThis.addEventListener('focus', refresh)
+    onCleanup(() => globalThis.removeEventListener('focus', refresh))
+  })
+
+  return <ProductPageLoad page={page} read={read} loadingLabel={message('installations.factsLoading')}>
+    {(facts) => <ProductProjectFacts label={message('installations.facts')} columns={[
+      [
+        { label: message('setup.folder'), value: props.root },
+        { label: message('setup.build'), value: facts.build?.variant ?? message('installations.noSelectedBuild') },
+      ],
+      [{ label: message('installations.version'), value: facts.build?.version ?? message('installations.noSelectedBuild') }],
+    ]} />}
+  </ProductPageLoad>
+}
 
 export function InstallationsView(props: {
   readonly source: Pick<ProjectsSource, 'installations'>
@@ -77,11 +115,10 @@ export function InstallationsView(props: {
           <Show when={selected()} fallback={<ProductEmptyState message={message('projects.open.noInstallation')} />}>
             {(installation) => <div class="projects-page-detail">
               <ProductProjectHeader title={installation().name} subtitle={stateLabel(installation())} />
-              <ProductProjectFacts label={message('installations.facts')} columns={[
-                [{ label: message('setup.folder'), value: installation().root }],
-                [],
-              ]} />
-              <Show when={installation().root} keyed>{(root) => <InstallationSandbox root={root} engine={installation().engine} />}</Show>
+              <Show when={installation().root} keyed>{(root) => <>
+                <SelectedInstallationFacts root={root} />
+                <InstallationSandbox root={root} engine={installation().engine} />
+              </>}</Show>
             </div>}
           </Show>
         </Show>
