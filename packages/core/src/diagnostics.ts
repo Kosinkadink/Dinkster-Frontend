@@ -48,6 +48,7 @@ export interface RuntimeErrorHint {
   readonly code: string
   readonly message: string
   readonly suggestion?: string
+  readonly inputId?: string
 }
 
 /** Runtime error payload preserved verbatim from the server. */

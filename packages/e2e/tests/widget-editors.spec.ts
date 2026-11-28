@@ -90,6 +90,40 @@ catalogTest('secret rows save and remove through the selected connection without
   expect(writes).toEqual(['save'])
   expect((await activeDoc(page)).graphs).toEqual(graph)
   await page.screenshot({ path: testInfo.outputPath('secret-set-editor.png') })
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    const tab = app.activeTab()!
+    type Artifact = Parameters<typeof app.store.register>[1]
+    const compiled = (app as typeof app & {
+      compileTabCached(candidate: typeof tab): { ok: true; artifact: Artifact } | { ok: false } | undefined
+    }).compileTabCached(tab)
+    if (compiled === undefined || !compiled.ok) throw new Error('Secret fixture did not compile')
+    const execution = { connection: app.backends.get()[0]!.id, prompt: 'rejected-secret' }
+    app.store.register(execution, compiled.artifact)
+    app.store.apply({ kind: 'error', execution, runtimeNodeId: 'caption', timestamp: Date.now(),
+      detail: { exceptionType: 'execution', exceptionMessage: 'The service refused this secret.', traceback: [],
+        hints: [{ code: 'secret-rejected', message: 'The service refused this secret.', inputId: 'credential' }] },
+    } as never)
+  })
+  const rejected = page.getByTestId('problems-panel').locator('details.problem', { hasText: 'The service refused this secret.' })
+  await expect(rejected).toBeVisible()
+  await rejected.locator('summary').click()
+  await rejected.getByRole('button', { name: 'Show on canvas', exact: true }).click()
+  await expect(box.getByRole('button', { name: 'Replace secret', exact: true })).toBeVisible()
+  await expect(missing).toHaveCount(0)
+  expect(source).toBe('account')
+  await page.screenshot({ path: testInfo.outputPath('secret-refused-editor.png') })
+  await box.getByRole('button', { name: 'Replace secret', exact: true }).click()
+  dialog = page.getByRole('dialog', { name: 'Set secret', exact: true })
+  await expect(dialog.getByRole('combobox', { name: 'Name', exact: true })).toHaveValue('caption-service')
+  await expect(dialog.getByLabel('Secret value', { exact: true })).toHaveValue('')
+  await expect(dialog.getByRole('button', { name: 'Remove secret', exact: true })).toBeVisible()
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await rejected.getByRole('button', { name: 'Replace secret', exact: true }).click()
+  await expect(dialog).toBeVisible()
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+  expect(writes).toEqual(['save'])
+  expect((await activeDoc(page)).graphs).toEqual(graph)
   const point = await nodeRowPoint(page, 'caption', 'credential')
   await page.mouse.click(point.x, point.y)
   dialog = page.getByRole('dialog', { name: 'Set secret', exact: true })

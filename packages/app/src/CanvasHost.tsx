@@ -8304,7 +8304,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                           return next
                         })
                       }
-                    } else if ((action === 'edit-field' || action === 'set-secret') && line.row !== undefined) {
+                    } else if ((action === 'edit-field' || action === 'set-secret' || action === 'replace-secret') && line.row !== undefined) {
                       closeProblemBox()
                       problemBoxHost?.editField(open.nodeId, line.row)
                     } else if (action === 'locate-asset') {

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { outputRowKey, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, type BadgePlacement, type SceneNode } from '@dinkster/canvas'
 import { diag } from '@dinkster/core'
 import { problemBoxPlacement } from '@dinkster/canvas'
-import { problemBoxLines, problemBoxRows } from '../src/problem-box.js'
+import { problemBoxLines, problemBoxRows, runtimeProblemBoxLines } from '../src/problem-box.js'
 import type { NodeProblemLine } from '../src/problem-display.js'
 
 const widget = (key: string, y: number) => ({ kind: 'widget', y, height: 20, inset: 8, inputId: key, valueKey: key, label: key })
@@ -30,6 +30,23 @@ const line = (kind: 'error' | 'warning', code: string, row?: string): NodeProble
 })
 
 describe('problemBoxLines', () => {
+  it('offers replacement only for the declared secret the service rejected', () => {
+    const rows = [
+      { key: 'credential', name: 'Service', field: true, secret: true },
+      { key: 'width', name: 'Width', field: true },
+    ]
+    const failure = (inputId: string) => diag('error', 'runtime', 'runtime.execution', 'The service refused this secret.', {
+      runtime: { exceptionType: 'execution', exceptionMessage: 'The service refused this secret.', traceback: [],
+        hints: [{ code: 'secret-rejected', message: 'The service refused this secret.', inputId }] },
+    })
+    const [secret, ordinary, unknown] = runtimeProblemBoxLines([
+      failure('credential'), failure('width'), failure('missing'),
+    ], [], 'error', rows)
+    expect(secret).toMatchObject({ row: 'credential', actions: ['replace-secret', 'show-log', 'dismiss-run'] })
+    expect(ordinary?.actions).toEqual(['show-log', 'dismiss-run'])
+    expect(unknown?.actions).toEqual(['show-log', 'dismiss-run'])
+  })
+
   it('names a solver row once while retaining its identity and field action', () => {
     const problem: NodeProblemLine = {
       kind: 'warning', row: 'width',

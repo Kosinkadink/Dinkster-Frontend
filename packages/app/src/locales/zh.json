@@ -291,6 +291,7 @@
   "secretWidget.notSet": "未设置",
   "secretWidget.required": "密钥“{name}”尚未设置。",
   "problems.action.setSecret": "设置密钥",
+  "problems.action.replaceSecret": "替换密钥",
   "saveTargetWidget.title": "保存目标",
   "saveTargetWidget.default": "默认输出",
   "saveTargetWidget.mount": "可写挂载点",

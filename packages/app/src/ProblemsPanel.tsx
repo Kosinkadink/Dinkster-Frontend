@@ -366,6 +366,12 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
                                 {message('problems.action.setSecret')}
                               </ProductButton>
                             </Show>
+                            <For each={diagnostic.runtime?.hints?.filter((hint) => hint.code === 'secret-rejected' && hint.inputId !== undefined)}>
+                              {(hint) => <ProductButton type="button" variant="secondary" size="compact"
+                                onClick={() => activateProblem(props.app, diagnostic, hint.inputId)}>
+                                {message('problems.action.replaceSecret')}
+                              </ProductButton>}
+                            </For>
                             <Show when={diagnostic.code === 'model.availability.model-hidden' || diagnostic.code === 'model.availability.folder-disabled'}>
                               <ProductButton type="button" variant="secondary" size="compact" onClick={() => {
                                 const tab = diagnosticFocusTarget(props.app.tabs.get(), props.app.activeTabId.get(), diagnostic)?.tab

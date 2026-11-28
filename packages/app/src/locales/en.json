@@ -284,6 +284,7 @@
   "secretWidget.notSet": "Not set",
   "secretWidget.required": "Secret \"{name}\" is not set.",
   "problems.action.setSecret": "Set secret",
+  "problems.action.replaceSecret": "Replace secret",
   "saveTargetWidget.title": "Save destination",
   "saveTargetWidget.default": "Default output",
   "saveTargetWidget.mount": "Writable mount",
