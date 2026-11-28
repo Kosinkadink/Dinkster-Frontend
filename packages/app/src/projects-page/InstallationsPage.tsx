@@ -2,6 +2,7 @@ import { createEffect, createSignal, createUniqueId, For, onCleanup, onMount, Sh
 import {
   createPageLoad,
   ProductEmptyState,
+  ProductErrorBanner,
   ProductList,
   ProductListRow,
   ProductPageAnswer,
@@ -12,6 +13,8 @@ import {
   ProductProjectRows,
   ProductProjectSection,
   ProductProjectsView,
+  ProductTextButton,
+  ProductToast,
 } from '@dinkster/ui'
 import { activeLocale } from '@dinkster/core'
 import { requestFailure, requestFetch } from '@dinkster/client'
@@ -21,6 +24,8 @@ import { SetupForm, type SetupStatus } from '../SetupForm.js'
 import { failureMessage } from '../request-failure.js'
 import type { EngineState, PageInstallation, ProjectsSource } from './ProjectsPage.js'
 import { InstallationSandbox } from './InstallationSandbox.js'
+import { createInstallationJobs, InstallationRestore } from './InstallationRestore.js'
+import { setupJobActive } from '../setup-job.js'
 
 const fetchRequest = requestFetch((url, init) => fetch(url, init))
 
@@ -40,7 +45,7 @@ interface InstallationHistory {
   }[]
 }
 
-function SelectedInstallationHistory(props: { readonly root: string }) {
+function SelectedInstallationHistory(props: { readonly root: string; readonly revision?: number | undefined; readonly onRestore: (entry: number) => void; readonly disabled: boolean }) {
   const message = useAppMessage()
   const locale = useSignal(activeLocale)
   const page = createPageLoad<InstallationHistory>()
@@ -54,7 +59,7 @@ function SelectedInstallationHistory(props: { readonly root: string }) {
     }
   }
   const refresh = () => { void page.load(read) }
-  refresh()
+  createEffect(() => { void props.revision; refresh() })
   onMount(() => {
     globalThis.addEventListener('focus', refresh)
     onCleanup(() => globalThis.removeEventListener('focus', refresh))
@@ -72,14 +77,17 @@ function SelectedInstallationHistory(props: { readonly root: string }) {
         <ProductList label={message('installations.history.title')}>
           <For each={[...record.history].reverse()}>{(entry) => <ProductListRow title={title(entry)}
             description={<time dateTime={entry.timestamp}>{new Date(entry.timestamp).toLocaleString(locale().tag, { dateStyle: 'medium', timeStyle: 'short' })}</time>}
-            trailing={entry.kind !== 'import' && entry.generation === record.current ? message('installations.history.current') : undefined} />}</For>
+            trailing={entry.kind !== 'import' && entry.generation === record.current ? message('installations.history.current') : undefined}
+            action={entry.kind !== 'import' && entry.generation === record.current ? undefined : <ProductTextButton
+              label={message('installations.restore.title')} disabled={props.disabled || page.pending() || Boolean(page.error())}
+              onClick={() => props.onRestore(entry.id)} />} />}</For>
         </ProductList>
       </Show>}
     </ProductPageLoad>
   </ProductProjectSection>
 }
 
-function SelectedInstallationFacts(props: { readonly root: string }) {
+function SelectedInstallationFacts(props: { readonly root: string; readonly revision?: number | undefined }) {
   const message = useAppMessage()
   const page = createPageLoad<InstallationFacts>()
   const read = async () => {
@@ -92,7 +100,7 @@ function SelectedInstallationFacts(props: { readonly root: string }) {
     }
   }
   const refresh = () => { void page.load(read) }
-  refresh()
+  createEffect(() => { void props.revision; refresh() })
   onMount(() => {
     globalThis.addEventListener('focus', refresh)
     onCleanup(() => globalThis.removeEventListener('focus', refresh))
@@ -122,6 +130,26 @@ export function InstallationsView(props: {
   const [chosen, setChosen] = createSignal<string>()
   const [settingUp, setSettingUp] = createSignal(false)
   const [narrowDetail, setNarrowDetail] = createSignal(false)
+  const [restoring, setRestoring] = createSignal<{ root: string; entry: number }>()
+  const [dismissedJob, setDismissedJob] = createSignal<string>()
+  const [dismissedRead, setDismissedRead] = createSignal<Error>()
+  const [notification, setNotification] = createSignal<{ message: string }>()
+  const [revisions, setRevisions] = createSignal<ReadonlyMap<string, number>>(new Map())
+  const jobs = createInstallationJobs((root) => {
+    setRevisions((previous) => new Map(previous).set(root, (previous.get(root) ?? 0) + 1))
+    setNotification({ message: `${root}: ${message('installations.restore.state.completed')}` })
+    void refresh()
+  })
+  const restoreJob = () => jobs.page.value()?.operation === 'restore' ? jobs.page.value() : undefined
+  const jobFor = (root: string) => restoreJob()?.root === root ? restoreJob() : undefined
+  const rowDetail = (row: PageInstallation) => {
+    const job = jobFor(row.root)
+    if (!job) return stateLabel(row)
+    const value = job.progress
+    const status = message(`installations.restore.state.${job.state}`)
+    return setupJobActive(job) && value?.total && value.total > 0
+      ? `${status} - ${Math.round(Math.min(1, Math.max(0, value.completed / value.total)) * 100)}%` : status
+  }
   const selected = () => page.value()?.all.find((row) => row.root === chosen()) ?? page.value()?.all[0]
   const showSetup = () => settingUp() || page.value()?.settingUp || page.value()?.all.length === 0
   const state = (installation: PageInstallation) => {
@@ -154,13 +182,29 @@ export function InstallationsView(props: {
           newLabel={message('setup.start')} onNew={() => { setSettingUp(true); setNarrowDetail(true) }} />
         <ProductPageAnswer page={page}>
           <ProductProjectRows labelledBy={heading} loadingLabel={message('installations.loading')}
-            projects={page.value()?.all.map((row) => ({ id: row.root, name: row.name, detail: stateLabel(row) }))}
+            projects={page.value()?.all.map((row) => {
+              const job = jobFor(row.root)
+              const value = job?.progress
+              return { id: row.root, name: row.name, detail: rowDetail(row),
+                state: job?.state === 'failed' ? 'failed' as const : setupJobActive(job) ? 'opening' as const : undefined,
+                progress: setupJobActive(job) ? { label: rowDetail(row), value: value?.total && value.total > 0 ? Math.min(1, Math.max(0, value.completed / value.total)) : undefined } : undefined }
+            })}
+            action={restoreJob() ? (row) => <Show when={jobFor(row.id) && setupJobActive(jobFor(row.id))}>
+              <ProductTextButton label={message('setup.cancel')} disabled={jobs.changing() || jobFor(row.id)?.state === 'cancelling'}
+                onClick={() => { void jobs.cancel() }} />
+            </Show> : undefined}
             selected={showSetup() ? undefined : selected()?.root}
             onSelect={(root) => { setChosen(root); setSettingUp(false); setNarrowDetail(true) }} />
         </ProductPageAnswer>
       </>}
     >
       <ProductPageLoad page={page} read={read} loadingLabel={message('installations.loading')} arrival="fade">
+        <Show when={jobs.page.error() !== dismissedRead() && jobs.page.error()}>{(error) =>
+          <ProductErrorBanner onDismiss={() => setDismissedRead(error())}>{error().message}</ProductErrorBanner>}</Show>
+        <Show when={jobs.page.error()}><ProductTextButton label={message('setup.retry')} onClick={() => { void jobs.refresh() }} /></Show>
+        <Show when={!restoring() && jobs.error()}>{(error) => <ProductErrorBanner onDismiss={jobs.dismissError}>{error()}</ProductErrorBanner>}</Show>
+        <Show when={restoreJob()?.id !== dismissedJob() && restoreJob()?.error}>{(error) =>
+          <ProductErrorBanner onDismiss={() => setDismissedJob(restoreJob()?.id)}>{error().message}</ProductErrorBanner>}</Show>
         <Show when={!showSetup()} fallback={
           <SetupForm surface="projects" onStatusChange={props.onSetupStatusChange} onInstallation={(installation) => {
             setChosen(installation.root)
@@ -172,14 +216,18 @@ export function InstallationsView(props: {
             {(installation) => <div class="projects-page-detail">
               <ProductProjectHeader title={installation().name} subtitle={stateLabel(installation())} />
               <Show when={installation().root} keyed>{(root) => <>
-                <SelectedInstallationFacts root={root} />
+                <SelectedInstallationFacts root={root} revision={revisions().get(root)} />
                 <InstallationSandbox root={root} engine={installation().engine} />
-                <SelectedInstallationHistory root={root} />
+                <SelectedInstallationHistory root={root} revision={revisions().get(root)} disabled={jobs.blocked()}
+                  onRestore={(entry) => setRestoring({ root, entry })} />
               </>}</Show>
             </div>}
           </Show>
         </Show>
       </ProductPageLoad>
+      <Show when={restoring()} keyed>{(target) => <InstallationRestore root={target.root} entry={target.entry} jobs={jobs}
+        onDismiss={() => setRestoring(undefined)} />}</Show>
+      <ProductToast notification={notification()} onDismiss={() => setNotification(undefined)} />
     </ProductProjectsView>
   )
 }

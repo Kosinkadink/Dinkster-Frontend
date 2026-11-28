@@ -18,6 +18,7 @@ import {
 
 function installationFactsReply(input: unknown): Response | undefined {
   const url = new URL(String(input), 'http://localhost')
+  if (url.pathname === '/supervisor/setup/active') return Response.json({ activeJob: null })
   if (url.pathname.endsWith('/history')) return Response.json({ root: url.searchParams.get('root'), current: null, history: [] })
   return url.pathname.endsWith('/facts')
     ? Response.json({ root: url.searchParams.get('root'), current: 1, build: { version: '0.0.19', variant: 'linux-cpu' }, engines: [] })
@@ -1135,4 +1136,123 @@ it('revokes a pending template choice when the feature turns off without creatin
   expect(document.querySelector('input[type="radio"][value="template"]')).toBeNull()
   expect(document.body.textContent).not.toContain('Starter')
   expect(created).toBe(false)
+})
+
+it('requires reviewed Restore consent and keeps a lost-reply job on its own row across selection and cancellation', async () => {
+  vi.useFakeTimers()
+  let job: Record<string, unknown> | null = null
+  let posts = 0
+  let restored = false
+  const approved: unknown[] = []
+  vi.stubGlobal('fetch', async (input: string, init?: RequestInit) => {
+    const url = new URL(String(input), 'http://localhost')
+    const root = url.searchParams.get('root')!
+    if (url.pathname.endsWith('/active')) return Response.json({ activeJob: job })
+    if (url.pathname.includes('/jobs/')) {
+      if (init?.method === 'DELETE') job = { ...job, state: 'cancelling' }
+      return Response.json(job)
+    }
+    if (url.pathname.endsWith('/restore')) {
+      if (init?.method === 'POST') {
+        posts++; approved.push(JSON.parse(String(init.body)))
+        job = { id: 'restore-stable', root: stable.root, operation: 'restore', state: 'running',
+          progress: { stage: 'downloading', completed: 21, total: 50, unit: 'bytes' }, error: null, installation: null }
+        throw new Error('Lost start reply')
+      }
+      expect(root).toBe(stable.root)
+      expect(url.searchParams.get('entry')).toBe('17')
+      return Response.json({ plan: { root, entry: 17, exact: false, missing: ['old wheel'], alternatives: [
+        { planId: 'approved-stable-17', snapshot: { engine: { version: '1.7' } }, substitutions: [{ field: 'engine', before: '1.7', after: '1.8' }] },
+      ] }, activeJob: job })
+    }
+    if (url.pathname.endsWith('/history')) return Response.json({ current: restored ? 3 : 2, history: [
+      { id: 17, generation: 1, kind: 'activation', reason: 'setup', timestamp: '2026-11-01T00:00:00Z', snapshot: { engine: { version: '1.7' } } },
+      { id: 24, generation: 2, kind: 'activation', reason: 'update', timestamp: '2026-11-02T00:00:00Z', snapshot: { engine: { version: '2.0' } } },
+    ] })
+    if (url.pathname.endsWith('/facts') && root === stable.root) return Response.json({ build: { version: restored ? '1.7-restored' : '2.0', variant: 'linux-cpu' } })
+    return installationFactsReply(input) ?? Response.json({ sandboxPacks: false, available: true, detail: '' })
+  })
+  const dispose = render(() => <InstallationsView source={{ installations: async () => ({ all: [stable, nightly], engine: 'stopped' }) }} />, document.body)
+  try {
+    await vi.advanceTimersByTimeAsync(0)
+    button('Restore')!.click()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(posts).toBe(0)
+    expect(button('Apply restore')!.disabled).toBe(true)
+    expect(document.querySelector('dialog')!.textContent).toContain(stable.root)
+    document.querySelector<HTMLElement>('dialog [role="combobox"]')!.click()
+    ;[...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent === 'Alternative 1: version 1.7')!.click()
+    expect(button('Apply restore')!.disabled).toBe(false)
+    expect(document.querySelector('dialog')!.textContent).toContain('engine')
+    button('Apply restore')!.click()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(approved).toEqual([{ planId: 'approved-stable-17' }])
+    expect(button('Apply restore')!.disabled).toBe(true)
+    button('Apply restore')!.click()
+    expect(posts).toBe(1)
+    document.querySelector<HTMLDialogElement>('dialog')!.close()
+    await vi.advanceTimersByTimeAsync(0)
+    const selections = () => [...document.querySelectorAll<HTMLElement>('[data-project-selection]')]
+    expect(selections()[0]!.textContent).toContain('Restoring - 42%')
+    selections()[1]!.click()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(selections()[1]!.closest('[role="row"]')!.getAttribute('aria-selected')).toBe('true')
+    expect(document.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('0.42')
+    button('Cancel')!.click()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(selections()[0]!.textContent).toContain('Cancelling restore')
+    expect(button('Cancel')!.disabled).toBe(true)
+    expect(selections()[1]!.closest('[role="row"]')!.getAttribute('aria-selected')).toBe('true')
+    // A late cancel can lose to a committed restore; the server's terminal state wins.
+    job = Object.assign({}, job, { state: 'completed' }); restored = true
+    await vi.advanceTimersByTimeAsync(750)
+    expect(selections()[0]!.textContent).toContain('Restore completed')
+    expect(selections()[1]!.closest('[role="row"]')!.getAttribute('aria-selected')).toBe('true')
+    selections()[0]!.click()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(document.body.textContent).toContain('1.7-restored')
+    expect(posts).toBe(1)
+  } finally { dispose() }
+})
+
+it('keeps Restore unavailable on failed or empty reviews and requires a new choice after a stale approval', async () => {
+  let mode: 'error' | 'empty' | 'available' = 'error'
+  let revision = 0
+  let posts = 0
+  vi.stubGlobal('fetch', async (input: string, init?: RequestInit) => {
+    const url = new URL(String(input), 'http://localhost')
+    if (url.pathname.endsWith('/restore')) {
+      if (init?.method === 'POST') { posts++; return Response.json({ error: 'plan-changed', message: 'Review a new plan.' }, { status: 409 }) }
+      if (mode === 'error') return Response.json({ error: 'restore-unavailable', message: 'History cannot be read.' }, { status: 503 })
+      revision++
+      return Response.json({ plan: { root: stable.root, entry: 19, exact: true, missing: [], alternatives: mode === 'empty' ? [] : [
+        { planId: `review-${revision}`, snapshot: { engine: { version: '1.9' } }, substitutions: [] },
+      ] }, activeJob: null })
+    }
+    if (url.pathname.endsWith('/history')) return Response.json({ current: 5, history: [
+      { id: 19, generation: 2, reason: 'setup', timestamp: '2026-11-01T00:00:00Z', snapshot: { engine: { version: '1.9' } } },
+    ] })
+    return installationFactsReply(input) ?? Response.json({ sandboxPacks: false, available: true, detail: '' })
+  })
+  const dispose = render(() => <InstallationsView source={{ installations: async () => ({ all: [stable], engine: 'stopped' }) }} />, document.body)
+  try {
+    await settle(); button('Restore')!.click(); await settle()
+    expect(document.querySelector('dialog')!.textContent).toContain('History cannot be read.')
+    expect(button('Apply restore')!.disabled).toBe(true)
+    mode = 'empty'; button('Try again')!.click(); await settle()
+    expect(document.querySelector('dialog')!.textContent).toContain('Nothing can be applied.')
+    expect(button('Apply restore')!.disabled).toBe(true)
+    document.querySelector<HTMLDialogElement>('dialog')!.close(); await settle()
+    mode = 'available'; button('Restore')!.click(); await settle()
+    document.querySelector<HTMLElement>('dialog [role="combobox"]')!.click()
+    ;[...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent === 'Alternative 1: version 1.9')!.click()
+    button('Apply restore')!.click(); await settle()
+    expect(posts).toBe(1)
+    expect(document.querySelector('dialog')!.textContent).toContain('Review a new plan.')
+    expect(button('Apply restore')!.disabled).toBe(true)
+    button('Review again')!.click(); await settle()
+    expect(button('Apply restore')!.disabled).toBe(true)
+    expect(document.querySelector('dialog [role="combobox"]')!.textContent).toContain('Choose an alternative')
+    expect(posts).toBe(1)
+  } finally { dispose() }
 })
