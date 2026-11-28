@@ -1,7 +1,7 @@
 import { For, Show, createSignal, createUniqueId, onCleanup, onMount, splitProps, type ComponentProps, type JSX } from 'solid-js'
 import { ProductButton, ProductTextButton } from './controls.js'
 import { ProductContextMenu, type ProductMenu } from './menu.js'
-import { ProductSearch } from './search.js'
+import { ProductSearch, ProductSearchText } from './search.js'
 import { ProductShortcut } from './shortcut.js'
 
 /** The caller owns recording, cancellation and stored bindings. */
@@ -81,6 +81,7 @@ export function ProductSettingRow(props: {
   id: string
   controlId?: string
   label: string
+  markQuery?: string | undefined
   description?: JSX.Element
   error?: string | undefined
   warning?: string | undefined
@@ -100,7 +101,7 @@ export function ProductSettingRow(props: {
     { label: props.copyIdLabel, description: props.id, onSelect: props.onCopyId },
   ]}><div class="dinkster-setting-row" data-setting-id={props.id} data-modified={props.modified} data-full-width={props.fullWidth} aria-disabled={props.disabled || undefined}>
     <div class="dinkster-setting-copy">
-      <label for={controlId()} id={`${controlId()}-label`}>{props.label}</label>
+      <label for={controlId()} id={`${controlId()}-label`}><span><ProductSearchText text={props.label} query={props.markQuery ?? ''} /></span></label>
       <Show when={props.description}><p id={`${controlId()}-description`}>{props.description}</p></Show>
       <Show when={props.error}><p id={`${controlId()}-error`} class="dinkster-field-error" role="alert">{props.error}</p></Show>
       <Show when={props.warning}><p id={`${controlId()}-warning`} class="dinkster-setting-warning" role="status">{props.warning}</p></Show>

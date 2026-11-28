@@ -110,7 +110,7 @@ export function AutomaticFixField(props: {
   readonly kind: AutomaticFixKind
   readonly settings: SettingsRegistry
   readonly changed: () => void
-  readonly inline: boolean
+  readonly markQuery?: string | undefined
   readonly onCopyId: (id: string) => void
 }) {
   const message = useAppMessage()
@@ -133,11 +133,8 @@ export function AutomaticFixField(props: {
       { value: 'keep', label: message('automaticFixes.keepWire') },
       { value: 'remove', label: message('automaticFixes.removeWire') },
     ]} onChange={(value) => commit(asks(), value === 'remove')} />
-  return <Show when={!props.inline} fallback={<div data-setting-id={props.kind.setting}>
-    <Show when={modified()}><ProductTextButton label={message('settingsDialog.action.reset')} onClick={reset} /></Show>
-    <Show when={props.kind.wire} fallback={policy()}><div class="dinkster-stack">{policy()}{wire()}</div></Show>
-  </div>}>
-    <ProductSettingRow id={props.kind.setting} controlId={id} label={label()}
+  return <>
+    <ProductSettingRow id={props.kind.setting} controlId={id} label={label()} markQuery={props.markQuery}
       description={automaticFixLabel(props.kind.id, removesWire(), message)} modified={modified()}
       resetLabel={message('settingsDialog.action.reset')} menuLabel={message('settingsPage.actions', { name: label() })}
       copyIdLabel={message('settingsPage.copySettingId')} onReset={reset} onCopyId={() => props.onCopyId(props.kind.setting)}>
@@ -149,7 +146,7 @@ export function AutomaticFixField(props: {
       copyIdLabel={message('settingsPage.copySettingId')} onReset={reset} onCopyId={() => props.onCopyId(props.kind.setting)}>
       {wire()}
     </ProductSettingRow></Show>
-  </Show>
+  </>
 }
 
 function SettingField(props: {
@@ -375,7 +372,7 @@ export function SettingsDialog(props: {
   }
   const settingRow = (d: SettingDefinition, inline = false) => {
     const kind = automaticFixKinds.find((kind) => kind.setting === d.id)
-    return kind ? <AutomaticFixField kind={kind} settings={props.settings} changed={changed} inline={inline} onCopyId={(id) => { void copyId(id) }} />
+    return kind ? <AutomaticFixField kind={kind} settings={props.settings} changed={changed} markQuery={inline ? query() : undefined} onCopyId={(id) => { void copyId(id) }} />
       : <SettingField definition={d} settings={props.settings} changed={changed} locale={locale} inline={inline} onCopyId={(id) => { void copyId(id) }} />
   }
   const keybindingRow = (command: AppCommand, inline = false) => {

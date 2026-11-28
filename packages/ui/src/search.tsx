@@ -187,7 +187,7 @@ export function productSearchMarks(
   return ranges.sort((a, b) => a[0] - b[0])
 }
 
-function MarkedText(props: { text: string; query: string }) {
+export function ProductSearchText(props: { text: string; query: string }) {
   const parts = () => {
     const out: { text: string; marked: boolean }[] = []
     let at = 0
@@ -401,10 +401,10 @@ export function ProductSearch(props: {
         </Show>
         <span class="dinkster-search-row-title">
           <Show when={kind === 'result'} fallback={row.title}>
-            <MarkedText text={row.title} query={props.markQuery ?? props.query} />
+            <ProductSearchText text={row.title} query={props.markQuery ?? props.query} />
           </Show>
           <Show when={row.note}>
-            {(note) => <span class="dinkster-search-row-note"> <MarkedText text={note()} query={props.markQuery ?? props.query} /></span>}
+            {(note) => <span class="dinkster-search-row-note"> <ProductSearchText text={note()} query={props.markQuery ?? props.query} /></span>}
           </Show>
         </span>
         <div class="dinkster-search-row-end">
@@ -414,7 +414,7 @@ export function ProductSearch(props: {
                 <Show when={row.detailIcon}>
                   {(icon) => <ProductIcon icon={icon()} />}
                 </Show>
-                <span><MarkedText text={detail()} query={props.markQuery ?? props.query} /></span>
+                <span><ProductSearchText text={detail()} query={props.markQuery ?? props.query} /></span>
               </span>
             )}
           </Show>
