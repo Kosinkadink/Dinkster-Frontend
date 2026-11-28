@@ -18,7 +18,8 @@ const initial: ModelSettingsState = {
 }
 
 it('switches whole locations, preserves read-only category roots, and removes registration without deleting files', async () => {
-  let state = structuredClone(initial)
+  let state: ModelSettingsState = { ...structuredClone(initial),
+    settings: { ...structuredClone(initial.settings), readFoldersWhileRunning: true } }
   const connection: ComponentProps<typeof ModelSettings>['connection'] = {
     fetchModelSettings: async () => state,
     onMountsChanged: () => () => {},
@@ -52,6 +53,7 @@ it('switches whole locations, preserves read-only category roots, and removes re
     await vi.waitFor(() => expect(state.settings.locations).toHaveLength(3))
     expect(state.settings.locations[2]).toEqual({ id: 'archive', path: '/archive/checkpoints', kind: 'model/checkpoint', mode: 'read', visibility: 'default-on' })
     expect(state.settings.downloadLocation).toBeNull()
+    expect(state.settings.readFoldersWhileRunning).toBe(true)
     expect(root.textContent).toContain('Restart the engine')
     const removeButton = [...root.querySelectorAll<HTMLButtonElement>('[data-model-location="studio"] .project-folder-actions button')].find((button) => button.textContent === 'Remove shared location')!
     removeButton.click()
@@ -59,6 +61,7 @@ it('switches whole locations, preserves read-only category roots, and removes re
     const confirm = [...root.querySelectorAll<HTMLButtonElement>('.project-folder-removal button')].find((button) => button.textContent === 'Remove shared location')!
     confirm.click()
     await vi.waitFor(() => expect(state.settings.locations.map((row) => row.id)).toEqual(['required', 'archive']))
+    expect(state.settings.readFoldersWhileRunning).toBe(true)
   } finally { dispose() }
 })
 

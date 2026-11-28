@@ -246,7 +246,7 @@ export function SettingsDialog(props: {
   readonly onRequestConsumed?: () => void
   readonly backends?: readonly Backend[]
   readonly onOpenStorage?: () => void
-  readonly storageConnection?: Pick<DinksterConnection, 'fetchLibraryStorage' | 'updateLibraryStorageLimit' | 'clearLibraryStorage'> | undefined
+  readonly storageConnection?: Pick<DinksterConnection, 'fetchLibraryStorage' | 'updateLibraryStorageLimit' | 'clearLibraryStorage' | 'fetchModelSettings' | 'updateModelSettings' | 'principalGeneration'> | undefined
   readonly packSettings?: {
     readonly client: PackSettingsClient
     readonly packs: () => readonly { readonly id: string; readonly displayName: string }[]

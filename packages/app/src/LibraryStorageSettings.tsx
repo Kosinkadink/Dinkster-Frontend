@@ -1,5 +1,6 @@
-import { createSignal, For, onCleanup, onMount, Show } from 'solid-js'
-import type { DinksterConnection, LibraryStorage, LibraryStorageCleanup } from '@dinkster/client'
+import { createEffect, createSignal, For, onCleanup, onMount, Show } from 'solid-js'
+import type { DinksterConnection, LibraryStorage, LibraryStorageCleanup, ModelSettingsState } from '@dinkster/client'
+import { ProductSettingsSection, ProductSwitch, ProductToast } from '@dinkster/ui'
 import { ProductButton, ProductCheckbox } from './ProductControls.js'
 import { ProductActionFooter, ProductField, ProductNotice, productFieldIds } from './ProductForm.js'
 import { ProductNumberInput } from './ProductNumberInput.js'
@@ -7,9 +8,63 @@ import { useAppMessage } from './locale.js'
 import { failureMessage } from './request-failure.js'
 
 export function LibraryStorageSettings(props: {
-  readonly connection: Pick<DinksterConnection, 'fetchLibraryStorage' | 'updateLibraryStorageLimit' | 'clearLibraryStorage'>
+  readonly connection: Pick<DinksterConnection, 'fetchLibraryStorage' | 'updateLibraryStorageLimit' | 'clearLibraryStorage' | 'fetchModelSettings' | 'updateModelSettings' | 'principalGeneration'>
 }) {
   const message = useAppMessage()
+  const [modelSettings, setModelSettings] = createSignal<ModelSettingsState>()
+  const [readingBusy, setReadingBusy] = createSignal(false)
+  const [readingError, setReadingError] = createSignal('')
+  const [notification, setNotification] = createSignal<{ readonly message: string }>()
+  let readingGeneration = 0
+  let readingRequest = 0
+  const refreshReading = async (): Promise<void> => {
+    const connection = props.connection
+    const generation = readingGeneration
+    const request = ++readingRequest
+    const current = () => generation === readingGeneration && request === readingRequest
+    setModelSettings(undefined)
+    setReadingBusy(true)
+    setReadingError('')
+    try {
+      const next = await connection.fetchModelSettings()
+      if (current()) setModelSettings(next)
+    } catch (cause) {
+      if (current()) setReadingError(failureMessage(cause))
+    } finally {
+      if (current()) setReadingBusy(false)
+    }
+  }
+  createEffect(() => {
+    const connection = props.connection
+    const reset = () => {
+      readingGeneration++
+      setNotification(undefined)
+      void refreshReading()
+    }
+    onCleanup(connection.principalGeneration.subscribe(reset))
+    onCleanup(() => { readingGeneration++ })
+    reset()
+  })
+  const saveReading = async (enabled: boolean): Promise<void> => {
+    const state = modelSettings()
+    if (readingBusy() || !state?.changesAllowed) return
+    const generation = readingGeneration
+    const request = ++readingRequest
+    const current = () => generation === readingGeneration && request === readingRequest
+    setReadingBusy(true)
+    setReadingError('')
+    setNotification(undefined)
+    try {
+      const next = await props.connection.updateModelSettings({ ...state.settings, readFoldersWhileRunning: enabled }, state.revision)
+      if (!current()) return
+      setModelSettings(next)
+      setNotification({ message: message('storageSettings.readingSaved') })
+    } catch (cause) {
+      if (current()) setReadingError(failureMessage(cause, message('storageSettings.readingSaveFailed')))
+    } finally {
+      if (current()) setReadingBusy(false)
+    }
+  }
   const [status, setStatus] = createSignal<LibraryStorage>()
   const [limit, setLimit] = createSignal<number | null>(null)
   const [busy, setBusy] = createSignal(false)
@@ -84,6 +139,16 @@ export function LibraryStorageSettings(props: {
   const byteFields = ['temporaryBytes', 'vaultBytes', 'adoptedBytes', 'reclaimableBytes'] as const
   return <section class="runtime-settings library-storage-settings" data-testid="library-storage-settings">
     <div class="runtime-settings-body">
+      <ProductSettingsSection title={message('storageSettings.folderReading')}>
+        <ProductField controlId="library-storage-reading" label={message('storageSettings.readFoldersWhileRunning')}
+          description={message('storageSettings.readingDescription')} message={readingError() || undefined}>
+          <ProductSwitch id="library-storage-reading" label={message('storageSettings.readFoldersWhileRunning')}
+            aria-describedby={`library-storage-reading-description${readingError() ? ' library-storage-reading-message' : ''}`}
+            checked={modelSettings()?.settings.readFoldersWhileRunning === true}
+            disabled={readingBusy() || modelSettings()?.changesAllowed !== true}
+            onChange={(enabled) => { void saveReading(enabled) }} />
+        </ProductField>
+      </ProductSettingsSection>
       <h2>{message('storageSettings.title')}</h2>
       <p>{message('storageSettings.description')}</p>
       <Show when={status() && !canClear()}><ProductNotice tone="info">{message('storageSettings.blocked')}</ProductNotice></Show>
@@ -116,12 +181,13 @@ export function LibraryStorageSettings(props: {
         </>}
       </Show>
       <ProductActionFooter>
-        <ProductButton disabled={busy()} onClick={() => { void refresh() }}>{message('storageSettings.refresh')}</ProductButton>
+        <ProductButton disabled={busy() || readingBusy()} onClick={() => { void refresh(); void refreshReading() }}>{message('storageSettings.refresh')}</ProductButton>
         <ProductButton disabled={busy() || !status()?.policyAvailable || limit() === status()?.limitBytes}
           onClick={() => { void save() }}>{message('storageSettings.apply')}</ProductButton>
         <ProductButton disabled={busy() || !canClear()} title={canClear() ? undefined : message('storageSettings.blocked')}
           onClick={() => { void clear() }}>{message('storageSettings.clear')}</ProductButton>
       </ProductActionFooter>
     </div>
+    <ProductToast notification={notification()} onDismiss={() => setNotification(undefined)} />
   </section>
 }
