@@ -2259,5 +2259,6 @@
   "shell.opening.notAnswering": "Dinkster is not answering",
   "shell.opening.unavailable": "This installation has no editor this Dinkster can open. Update it to open its projects.",
   "canvas.record.wholeRecord": "Whole record",
+  "canvas.record.noFields": "No fields",
   "canvas.record.fieldOf": "Field of {record}"
 }

@@ -2657,7 +2657,20 @@ function elaboratePass(
       const selection: unknown = JSON.parse(stored)
       const saved = typeof selection === 'object' && selection !== null && !Array.isArray(selection)
         ? selection as Record<string, unknown> : undefined
-      const path = saved === undefined ? selection : saved['path']
+      const path = saved === undefined && Array.isArray(selection) && selection.length === 0 && source.fields.length > 0
+        ? [[...source.fields].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)[0]!.id]
+        : saved === undefined ? selection : saved['path']
+      if (saved === undefined && Array.isArray(path) && path.length === 0 && source.fields.length === 0) {
+        if (selector?.kind === 'input' && selector.spec.widget !== undefined) {
+          const options = { ...selector.spec.widget.options }
+          delete options['options']
+          items[items.indexOf(selector)] = { ...selector, disabled: true, derivedValue: '', spec: {
+            ...selector.spec, widget: { ...selector.spec.widget, options: { ...options, placeholder: t('canvas.record.noFields') } },
+          } }
+        }
+        onRemoved?.('')
+        return { kind: 'wildcard' }
+      }
       if (!Array.isArray(path) || path.length === 0 || !path.every((key) => typeof key === 'string' && key !== '')) throw new Error('Record selection requires a nonempty path of stable field IDs.')
       const oldType = saved === undefined ? undefined : typeExprFromDinksterWire(saved['type'])
       if (oldType !== undefined && canonicalTypeIdOf(oldType) === undefined) throw new Error('Saved record selection requires a resolved type.')

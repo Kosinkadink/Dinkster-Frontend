@@ -440,7 +440,7 @@ describe('buildScene', () => {
   })
 
   it('selects nested record fields one level at a time through one saved value and undo', () => {
-    registerCatalog('en', { 'canvas.record.fieldOf': 'Field of {record}' })
+    registerCatalog('en', { 'canvas.record.fieldOf': 'Field of {record}', 'canvas.record.noFields': 'No fields' })
     const atom = { kind: 'concrete', types: ['INT'] }
     const inner = { kind: 'record', types: ['pack.settings'], fields: [
       { id: 'seed-id', name: 'seed', type: atom, optional: false },
@@ -524,6 +524,31 @@ describe('buildScene', () => {
         expect(session.doc.graphs.g0!.nodes.read!.values).toEqual({ field: seed })
       }
     }
+    const emptyBody = parsed.schema!.body.map((item) => item.kind === 'input' && item.id === 'record' && item.type.kind === 'record'
+      ? { ...item, type: { ...item.type, fields: [] } } : item)
+    schema = { ...parsed.schema!, body: emptyBody }
+    expect(rows()).toHaveLength(1)
+    expect(rows()[0]!.disabled).not.toBe(true)
+    expect(normalizedComboOptions(rows()[0]!.spec).find((option) => option.value === seed)?.label).toBe('settings / seed (removed)')
+    expect(choose('[]').ok).toBe(true)
+    const emptyRow = rows()[0]!
+    expect(rows()).toHaveLength(1)
+    expect(emptyRow.label).toBe('field')
+    expect(emptyRow.disabled).toBe(true)
+    expect(emptyRow.disabledReason).toBeUndefined()
+    expect(emptyRow.derivedValue).toBe('')
+    expect(emptyRow.spec.options['placeholder']).toBe('No fields')
+    expect(normalizedComboOptions(emptyRow.spec)).toEqual([])
+    expect(scene().diagnostics).toEqual([])
+    schema = { ...schema, body: [...emptyBody, { kind: 'input', id: 'replacement', optional: false,
+      type: { kind: 'record_field', input: 'record', index: 'field' } }] }
+    const replacement = scene().nodes[0]!.elaborated!.items.find((item) => item.kind === 'input' && item.spec.id === 'replacement')!
+    expect(replacement.kind === 'input' && replacement.spec.optional).toBe(true)
+    schema = parsed.schema!
+    expect(rows()[0]!.disabled).not.toBe(true)
+    expect(scene().diagnostics).toEqual([])
+    expect(rows()).toHaveLength(1)
+    expect(normalizedComboOptions(rows()[0]!.spec).find((option) => option.value === '[]')?.label).toBe('number')
     const promoted = loadDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'promoted-picker', root: 'root',
       graphs: {

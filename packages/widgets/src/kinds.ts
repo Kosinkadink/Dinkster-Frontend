@@ -838,6 +838,10 @@ export const selectView: WidgetView<Json> = {
   ...makeCompactView<Json>('core.select', 'COMBO'),
   drawCompact(ctx, value, spec, state) {
     const label = (spec.options['display_name'] as string | undefined) ?? ''
+    if (value === '' && typeof spec.options['placeholder'] === 'string') {
+      compactRow(ctx, label, spec.options['placeholder'], state, 'widget.edit', true)
+      return
+    }
     ctx.rect(1, 0, 0, 1, { role: 'comboChevron' })
     compactRow(ctx, label, formatWidgetValue(value, spec), state, 'widget.edit')
   },
