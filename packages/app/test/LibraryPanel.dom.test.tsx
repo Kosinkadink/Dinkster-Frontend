@@ -127,6 +127,37 @@ describe('LibraryPanel', () => {
     } finally { dispose(); root.remove() }
   })
 
+  it('replaces account-owned models and cancels an unanswered hide when the principal changes', async () => {
+    let principal = 'previous'
+    const connection = new DinksterConnection({ id: asConnectionId('principal'), baseUrl: '', clientId: 'human', project: 'default', fetchFn: async (input) => {
+      const path = new URL(String(input), 'http://example.test').pathname
+      if (path === '/api/account') return Response.json({ available: true, canStartSignIn: true, signInUnavailableReason: null, signedIn: false, profile: null, signIn: { state: 'idle' }, principalRevision: principal })
+      const locations = [{ id: principal, path: `/${principal}`, mode: 'read', visibility: 'default-on', mounts: [principal], enabled: true, active: true }]
+      if (path === '/api/models/settings') return Response.json({ settings: { version: 1, downloadLocation: null, locations }, locations, revision: principal, project: 'default', changesAllowed: true, restartRequired: false, pendingRemovals: [] })
+      if (path === '/api/mounts') return Response.json({ mounts: [{ id: principal, mode: 'read', state: 'ready', kind: 'model/checkpoint' }] })
+      if (path.endsWith('/entries')) return Response.json({ entries: [{ name: `${principal}.safetensors`, virtualPath: `folder/${principal}.safetensors`, digest: `blake3:${'a'.repeat(64)}`, size: 1024, mediaType: 'application/x-safetensors', kind: 'model/checkpoint' }] })
+      throw new Error(`Unexpected route ${path}`)
+    } })
+    await connection.accountStatus()
+    const root = document.createElement('div')
+    document.body.append(root)
+    const dispose = render(() => <LibraryModels connection={connection} onOpenStorage={() => {}} onAddModelFolder={() => {}} />, root)
+    try {
+      await vi.waitFor(() => expect(root.textContent).toContain('previous.safetensors'))
+      root.querySelector<HTMLButtonElement>('.dinkster-row-main')!.click()
+      ;[...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Hide in this project')!.click()
+      expect(root.textContent).toContain('Hide "previous.safetensors" from this project?')
+      principal = 'current'
+      await connection.accountStatus()
+      await vi.waitFor(() => expect(root.textContent).toContain('current.safetensors'))
+      expect(root.textContent).not.toContain('previous')
+      expect(root.textContent).not.toContain('from this project?')
+      root.querySelector<HTMLButtonElement>('.dinkster-row-main')!.click()
+      expect(root.querySelector('code')?.title).toBe('folder/current.safetensors')
+      expect(root.textContent).toContain('Model foldercurrent')
+    } finally { dispose(); root.remove() }
+  })
+
   it('cancels hide questions on selection and backend changes and ignores obsolete hide completions', async () => {
     vi.useFakeTimers()
     for (const failed of [false, true]) {

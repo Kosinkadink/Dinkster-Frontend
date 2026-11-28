@@ -15,6 +15,7 @@ import { committableAssetRef, type CanonicalAssetRef } from './asset-browser/hel
 import type { LogicalModel, LogicalModelVariant } from './asset-browser/logical-model.js'
 import type { AssetBrowserItem } from './asset-browser/types.js'
 import { FolderPath } from './FolderPath.js'
+import { useSignal } from './solid-adapter.js'
 
 export function LibraryModels(props: {
   readonly connection: DinksterConnection
@@ -108,6 +109,7 @@ export function LibraryModels(props: {
   }
   createEffect(() => {
     const connection = props.connection
+    useSignal(connection.principalGeneration)()
     generation++
     appliedFocus = undefined
     setSettings(undefined)
