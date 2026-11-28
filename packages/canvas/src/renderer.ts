@@ -55,7 +55,7 @@ import {
 } from './toolbox.js'
 import { paintSeedControllerIcon, paintToolboxIcon } from './icons.js'
 import { isButtonIcon, paintButtonIcon } from './button-icons.js'
-import { canvasDetailLevel, canvasPaintTokens, defaultTokens, IN_NODE_EDITORS, presentedType, typeColor, type CanvasDetailLevel, type DesignTokens, type RowGeometry } from './tokens.js'
+import { canvasDetailLevel, canvasPaintTokens, defaultTokens, IN_NODE_EDITORS, presentedType, typeColor, type CanvasDetailLevel, type DesignTokens } from './tokens.js'
 import { fitText, measureWidth, paintCenteredText, shareRowWidth, wrapText } from './text-fit.js'
 
 /**
@@ -430,20 +430,11 @@ export interface RendererLensCapabilities {
 export function widgetRowAffordanceRect(
   rowWidth: number,
   rowHeight: number,
-  row: Extract<LayoutRow, { kind: 'widget' }>,
-  geometry: RowGeometry,
 ): { readonly x: number; readonly y: number; readonly width: number; readonly height: number } {
   const paint = canvasPaintTokens.lensAffordance
   const size = Math.max(paint.rowMinSize, Math.min(paint.rowMaxSize, rowHeight - paint.rowPadding))
-  const numeric = (row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT') && row.viewId !== 'core.integerColor'
-  const trailingEdge = row.controllerMode !== undefined
-    ? controllerChipRect(rowWidth, rowHeight, geometry).x - CONTROLLER_CHIP_TEXT_GAP
-    : rowWidth - (numeric ? geometry.stepperZone + CONTROLLER_CHIP_TEXT_GAP : CONTROLLER_CHIP_TEXT_GAP)
   return {
-    x: Math.max(
-      geometry.stepperZone + CONTROLLER_CHIP_TEXT_GAP,
-      trailingEdge - size,
-    ),
+    x: Math.max(0, rowWidth - CONTROLLER_CHIP_TEXT_GAP - size),
     y: (rowHeight - size) / 2,
     width: size,
     height: size,
@@ -1622,6 +1613,13 @@ export class CanvasRenderer {
 
   getLensCapabilities(): RendererLensCapabilities {
     return this.lensCapabilities
+  }
+
+  /** Field controls and editors stop before a lens control's trailing slot. */
+  widgetContentWidth(node: SceneNode, row: Extract<LayoutRow, { kind: 'widget' }>): number {
+    const width = row.width ?? node.layout.width - row.inset * 2
+    if (this.lensCapabilities.widgetRowAffordance?.(node, row) === undefined) return width
+    return Math.max(0, widgetRowAffordanceRect(width, this.tokens.rowHeight).x - CONTROLLER_CHIP_TEXT_GAP)
   }
 
   /** The value and wire state shared by field painting and label-mark hit testing. */
@@ -4840,10 +4838,13 @@ export class CanvasRenderer {
     const t = this.tokens
     const l = node.layout
     const rowY = node.y + row.y
-    if (this.openRows[sceneNode.id] === row.valueKey) return
+    if (this.openRows[sceneNode.id] === row.valueKey) {
+      this.drawWidgetRowAffordance(ctx, sceneNode, node, row)
+      return
+    }
     const display = this.widgetPaintState(node, row, driven)
     const { companion, connected } = display
-    const widgetWidth = row.width ?? l.width - row.inset * 2
+    const widgetWidth = this.widgetContentWidth(sceneNode, row)
     const rowAlpha = ctx.globalAlpha
     if (row.disabled) ctx.globalAlpha = rowAlpha * canvasPaintTokens.widget.inactiveOpacity
     else {
@@ -5004,39 +5005,48 @@ export class CanvasRenderer {
       ctx.lineCap = previousLineCap
       ctx.globalAlpha = glyphAlpha
     }
-    const lensAffordance = this.lensCapabilities.widgetRowAffordance?.(sceneNode, row)
-    if (lensAffordance !== undefined) {
-      const rowWidth = widgetWidth
-      const rect = widgetRowAffordanceRect(rowWidth, t.rowHeight, row, t.rowGeometry)
-      const x = node.x + row.inset + rect.x
-      const y = rowY + rect.y
-      const affordanceAlpha = ctx.globalAlpha
-      const paint = canvasPaintTokens.lensAffordance
-      if (lensAffordance.disabled === true) ctx.globalAlpha *= paint.disabledOpacity
-      ctx.fillStyle = lensAffordance.active ? t.colors.widgetAffordanceActive : t.colors.widgetBackground
-      ctx.strokeStyle = lensAffordance.active ? t.colors.widgetAffordanceActive : t.colors.widgetAffordance
-      ctx.lineWidth = paint.stroke
-      ctx.beginPath()
-      ctx.roundRect(x, y, rect.width, rect.height, paint.radius)
-      ctx.fill()
-      ctx.stroke()
-      ctx.strokeStyle = lensAffordance.active ? t.colors.canvasBackground : t.colors.widgetAffordance
-      ctx.lineCap = 'round'
-      ctx.beginPath()
-      if (lensAffordance.active) {
-        ctx.moveTo(x + rect.width * paint.check.startX, y + rect.height * paint.check.startY)
-        ctx.lineTo(x + rect.width * paint.check.middleX, y + rect.height * paint.check.middleY)
-        ctx.lineTo(x + rect.width * paint.check.endX, y + rect.height * paint.check.endY)
-      } else {
-        ctx.moveTo(x + rect.width * paint.plus.start, y + rect.height / 2)
-        ctx.lineTo(x + rect.width * paint.plus.end, y + rect.height / 2)
-        ctx.moveTo(x + rect.width / 2, y + rect.height * paint.plus.start)
-        ctx.lineTo(x + rect.width / 2, y + rect.height * paint.plus.end)
-      }
-      ctx.stroke()
-      ctx.globalAlpha = affordanceAlpha
-    }
+    this.drawWidgetRowAffordance(ctx, sceneNode, node, row)
     ctx.globalAlpha = rowAlpha
+  }
+
+  private drawWidgetRowAffordance(
+    ctx: CanvasRenderingContext2D,
+    sceneNode: SceneNode,
+    node: SceneNode,
+    row: Extract<LayoutRow, { kind: 'widget' }>,
+  ): void {
+    const affordance = this.lensCapabilities.widgetRowAffordance?.(sceneNode, row)
+    if (affordance === undefined) return
+    const t = this.tokens
+    const rowWidth = row.width ?? node.layout.width - row.inset * 2
+    const rect = widgetRowAffordanceRect(rowWidth, t.rowHeight)
+    const x = node.x + row.inset + rect.x
+    const y = node.y + row.y + rect.y
+    const paint = canvasPaintTokens.lensAffordance
+    ctx.save()
+    if (affordance.disabled === true) ctx.globalAlpha *= paint.disabledOpacity
+    ctx.fillStyle = affordance.active ? t.colors.widgetAffordanceActive : t.colors.widgetBackground
+    ctx.strokeStyle = affordance.active ? t.colors.widgetAffordanceActive : t.colors.widgetAffordance
+    ctx.lineWidth = paint.stroke
+    ctx.beginPath()
+    ctx.roundRect(x, y, rect.width, rect.height, paint.radius)
+    ctx.fill()
+    ctx.stroke()
+    ctx.strokeStyle = affordance.active ? t.colors.canvasBackground : t.colors.widgetAffordance
+    ctx.lineCap = 'round'
+    ctx.beginPath()
+    if (affordance.active) {
+      ctx.moveTo(x + rect.width * paint.check.startX, y + rect.height * paint.check.startY)
+      ctx.lineTo(x + rect.width * paint.check.middleX, y + rect.height * paint.check.middleY)
+      ctx.lineTo(x + rect.width * paint.check.endX, y + rect.height * paint.check.endY)
+    } else {
+      ctx.moveTo(x + rect.width * paint.plus.start, y + rect.height / 2)
+      ctx.lineTo(x + rect.width * paint.plus.end, y + rect.height / 2)
+      ctx.moveTo(x + rect.width / 2, y + rect.height * paint.plus.start)
+      ctx.lineTo(x + rect.width / 2, y + rect.height * paint.plus.end)
+    }
+    ctx.stroke()
+    ctx.restore()
   }
 
   private drawRunningGlow(
