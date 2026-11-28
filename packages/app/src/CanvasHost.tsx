@@ -439,35 +439,39 @@ export function palettePickCommitsImmediately(type: string, placement: PaletteAn
 export function storedValueProblems(
   registry: ReturnType<AppState['widgetRegistryForTab']>,
   graphId: string,
-  row: StoredValueRow,
+  row: StoredValueRow & { readonly nodeTitle?: string; readonly label?: string },
   value: Json | undefined,
 ): Diagnostic[] {
   const refs = [{ graphId, nodeId: row.nodeId, portId: row.inputId, valueKey: row.valueKey, direction: 'input' as const }]
+  const describe = (diagnostic: Diagnostic): Diagnostic => {
+    const nodeMessage = row.label === undefined ? diagnostic.message : `${row.label}: ${diagnostic.message}`
+    return { ...diagnostic, refs, message: row.nodeTitle === undefined ? nodeMessage : `${row.nodeTitle}: ${nodeMessage}`,
+      data: { ...diagnostic.data, nodeMessage } }
+  }
   const kind = registry.kind(row.spec.widgetType)
   if (!kind) {
-    return [diag('warning', 'schema', 'widget.kindUnavailable', `${row.nodeId}.${row.valueKey}: widget kind '${row.spec.widgetType}' is not available; using the raw-value editor`, { refs })]
+    return [describe(diag('warning', 'schema', 'widget.kindUnavailable', 'This kind of field is not available; its saved value is shown as text.'))]
   }
   // JSON cannot store undefined, so undefined means "not stored". An
   // explicit null IS stored (ASSET and MOUNT use it as "no value") and must
   // reach the validator.
   if (value === undefined) return []
-  const where = `${row.nodeId}.${row.valueKey}`
   if (row.spec.widgetType === 'ASSET' && row.spec.selection !== true && typeof value === 'string') {
     // Model names are valid bindings; the backend presence read owns their availability.
     if (row.spec.kind?.startsWith('model/')) return []
-    return [unresolvedAssetImportDiagnostic({
+    return [describe(unresolvedAssetImportDiagnostic({
       graphId,
       nodeId: row.nodeId,
       inputId: row.inputId,
       valueKey: row.valueKey,
       requested: value,
       ...(row.spec.kind !== undefined ? { expectedKind: row.spec.kind } : {}),
-    })]
+    }))]
   }
   if (!kind.valueSchema.validate(value, row.spec)) {
-    return [diag('warning', 'schema', `widget.${row.spec.widgetType}.badValue`, `${where}: stored value does not fit this widget's value shape`, { refs })]
+    return [describe(diag('warning', 'schema', `widget.${row.spec.widgetType}.badValue`, 'The saved value does not fit this field.'))]
   }
-  return kind.validate(value, row.spec).map((d) => ({ ...d, message: `${where}: ${d.message}`, refs }))
+  return kind.validate(value, row.spec).map(describe)
 }
 
 export function unresolvedAssetImportDiagnostic(args: {
@@ -478,13 +482,12 @@ export function unresolvedAssetImportDiagnostic(args: {
   readonly requested: string
   readonly expectedKind?: string
 }): Diagnostic {
-  const where = `${args.nodeId}.${args.valueKey}`
   const basename = unresolvedAssetBasename(args.requested)
   return diag(
     'error',
     'schema',
     'widget.ASSET.unresolvedImport',
-    `${where}: imported file "${basename}" is unavailable`,
+    `imported file "${basename}" is unavailable`,
     {
       refs: [{ graphId: args.graphId, nodeId: args.nodeId, portId: args.inputId, valueKey: args.valueKey, direction: 'input' }],
       data: { requested: args.requested, expectedKind: args.expectedKind ?? 'unspecified' },
@@ -5126,7 +5129,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             out.push(problem)
           } else {
             out.push(...storedValueProblems(widgetRegistry(), scene.graphId,
-              { nodeId: node.id, inputId: row.inputId, valueKey: row.valueKey, spec: row.spec }, node.node.values[row.valueKey]))
+              { nodeId: node.id, nodeTitle: node.layout.title, label: row.label,
+                inputId: row.inputId, valueKey: row.valueKey, spec: row.spec }, node.node.values[row.valueKey]))
           }
         }
       }
@@ -5155,8 +5159,16 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           .filter((d) => d.code === 'node.rule.failed')
           .map((d): Diagnostic => managedRules.find((problem) => problem.refs?.[0]?.nodeId === node.id &&
             problem.data?.['rule'] === d.data?.['rule']) ??
-            { ...d, origin: 'compile', refs: ruleProblemRefs(d, scene.graphId, node.id) }))
-      const sceneDiags = [...scene.diagnostics, ...widgetDiags, ...ruleDiags, ...availabilityDiags, ...lastRunAutomatic]
+            { ...d, origin: 'compile', message: `${node.title || reg?.resolve(node.type)?.displayName || node.type}: ${d.message}`,
+              refs: ruleProblemRefs(d, scene.graphId, node.id), data: { ...d.data, nodeMessage: d.message } }))
+      const instancePath = viewInstancePath(tab)
+      const sceneDiags = [...scene.diagnostics, ...widgetDiags, ...ruleDiags, ...availabilityDiags, ...lastRunAutomatic].map((diagnostic) => {
+        const node = diagnostic.anchor?.port?.node ?? diagnostic.refs?.[0]?.nodeId
+        return instancePath !== undefined && node !== undefined && diagnostic.anchor?.occurrence === undefined &&
+          (diagnostic.code === 'solve.varConflict' || diagnostic.code === 'node.rule.failed')
+          ? { ...diagnostic, anchor: { ...diagnostic.anchor, occurrence: { instancePath: instancePath.map(asNodeId), node: asNodeId(node) } } }
+          : diagnostic
+      })
       setInstanceDiagnostics(sceneDiags)
       if (hostFocused()) props.app.solveDiagnostics.set(sceneDiags)
     }
