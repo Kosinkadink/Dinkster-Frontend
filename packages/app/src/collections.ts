@@ -10,6 +10,7 @@
 import {
   formatByteSize,
   formatDate,
+  formatNumber,
   localCollectionSource,
   t,
   type CollectionEntry,
@@ -18,7 +19,6 @@ import {
 } from '@dinkster/core'
 import { HISTORY_STATES, type ExecutionState, type HistoryPage, type HistoryRunRecord, type LibraryRecord, type TemplateDescriptor } from '@dinkster/client'
 import { LIBRARY_SCOPE, WORKFLOW_LABEL, type AppState, type Backend } from './app-state.js'
-import { runAttributionLabel, type RunAttribution } from './run-attribution.js'
 import { RemoteTemplateCatalog, type RemoteTemplateDescriptor } from './template-catalog.js'
 
 const COLLECTION_DATE_OPTIONS: Intl.DateTimeFormatOptions = {
@@ -28,7 +28,7 @@ const COLLECTION_DATE_OPTIONS: Intl.DateTimeFormatOptions = {
 }
 
 export const formatCollectionDate = (value: number): string => formatDate(value, {
-  ...COLLECTION_DATE_OPTIONS, hour: 'numeric', minute: '2-digit', second: '2-digit',
+  ...COLLECTION_DATE_OPTIONS, hour: 'numeric', minute: '2-digit',
 })
 
 export const formatCollectionRowDate = (value: number): string => {
@@ -146,26 +146,11 @@ export function packsSource(app: AppState): CollectionSource {
       for (const [packId, info] of reg.packs) {
         const count = nodeCounts.get(packId) ?? 0
         if (count === 0) continue
-        const sourceKind = info.source?.split(':', 1)[0]
         const assetCount = info.assets?.length ?? 0
-        const typeStorage = Object.entries(info.typeStorage ?? {}).sort(([a], [b]) => a.localeCompare(b))
-          .filter(([type]) => info.typeStorageChoices?.includes(type))
-          .map(([type, provider]) => ({
-            label: `${type.slice(type.lastIndexOf('.') + 1)} values`,
-            text: `Stored ${provider}'s way`,
-            title: type,
-          }))
         entries.push({
           id: packId,
           title: info.displayName,
-          subtitle: packId,
-          badges: [
-            ...(info.abbr !== undefined ? [info.abbr] : []),
-            ...(info.version !== undefined ? [`v${info.version}`] : []),
-            ...(sourceKind !== undefined ? [sourceKind] : []),
-            `${count} node${count === 1 ? '' : 's'}`,
-            ...(assetCount > 0 ? [`${assetCount} asset${assetCount === 1 ? '' : 's'}`] : []),
-          ],
+          diagnostics: JSON.stringify({ ...info, packId, backend: backend?.label }, null, 2),
           ...(info.icon !== undefined && backend !== undefined
             ? { thumbRender: async (signal?: AbortSignal) => {
                 if (signal === undefined) throw new Error('Pack preview request unavailable')
@@ -177,19 +162,14 @@ export function packsSource(app: AppState): CollectionSource {
               } }
             : {}),
           details: [
-            { label: 'pack id', text: packId },
-            ...(backend !== undefined ? [{ label: 'backend', text: backend.label }] : []),
             { label: 'nodes', text: String(count) },
             ...(assetCount > 0 ? [{ label: 'assets', text: String(assetCount) }] : []),
             ...(info.assets ?? []).map((asset) => ({
               label: `asset: ${asset.name}`,
-              text: [asset.kind, asset.size !== undefined ? formatByteSize(asset.size) : undefined].filter(Boolean).join(' - ') || asset.digest,
+              text: [asset.kind, asset.size !== undefined ? formatByteSize(asset.size) : undefined].filter(Boolean).join(' - '),
             })),
             ...(info.version !== undefined ? [{ label: 'version', text: info.version }] : []),
-            ...(info.source !== undefined ? [{ label: 'source', text: info.source }] : []),
             ...(info.publisher !== undefined ? [{ label: 'publisher', text: info.publisher }] : []),
-            ...(info.artifactDigest !== undefined ? [{ label: 'digest', text: info.artifactDigest }] : []),
-            ...typeStorage,
           ],
         })
       }
@@ -291,7 +271,7 @@ export function templateCollectionSource(resolveBackend: () => TemplateCollectio
         ...(nextCursor !== undefined ? { cursor: nextCursor } : {}),
         items: templates.slice(offset, nextOffset).map(({ template, ref }) => {
           const models = templateModels(template, backend)
-          const missing = models.filter((model) => !held.get(model))
+          const packName = backend.registry.get()?.packs?.get(template.pack)?.displayName
           const assets = backend.registry.get()?.packs?.get(template.pack)?.assets ?? []
           const declared = assets.filter((asset) => template.assets?.includes(asset.id))
           const remoteTemplate = ref.kind === 'remote' ? ref.template : undefined
@@ -302,12 +282,10 @@ export function templateCollectionSource(resolveBackend: () => TemplateCollectio
               : `${template.pack}/${template.id}`,
             owner: backend.id,
             title: template.name,
-            ...(template.description !== undefined ? { subtitle: template.description } : {}),
-            badges: [
-              template.family ?? template.pack,
-              ref.kind === 'remote' ? 'remote' : 'built-in',
-              ...(missing.length > 0 ? [`${missing.length} model${missing.length === 1 ? '' : 's'} missing`] : []),
-            ],
+            ...(template.description === undefined ? {} : { description: template.description }),
+            ...(packName === undefined ? {} : { subtitle: `From ${packName}` }),
+            badges: template.tags ?? [],
+            diagnostics: JSON.stringify({ ...template, backend: backend.label }, null, 2),
             ...(thumbUrl === undefined ? {} : { thumbUrl }),
             ...(remoteTemplate === undefined && template.thumbnail !== undefined ? {
               thumbRender: async (signal?: AbortSignal) => {
@@ -320,13 +298,8 @@ export function templateCollectionSource(resolveBackend: () => TemplateCollectio
               },
             } : {}),
             details: [
-              { label: 'template id', text: template.id },
-              { label: 'pack', text: template.pack },
               ...(template.family !== undefined ? [{ label: 'family', text: template.family }] : []),
               ...(remoteTemplate !== undefined ? [{ label: 'version', text: remoteTemplate.version }] : []),
-              { label: 'backend', text: backend.label },
-              { label: 'digest', text: template.digest },
-              ...(template.tags?.length ? [{ label: 'tags', text: template.tags.join(', ') }] : []),
               ...templateAssetLines(template, backend).map((text) => ({ label: 'requires', text })),
               ...models.map((model) => ({ label: held.get(model) ? 'model ready' : 'model missing', text: model })),
             ],
@@ -353,13 +326,8 @@ const workflowEntry = (r: LibraryRecord, backend: Backend): CollectionEntry => (
   kind: 'workflow',
   subtitle: `Modified ${formatCollectionRowDate(r.modified * 1000)}`,
   badges: r.labels.filter((l) => l !== WORKFLOW_LABEL),
+  diagnostics: JSON.stringify({ ...r, backend: backend.label }, null, 2),
   details: [
-    { label: 'workflow id', text: r.id },
-    { label: 'backend', text: backend.label },
-    { label: 'digest', text: r.digest },
-    { label: 'media type', text: r.mediaType },
-    { label: 'modified', text: formatDate(r.modified * 1000, { ...COLLECTION_DATE_OPTIONS, hour: 'numeric', minute: '2-digit' }) },
-    { label: 'revision', text: String(r.revision) },
     ...(r.folder !== undefined ? [{ label: 'folder', text: r.folder }] : []),
   ],
   // 'copy-link' puts a shareable dinkster:// link on the clipboard; the
@@ -424,8 +392,9 @@ export function boardBlueprintsSource(backendForPage: () => Backend | undefined,
             kind: 'blueprint',
             subtitle: `Modified ${formatCollectionRowDate(record.modified * 1000)}`,
             badges: record.labels.filter((label) => label !== 'blueprint'),
-            details: [{ label: 'blueprint id', text: record.id }, { label: 'backend', text: backend.label },
-              { label: 'digest', text: record.digest }, { label: 'revision', text: String(record.revision) }],
+            diagnostics: JSON.stringify({ ...record, backend: backend.label }, null, 2),
+            details: [{ label: 'modified', text: formatCollectionDate(record.modified * 1000) },
+              ...(record.folder === undefined ? [] : [{ label: 'folder', text: record.folder }])],
             ref: { kind: 'library', recordId: record.id } satisfies BoardCardSource,
           })))
           next = page.cursor
@@ -437,8 +406,9 @@ export function boardBlueprintsSource(backendForPage: () => Backend | undefined,
         for (const blueprint of pack.blueprints ?? []) items.push({
           id: `pack:${JSON.stringify([packId, blueprint.id])}`, owner: backend.id, title: blueprint.name,
           kind: 'blueprint',
-          subtitle: blueprint.description ?? pack.displayName, badges: blueprint.tags ?? [],
-          details: [{ label: 'pack', text: pack.displayName }, { label: 'digest', text: blueprint.digest }],
+          subtitle: `From ${pack.displayName}`, badges: blueprint.tags ?? [],
+          ...(blueprint.description === undefined ? {} : { description: blueprint.description }),
+          diagnostics: JSON.stringify({ ...blueprint, pack: packId, backend: backend.label }, null, 2),
           ref: { kind: 'pack', packId, blueprintId: blueprint.id, digest: blueprint.digest } satisfies BoardCardSource,
         })
       }
@@ -477,10 +447,10 @@ export function boardsSource(app: AppState): CollectionSource {
           kind: 'board',
           subtitle: `Modified ${formatCollectionRowDate(record.modified * 1000)}`,
           badges: record.labels.filter((label) => label !== 'board'),
+          diagnostics: JSON.stringify({ ...record, backend: backend.label }, null, 2),
           details: [
-            { label: 'board id', text: record.id },
-            { label: 'backend', text: backend.label },
-            { label: 'revision', text: String(record.revision) },
+            { label: 'modified', text: formatCollectionDate(record.modified * 1000) },
+            ...(record.folder === undefined ? [] : [{ label: 'folder', text: record.folder }]),
           ],
         })),
         ...(nextCursor !== undefined ? { cursor: nextCursor } : {}),
@@ -493,87 +463,19 @@ const timeText = (epoch: number): string => formatCollectionDate(epoch * 1000)
 const localTimeText = (epoch: number): string => formatCollectionDate(epoch)
 const titleCase = (value: string): string => value[0]!.toUpperCase() + value.slice(1)
 
-const armReceiptBadges = (r: HistoryRunRecord): string[] => {
-  const counts = new Map<string, number>()
-  for (const receipt of r.nodeReceipts ?? []) {
-    if (receipt.executionArm === undefined) continue
-    counts.set(receipt.executionArm, (counts.get(receipt.executionArm) ?? 0) + 1)
-  }
-  return [...counts].map(([arm, count]) => `${count} ${arm === 'native' ? 'Native' : 'ComfyUI'}`)
-}
-
-const workerReceiptBadges = (r: HistoryRunRecord): string[] => {
-  const counts = new Map<string, number>()
-  for (const receipt of r.nodeReceipts ?? []) {
-    if (receipt.worker === undefined) continue
-    counts.set(receipt.worker, (counts.get(receipt.worker) ?? 0) + 1)
-  }
-  return [...counts].map(([worker, count]) => `${count} on ${worker}`)
-}
-
-const nodeExecutionText = (
-  disposition: string,
-  executionArm?: 'native' | 'comfyui',
-  worker?: string,
-  provider?: string,
-  pack?: string,
-): string => [
-  disposition,
-  ...(executionArm === undefined ? [] : [executionArm === 'native' ? 'Native' : 'ComfyUI']),
-  ...(provider === undefined ? [] : [`provider ${provider}`]),
-  ...(pack === undefined ? [] : [`pack ${pack}`]),
-  ...(worker === undefined ? [] : [worker]),
-].join(' - ')
-
-const attributionBadges = (attribution: RunAttribution): string[] => {
-  const label = runAttributionLabel(attribution)
-  return [
-    ...(label !== undefined ? [label] : []),
-    ...(attribution.kind === 'agent' ? ['agent'] : []),
-  ]
-}
-
-/**
- * The sweep phase of an interrupted record: 'running' means the server
- * died mid-execution, anything else means the job never started.
- */
-const interruptedPhaseText = (r: HistoryRunRecord): string =>
-  r.error?.['phase'] === 'running' ? 'was running' : 'never started'
-
 /** Text-first display of one durable run record. */
-const runEntry = (r: HistoryRunRecord, owner: string): CollectionEntry => ({
+const runEntry = (r: HistoryRunRecord, backend: Pick<Backend, 'id' | 'label'>): CollectionEntry => ({
   id: r.runId,
   ref: r,
-  owner,
+  owner: backend.id,
   title: r.workflowName ?? `${titleCase(r.state)} run`,
-  subtitle: `${formatCollectionRowDate(r.finishedAt * 1000)} - ${r.jobId}`,
-  badges: [
-    ...attributionBadges({ principalId: r.principalId, kind: r.principalKind }),
-    'Durable record',
-    r.state,
-    ...(r.state === 'interrupted' ? [interruptedPhaseText(r)] : []),
-    `${r.executed} run / ${r.cached} cached`,
-    ...armReceiptBadges(r),
-    ...workerReceiptBadges(r),
-    ...(r.skipped > 0 ? [`${r.skipped} skipped`] : []),
-    ...(r.sourceDocument !== undefined ? ['Source recorded'] : ['Source unavailable']),
-  ],
+  subtitle: `${titleCase(r.state)}, ${formatCollectionRowDate(r.finishedAt * 1000)}`,
+  diagnostics: JSON.stringify({ ...r, backend: backend.label }, null, 2),
   details: [
-    { label: 'run id', text: r.runId },
-    { label: 'job id', text: r.jobId },
-    { label: 'client', text: r.clientId },
-    ...(r.state === 'interrupted' ? [{ label: 'interrupted', text: interruptedPhaseText(r) }] : []),
-    { label: 'submitted', text: timeText(r.submittedAt) },
+    { label: 'state', text: titleCase(r.state) },
     ...(r.startedAt !== undefined ? [{ label: 'started', text: timeText(r.startedAt) }] : []),
-    { label: 'finished', text: timeText(r.finishedAt) },
-    ...(r.sourceDocument !== undefined
-      ? [{ label: 'source document', text: r.sourceDocument }]
-      : [{ label: 'source document', text: 'none (unstamped submission)' }]),
-    ...(r.nodeReceipts ?? []).map((receipt) => ({
-      label: `node ${receipt.nodeId}`,
-      text: nodeExecutionText(receipt.disposition, receipt.executionArm, receipt.worker, receipt.provider, receipt.pack),
-    })),
-    ...(r.error?.message !== undefined ? [{ label: 'error', text: r.error.message }] : []),
+    ...(r.startedAt === undefined ? [] : [{ label: 'duration', text: formatNumber(Math.max(0, r.finishedAt - r.startedAt), { style: 'unit', unit: 'second', unitDisplay: 'narrow' }) }]),
+    { label: 'nodes', text: t('runs.chosen.nodesText', { ran: r.executed, cached: r.cached }) },
   ],
   actions: [
     // Resubmission is a fresh submission of the exact producing document
@@ -644,18 +546,19 @@ export function groupNoOpHistoryRuns(records: readonly HistoryRunRecord[]): read
   return rows
 }
 
-const runRowEntry = (row: RunHistoryRow, owner: string): CollectionEntry => {
-  const latest = runEntry(row.latest, owner)
+const runRowEntry = (row: RunHistoryRow, backend: Pick<Backend, 'id' | 'label'>): CollectionEntry => {
+  const latest = runEntry(row.latest, backend)
   if (row.members.length === 1) return latest
   return {
     ...latest,
     id: row.id,
-    badges: [...(latest.badges ?? []), 'No-op group', `${row.members.length} runs`],
+    subtitle: `${latest.subtitle}, ${row.members.length} runs`,
+    diagnostics: JSON.stringify({ ...row.latest, groupedRuns: row.members, backend: backend.label }, null, 2),
     details: [
       ...(latest.details ?? []),
       { label: 'grouped runs', text: String(row.members.length) },
     ],
-    children: row.members.map((member) => runEntry(member, owner)),
+    children: row.members.map((member) => runEntry(member, backend)),
   }
 }
 
@@ -709,21 +612,13 @@ export function runsSource(app: AppState): CollectionSource {
       return {
         owner: backend.id,
         disabledActions: unfiltered.records.length === 0 ? ['clear'] : [],
-        items: groupNoOpHistoryRuns(page.records).map((row) => runRowEntry(row, backend.id)),
+        items: groupNoOpHistoryRuns(page.records).map((row) => runRowEntry(row, backend)),
         ...(filter === undefined ? { total: 0 } : {}),
         ...(nextCursor !== undefined ? { cursor: nextCursor } : {}),
       }
     },
   }
 }
-
-const historyBadges = (exec: ExecutionState, statusText: string): string[] => [
-  ...(exec.artifact === undefined ? ['External execution'] : ['Local snapshot']),
-  statusText,
-  ...(exec.artifact?.scope.kind === 'partial' ? ['Partial run'] : []),
-  ...(exec.artifact === undefined ? ['Snapshot unavailable'] : []),
-  ...(exec.errors.length > 0 ? [`${exec.errors.length} error${exec.errors.length === 1 ? '' : 's'}`] : []),
-]
 
 /**
  * Execution history from the shared store (newest first, all backends).
@@ -744,29 +639,15 @@ export function historySource(app: AppState): CollectionSource {
         return {
           id: exec.key,
           title: app.tabTitleFor(exec.ref),
-          subtitle: `${formatCollectionRowDate(exec.queuedAt)} - ${exec.ref.prompt}`,
-          badges: [
-            ...attributionBadges({
-              principalId: exec.submittedBy?.principalId,
-              kind: exec.submittedBy?.kind,
-            }),
-            ...historyBadges(exec, statusText),
-          ],
+          subtitle: `${titleCase(statusText === 'error' ? 'failed' : statusText)}, ${formatCollectionRowDate(exec.queuedAt)}`,
+          diagnostics: JSON.stringify({ ...exec, artifact: exec.artifact === undefined ? undefined : { scope: exec.artifact.scope, lineage: exec.artifact.snapshot.lineage } }, null, 2),
           details: [
-            { label: 'prompt', text: exec.ref.prompt },
-            { label: 'backend', text: exec.ref.connection },
-            { label: 'status', text: statusText },
-            { label: 'queued', text: localTimeText(exec.queuedAt) },
+            { label: 'state', text: titleCase(statusText === 'error' ? 'failed' : statusText) },
             ...(exec.startedAt !== undefined ? [{ label: 'started', text: localTimeText(exec.startedAt) }] : []),
-            ...(exec.endedAt !== undefined ? [{ label: 'finished', text: localTimeText(exec.endedAt) }] : []),
-            ...(exec.artifact !== undefined
-              ? [{ label: 'source lineage', text: exec.artifact.snapshot.lineage }]
+            ...(exec.startedAt === undefined || exec.endedAt === undefined ? [] : [{ label: 'duration', text: formatNumber(Math.max(0, (exec.endedAt - exec.startedAt) / 1000), { style: 'unit', unit: 'second', unitDisplay: 'narrow' }) }]),
+            ...(Object.values(exec.nodes).some((node) => node.state === 'done' || node.state === 'cached')
+              ? [{ label: 'nodes', text: t('runs.chosen.nodesText', { ran: Object.values(exec.nodes).filter((node) => node.state === 'done').length, cached: Object.values(exec.nodes).filter((node) => node.state === 'cached').length }) }]
               : []),
-            ...Object.entries(exec.nodes).map(([nodeId, node]) => ({
-              label: `node ${nodeId}`,
-              text: nodeExecutionText(node.state, node.executionArm, node.worker, node.provider, node.pack),
-            })),
-            ...(exec.errors.length > 0 ? [{ label: 'errors', text: String(exec.errors.length) }] : []),
           ],
         }
       }),

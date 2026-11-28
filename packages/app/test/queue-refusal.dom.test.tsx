@@ -7,6 +7,7 @@ import { asPromptId, diag, type DinksterNodesPayload } from '@dinkster/core'
 import { buildDinksterRegistry } from '@dinkster/client'
 import { App } from '../src/App.js'
 import { AppState, GLOBAL_PROBLEMS_OWNER } from '../src/app-state.js'
+import { setPanelOpen } from '../src/panel-location.js'
 
 vi.mock('../src/CanvasHost.js', async (original) => ({
   ...await original<typeof import('../src/CanvasHost.js')>(),
@@ -144,15 +145,31 @@ it('pressing Queue on an invalid graph shows the Problems summary and opens its 
   expect(root.querySelector('[data-testid="queue-refusal-toast"]')).toBeNull()
 })
 
-it('pressing Queue on a clean graph submits without a refusal toast', async () => {
+it('queues a clean graph and shows only reported node counts in its finished run details', async () => {
   const { app, backend, root, queue } = (await fixture(true))
   app.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag('warning', 'validation', 'advisory', 'Not a queue blocker')])
   const tab = app.activeTab()!
   expect(app.compileTab(tab)?.ok).toBe(true)
+  const execution = { connection: backend.id, prompt: asPromptId('queue-clean') }
   vi.spyOn(backend.connection, 'submit').mockResolvedValue({
-    ok: true, execution: { connection: backend.id, prompt: asPromptId('queue-clean') },
+    ok: true, execution,
   })
   queue.click()
   await vi.waitFor(() => expect(app.executionsForTab(tab)).toHaveLength(1))
   expect(root.querySelector('[data-testid="queue-refusal-toast"]')).toBeNull()
+  app.store.apply({ kind: 'started', execution, timestamp: 1000 })
+  app.store.apply({ kind: 'completed', execution, timestamp: 31000 })
+  setPanelOpen(app.panels, app.dock, 'runs', 'right', true)
+  await vi.waitFor(() => expect(root.querySelector('[data-testid="chosen-run"]')).not.toBeNull())
+  root.querySelector<HTMLButtonElement>('[data-testid="runs-panel"] button[aria-label="More for Queue feedback"]')!.click()
+  const details = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) => item.textContent === 'Details')!
+  expect(details).toBeDefined()
+  details.click()
+  const facts = () => root.querySelector('[data-testid="chosen-run-details"]')!
+  expect(facts().textContent).toContain('30s')
+  expect([...facts().querySelectorAll('dt')].map((label) => label.textContent)).not.toContain('Nodes')
+  app.store.apply({ kind: 'nodeStates', execution, timestamp: 32000, nodes: {
+    n0: { state: 'done' }, n1: { state: 'cached' }, n2: { state: 'cached' },
+  } })
+  await vi.waitFor(() => expect(facts().textContent).toContain('1 nodes ran, 2 from cache'))
 })

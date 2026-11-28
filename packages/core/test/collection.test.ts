@@ -18,7 +18,7 @@ const corpus: CollectionEntry[] = [
   entry('b', 'Beta Pack', { subtitle: 'vendor.beta', badges: ['local'] }),
   entry('c', 'Video Helper', { subtitle: 'vhs.video', badges: ['registry'] }),
   entry('d', 'Video Loader', { subtitle: 'vhs.loader' }),
-  entry('e', 'Gamma Tools', { subtitle: 'vendor.gamma' }),
+  entry('e', 'Gamma Tools', { subtitle: 'vendor.gamma', description: 'Adjust saturation' }),
 ]
 
 const source = localCollectionSource({ id: 's', label: 'S', corpus: () => corpus })
@@ -51,11 +51,13 @@ describe('query ownership', () => {
     expect(page.total).toBe(2)
   })
 
-  it('search hits subtitles and badges through the default fields', async () => {
+  it('search hits subtitles, descriptions and badges through the default fields', async () => {
     const bySubtitle = await source.page({ query: 'vhs', limit: 10 })
     expect(bySubtitle.items.map((e) => e.id).sort()).toEqual(['c', 'd'])
     const byBadge = await source.page({ query: 'registry', limit: 10 })
     expect(byBadge.items.map((e) => e.id).sort()).toEqual(['a', 'c'])
+    const byDescription = await source.page({ query: 'saturation', limit: 10 })
+    expect(byDescription.items.map((e) => e.id)).toEqual(['e'])
   })
 
   it('a cursor from ANOTHER query is treated as absent: paging restarts', async () => {

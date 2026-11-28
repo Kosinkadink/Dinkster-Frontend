@@ -6,6 +6,8 @@ import { initialsOf } from './collections.js'
 import { useAppMessage } from './locale.js'
 import { ProductSelect } from './ProductSelect.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
+import { ProductMenu } from '@dinkster/ui'
+import { Ellipsis } from 'lucide-solid'
 
 const DIRECT_LIBRARY_SOURCES = new Set(['packs', 'templates', 'workflows', 'boards'])
 const ACTIVITY_SOURCES = new Set(['history', 'runs'])
@@ -52,7 +54,7 @@ function LibrarySourceControl(props: {
     selectAt(next)
   }
   return (
-    <>
+    <Show when={props.sources.length > 1}>
       <div class="library-source-tabs" role="group" aria-label={props.message('library.source.collections')} ref={controls}>
         <For each={props.sources}>
           {(source, index) => (
@@ -80,7 +82,7 @@ function LibrarySourceControl(props: {
         options={props.sources.map((source) => ({ id: source.id, label: source.label, value: source.id }))}
         onSelect={(option) => props.select(option.value)}
       />
-    </>
+    </Show>
   )
 }
 
@@ -119,13 +121,14 @@ function LibraryDetailRail(props: {
     <aside
       class="library-detail-rail"
       data-testid="library-detail-rail"
+      data-selected={props.entry !== undefined}
       aria-label={props.message('library.detail.selected')}
       ref={(element) => { rail = element }}
     >
       <Show
         when={props.entry}
         keyed
-        fallback={<ProductEmptyState title={props.message('library.detail.empty.title')} hint={props.message('library.detail.empty.description')} />}
+        fallback={<ProductEmptyState title={props.message('library.detail.empty.title')} />}
       >
         {(entry) => (
           <>
@@ -135,7 +138,12 @@ function LibraryDetailRail(props: {
                 <strong>{entry.title}</strong>
                 <Show when={entry.subtitle}>{(subtitle) => <small>{subtitle()}</small>}</Show>
               </span>
+              <Show when={entry.diagnostics}>{(diagnostics) => <ProductMenu
+                icon={Ellipsis} iconOnly fill="quiet" label={props.message('library.detail.actions')}
+                items={[{ label: props.message('library.detail.copy'), onSelect: () => { void navigator.clipboard.writeText(diagnostics()) } }]}
+              />}</Show>
             </header>
+            <Show when={entry.description}>{(description) => <p>{description()}</p>}</Show>
             <Show when={(entry.badges ?? []).length > 0}>
               <div class="library-detail-badges" aria-label={props.message('library.detail.attributes')}>
                 <For each={entry.badges}>{(badge) => <span>{badge}</span>}</For>

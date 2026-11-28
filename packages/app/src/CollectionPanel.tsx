@@ -114,6 +114,8 @@ export function CollectionPanel(props: {
   readonly pick?: {
     readonly pickable: (entry: CollectionEntry) => boolean
     readonly onPick: (entry: CollectionEntry) => void
+    /** Select first; Enter or double-click commits. The host supplies the use button in its rail. */
+    readonly confirm?: boolean
     /** Keep informational or disabled entries visible. Hidden remains the default. */
     readonly visible?: (entry: CollectionEntry) => boolean
     /**
@@ -427,11 +429,12 @@ export function CollectionPanel(props: {
     })
   }
 
-  const focusEntry = (id: string | undefined): void => {
+  const focusEntry = (id: string | undefined, focus = true): void => {
     if (id === undefined) return
-    const entry = rootEl?.querySelector<HTMLElement>(`[data-entry="${CSS.escape(id)}"]`)
+    const entry = [...rootEl?.querySelectorAll<HTMLElement>('[data-entry]') ?? []]
+      .find((element) => element.dataset.entry === id)
     if (entry == null) return
-    entry.focus({ preventScroll: true })
+    if (focus) entry.focus({ preventScroll: true })
     const viewport = entry.closest<HTMLElement>('.collection-items')
     if (viewport === null) return
     const entryRect = entry.getBoundingClientRect()
@@ -439,6 +442,22 @@ export function CollectionPanel(props: {
     if (entryRect.bottom > viewportRect.bottom) viewport.scrollTop += entryRect.bottom - viewportRect.bottom
     else if (entryRect.top < viewportRect.top) viewport.scrollTop -= viewportRect.top - entryRect.top
   }
+
+  createEffect(() => {
+    if (!props.detailRail) return
+    selectedId()
+    loading()
+    const viewport = rootEl?.querySelector('.collection-items')
+    if (!viewport) return
+    const observer = new ResizeObserver(() => focusEntry(selectedId(), false))
+    observer.observe(viewport)
+    onCleanup(() => observer.disconnect())
+  })
+  createEffect(() => {
+    if (!props.detailRail) return
+    const id = selectedId()
+    queueMicrotask(() => focusEntry(id, false))
+  })
 
   // Roving tab index: exactly one row is Tab-reachable - the selected row,
   // or the first visible row when nothing is selected. Every other row is
@@ -452,8 +471,8 @@ export function CollectionPanel(props: {
 
   /** Activate an entry: folders navigate; pick mode selects and hands the
    * pickable entry to onPick immediately; panel mode toggles selection +
-   * onActivate. */
-  const activate = (entry: CollectionEntry): void => {
+   * onActivate. Confirming pickers wait for Enter or double-click. */
+  const activate = (entry: CollectionEntry, commit = false): void => {
     if (entry.folder !== undefined) {
       navigateFolder(entry.folder.path)
       return
@@ -462,7 +481,7 @@ export function CollectionPanel(props: {
     if (props.pick) {
       if (!props.pick.pickable(entry)) return
       setSelectedId(entry.id)
-      props.pick.onPick(entry)
+      if (!props.pick.confirm || commit) props.pick.onPick(entry)
       return
     }
     setSelectedId(selectedId() === entry.id ? undefined : entry.id)
@@ -492,7 +511,7 @@ export function CollectionPanel(props: {
       const entry = rows[index]
       if (entry) {
         event.preventDefault()
-        activate(entry)
+        activate(entry, !props.pick?.confirm || selectedId() === entry.id)
       }
       return
     }
@@ -582,6 +601,7 @@ export function CollectionPanel(props: {
       data-tooltip-label={props.entryContent === undefined ? `${p.entry.title}${p.entry.subtitle ? `\n${p.entry.subtitle}` : ''}` : undefined}
       tabindex={p.entry.id === rovingId() ? '0' : '-1'}
       onClick={() => activate(p.entry)}
+      onDblClick={() => { if (props.pick?.confirm) activate(p.entry, true) }}
     >
       <Show when={props.entryContent} fallback={<>
       <Thumb entry={p.entry} />
@@ -618,7 +638,10 @@ export function CollectionPanel(props: {
           {message(expandedIds().has(p.entry.id) ? 'collection.action.hideRuns' : 'collection.action.showRuns')}
         </button>
       </Show>
-      <Show when={props.entryContent === undefined && p.entry.id === selectedId() && (p.entry.details ?? []).length > 0}>
+      <Show when={props.entryContent === undefined && props.detailRail === undefined && p.entry.id === selectedId() && p.entry.description}>
+        <p>{p.entry.description}</p>
+      </Show>
+      <Show when={props.variant !== 'select' && props.entryContent === undefined && props.detailRail === undefined && p.entry.id === selectedId() && (p.entry.details ?? []).length > 0}>
         <Details entry={p.entry} />
       </Show>
       <Show when={props.entryContent === undefined && p.entry.id === selectedId() && (p.entry.actions ?? []).length > 0}>
@@ -647,6 +670,7 @@ export function CollectionPanel(props: {
   }
 
   const SourceControl = () => (
+    <Show when={props.sources.length > 1 || props.sourceRail !== undefined}>
     <Show
       when={props.variant === 'select'}
       fallback={
@@ -680,6 +704,7 @@ export function CollectionPanel(props: {
         options={props.sources.map((entrySource) => ({ id: entrySource.id, label: entrySource.label, value: entrySource.id }))}
         onSelect={(option) => switchSource(option.value)}
       />
+    </Show>
     </Show>
   )
 
@@ -890,7 +915,9 @@ export function CollectionPanel(props: {
             </For>
           </div>
         </Show>
-        {props.detailRail?.(selectedEntry())}
+        <Show when={!loading() && !firstLoadFailed() || visibleItems().length > 0}>
+          {props.detailRail?.(selectedEntry())}
+        </Show>
       </div>
 
       <Show when={showCount() || cursor() !== undefined}>

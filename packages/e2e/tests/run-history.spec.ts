@@ -136,7 +136,7 @@ const entryFor = (page: Page, jobId: string) =>
   page.getByTestId('collection-entry').filter({ has: page.locator(`[data-job^="${jobId.slice(0, 8)}"]`) })
 
 /** Picks an item from a chosen stored run's "..." menu. */
-async function chosenRunMenu(page: Page, entry: Locator, item: 'Details' | 'Copy job ID' | 'Delete record'): Promise<void> {
+async function chosenRunMenu(page: Page, entry: Locator, item: 'Details' | 'Copy details' | 'Delete record'): Promise<void> {
   await entry.getByRole('button', { name: /^More for / }).click()
   await page.getByRole('menuitem', { name: item, exact: true }).click()
 }
@@ -170,15 +170,15 @@ test('a durable stamped record: click selects, the open action reopens the produ
   // panel (that would make the delete affordance unreachable).
   await entry.click()
   await expect(page.getByTestId('runs-panel')).toBeVisible()
-  // Details is a few plain lines; the job ID is copied from the menu, never shown.
+  // Details is a few plain lines; diagnostic values are copied, never shown.
   await chosenRunMenu(page, entry, 'Details')
   const details = entry.getByTestId('chosen-run-details')
-  await expect(details).toContainText(/\d+ ran, \d+ from cache/)
-  await expect(details).toContainText('Ran on')
+  await expect(details).toContainText(/\d+ nodes ran, \d+ from cache/)
+  await expect(details).toContainText('State')
   await expect(details).not.toContainText(jobId)
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
-  await chosenRunMenu(page, entry, 'Copy job ID')
-  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(jobId)
+  await chosenRunMenu(page, entry, 'Copy details')
+  await expect.poll(() => page.evaluate(async () => JSON.parse(await navigator.clipboard.readText()).jobId)).toBe(jobId)
 
   // Diverge the live document, then reopen the run: the open action must
   // restore the EXACT producing document. Tab identity is the document

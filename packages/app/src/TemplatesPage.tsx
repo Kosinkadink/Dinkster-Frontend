@@ -204,7 +204,7 @@ export function TemplatesPage(props: {
     const query = normalizeTemplateSearch(search())
     return entries().filter((entry) => {
       const template = ref(entry).template
-      return inGroup(entry, group()) && (query === '' || [template.id, entry.title, entry.subtitle ?? '', family(entry), ...(template.tags ?? [])]
+      return inGroup(entry, group()) && (query === '' || [template.id, entry.title, entry.description ?? '', family(entry), ...(template.tags ?? [])]
         .some((value) => normalizeTemplateSearch(value).includes(query)))
     })
   })
@@ -371,7 +371,7 @@ export function TemplatesPage(props: {
           onView={setView}
           viewLabels={{ result: message('templatesPage.result'), workflow: message('templatesPage.workflow') }}
           summary={[family(entry()), ...makes.filter((make) => ref(entry()).template.tags?.includes(make)).map((make) => message(`templatesPage.makes.${make}`))].join(' - ')}
-          description={entry().subtitle}
+          description={entry().description}
           needs={models(entry()).length === 0 ? undefined : {
             label: message('templatesPage.needs'),
             summary: message('templatesPage.hereCount', { count: models(entry()).length - missing(entry()).length, total: models(entry()).length }),

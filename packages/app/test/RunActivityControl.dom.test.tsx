@@ -104,7 +104,7 @@ describe('ChosenRun', () => {
       <ChosenRun name="Long run" reason={props.reason} detailsOpen={detailsOpen()} onDetails={setDetailsOpen}
         facts={[{ label: 'Took', text: '12s' }, { label: 'Nodes', text: '4 ran, 2 from cache' }]}
         onRunAgain={props.runAgain} onOpenWorkflow={props.open}
-        onCopyJobId={props.copy ?? (() => {})} onDelete={props.remove ?? (() => {})} />
+        onCopyDetails={props.copy ?? (() => {})} onDelete={props.remove ?? (() => {})} />
     ), root)
     const openMenu = async () => {
       root.querySelector<HTMLButtonElement>('button[aria-label="More for Long run"]')!.click()
@@ -113,7 +113,7 @@ describe('ChosenRun', () => {
     return { root, unmount, openMenu }
   }
 
-  it('offers Open workflow and a menu, shows Details only on request and copies the job ID without showing it', async () => {
+  it('offers Open workflow and a menu, shows Details only on request and copies diagnostics without showing them', async () => {
     const open = vi.fn()
     const copy = vi.fn()
     const view = mount({ open, copy })
@@ -125,7 +125,7 @@ describe('ChosenRun', () => {
 
     await view.openMenu()
     expect([...document.querySelectorAll('[role^="menuitem"]')].map((item) => item.textContent?.trim()))
-      .toEqual(['Details', 'Copy job ID', 'Delete record'])
+      .toEqual(['Details', 'Copy details', 'Delete record'])
     menuItem('Details').click()
     await settle()
     const details = view.root.querySelector('[data-testid="chosen-run-details"]')!
@@ -134,8 +134,8 @@ describe('ChosenRun', () => {
 
     await view.openMenu()
     expect([...document.querySelectorAll('[role^="menuitem"]')].map((item) => item.textContent?.trim()))
-      .toEqual(['Hide details', 'Copy job ID', 'Delete record'])
-    menuItem('Copy job ID').click()
+      .toEqual(['Hide details', 'Copy details', 'Delete record'])
+    menuItem('Copy details').click()
     expect(copy).toHaveBeenCalledOnce()
     view.unmount()
   })
@@ -146,12 +146,12 @@ describe('ChosenRun', () => {
     document.body.append(root)
     const unmount = render(() => (
       <ChosenRun name="Long run" facts={[]} detailsOpen={false} onDetails={() => {}}
-        inspectOpen={inspectOpen()} onInspect={setInspectOpen} onCopyJobId={() => {}} />
+        inspectOpen={inspectOpen()} onInspect={setInspectOpen} onCopyDetails={() => {}} />
     ), root)
     const items = () => [...document.querySelectorAll('[role^="menuitem"]')].map((item) => item.textContent?.trim())
     root.querySelector<HTMLButtonElement>('button[aria-label="More for Long run"]')!.click()
     await settle()
-    expect(items()).toEqual(['Details', 'Inspect run', 'Copy job ID'])
+    expect(items()).toEqual(['Details', 'Inspect run', 'Copy details'])
     menuItem('Inspect run').click()
     expect(inspectOpen()).toBe(true)
     root.querySelector<HTMLButtonElement>('button[aria-label="More for Long run"]')!.click()

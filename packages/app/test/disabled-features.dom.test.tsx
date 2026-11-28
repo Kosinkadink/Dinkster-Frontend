@@ -1,6 +1,7 @@
 import { render } from 'solid-js/web'
 import { afterEach, expect, it, vi } from 'vitest'
-import { createSignal, type SharedSessionStatus, type Signal } from '@dinkster/core'
+import { createSignal, DINKSTER_SCHEMA_WIRE_VERSION, type SharedSessionStatus, type Signal } from '@dinkster/core'
+import { buildDinksterRegistry } from '@dinkster/client'
 import type { ConnectionStatus, DocsPage } from '@dinkster/client'
 import { App } from '../src/App.js'
 import { AppState, type CollabTabState } from '../src/app-state.js'
@@ -21,6 +22,43 @@ afterEach(() => {
   localStorage.clear()
   delete window.dinksterDesktop
   vi.restoreAllMocks()
+})
+
+it('retains the loaded Library page and selection when a dock resize is committed', async () => {
+  app = new AppState()
+  const backend = app.backends.get()[0]!
+  vi.spyOn(backend.connection, 'listMounts').mockResolvedValue([])
+  vi.spyOn(backend.connection, 'fetchMountSettings').mockResolvedValue({ mounts: [], mountChangesAllowed: false })
+  const ids = Array.from({ length: 25 }, (_, index) => `pack-${String(index + 1).padStart(2, '0')}`)
+  backend.registry.set(buildDinksterRegistry(backend.id, {
+    schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
+    dinkster: { version: '1.0.0', schemaWire: DINKSTER_SCHEMA_WIRE_VERSION },
+    packs: Object.fromEntries(ids.map((id) => [id, { displayName: id }])),
+    nodes: Object.fromEntries(ids.map((id) => [id, { displayName: id, pack: id, signature: id, body: [] }])),
+  }))
+  const host = document.createElement('div')
+  document.body.append(host)
+  dispose = render(() => <App app={app} />, host)
+  host.querySelector<HTMLButtonElement>('[data-testid="library-toggle"]')!.click()
+  const library = () => document.querySelector('[data-testid="library-overlay"]')!
+  await vi.waitFor(() => expect(library().querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(24))
+  library().querySelector<HTMLButtonElement>('[data-testid="collection-more"]')!.click()
+  await vi.waitFor(() => expect(library().querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(25))
+  library().querySelector<HTMLElement>('[data-entry="pack-25"]')!.click()
+  expect(library().querySelector('[data-testid="library-detail-rail"]')?.textContent).toContain('pack-25')
+
+  app.shell.previewSize('left', 559)
+  app.shell.commitSize('left')
+  await new Promise((resolve) => setTimeout(resolve, 0))
+
+  expect(library().querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(25)
+  expect(library().querySelector('[data-entry="pack-25"]')?.getAttribute('aria-selected')).toBe('true')
+  expect(library().querySelector('[data-testid="library-detail-rail"]')?.textContent).toContain('pack-25')
+  expect(library().querySelector('[data-source="boards"]')).not.toBeNull()
+  app.settings.set('features.board.enabled', false)
+  await vi.waitFor(() => expect(library().querySelector('[data-source="boards"]')).toBeNull())
+  app.settings.set('features.board.enabled', true)
+  await vi.waitFor(() => expect(library().querySelector('[data-source="boards"]')).not.toBeNull())
 })
 
 it('replaces Assets backend ownership and rejects pending old file locations when the tab target changes', async () => {

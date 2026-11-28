@@ -160,18 +160,16 @@ describe('LibraryPanel', () => {
     dispose()
   })
 
-  it('keeps direct item details inspectable and routes explicit actions with source identity', async () => {
+  it('copies diagnostics from the menu without displaying them and preserves item actions', async () => {
     const onAction = vi.fn()
+    const writeText = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue()
     const template: CollectionEntry = {
       id: 'pack/template/with/a/very/long/id',
       title: 'Template with a long descriptive name',
-      subtitle: 'Modified 8/16/2026, 1:00:00 PM',
-      badges: ['review', 'rev 7'],
-      details: [
-        { label: 'template id', text: 'pack/template/with/a/very/long/id' },
-        { label: 'backend', text: 'Studio backend' },
-        { label: 'digest', text: `blake3:${'a'.repeat(64)}` },
-      ],
+      subtitle: 'From Color tools',
+      description: 'Adjust colors in a picture.',
+      badges: ['review'],
+      diagnostics: JSON.stringify({ id: 'pack/template/with/a/very/long/id', digest: `blake3:${'a'.repeat(64)}` }),
       actions: [{ id: 'open', label: 'Open template' }],
     }
     const root = document.createElement('div')
@@ -183,10 +181,17 @@ describe('LibraryPanel', () => {
     />, root)
 
     await vi.waitFor(() => expect(root.querySelector('[data-entry="pack/template/with/a/very/long/id"]')).not.toBeNull())
+    expect(root.querySelector('[data-testid="library-detail-rail"]')?.textContent).toBe('Nothing selected')
+    expect(root.querySelector('[data-testid="collection-source"]')).toBeNull()
     root.querySelector<HTMLElement>('[data-entry="pack/template/with/a/very/long/id"]')!.click()
     const rail = root.querySelector('[data-testid="library-detail-rail"]')!
-    expect(rail.textContent).toContain('pack/template/with/a/very/long/id')
-    expect(rail.textContent).toContain(`blake3:${'a'.repeat(64)}`)
+    expect(rail.textContent).toContain('Adjust colors in a picture.')
+    expect(rail.textContent).not.toContain('pack/template/with/a/very/long/id')
+    expect(rail.textContent).not.toContain('blake3:')
+    rail.querySelector<HTMLButtonElement>('button[aria-label="Item actions"]')!.click()
+    await vi.waitFor(() => expect(document.querySelector('[role="menuitem"]')?.textContent).toBe('Copy details'))
+    document.querySelector<HTMLButtonElement>('[role="menuitem"]')!.click()
+    expect(writeText).toHaveBeenCalledWith(template.diagnostics)
     const action = root.querySelector<HTMLButtonElement>('[data-testid="library-detail-action"]')!
     expect(action.textContent).toBe('Open template')
     action.click()
@@ -245,6 +250,7 @@ describe('LibraryPanel', () => {
     const dispose = render(() => <LibraryPanel backend={() => backend} sources={[pending]} />, root)
     await vi.waitFor(() => expect([...root.querySelectorAll('[role="status"]')].map((element) => element.textContent)).toContainEqual(expect.stringContaining('Loading packs')))
     expect(root.textContent).toContain('Loading packs')
+    expect(root.querySelector('[data-testid="library-detail-rail"]')).toBeNull()
     resolve({ items: [], total: 0 })
     await vi.waitFor(() => expect(root.textContent).toContain('No packs available'))
     dispose()
@@ -252,6 +258,7 @@ describe('LibraryPanel', () => {
     const failed: CollectionSource = { id: 'templates', label: 'Templates', page: async () => { throw new RequestFailure('GET', '/api/templates', 503, 'catalog offline') } }
     const disposeFailed = render(() => <LibraryPanel backend={() => backend} sources={[failed]} />, root)
     await vi.waitFor(() => expect(root.querySelector('[role="alert"]')?.textContent).toContain('Could not load Templates.'))
+    expect(root.querySelector('[data-testid="library-detail-rail"]')).toBeNull()
     expect(root.querySelector('[role="alert"] [data-testid="collection-retry"]')).not.toBeNull()
     expect(root.textContent).not.toContain('catalog offline')
     disposeFailed()

@@ -2,6 +2,7 @@
    for continuity; it is a docked panel, not an overlay). */
 .library-panel {
   flex: 1;
+  height: 100%;
   min-width: 0;
   min-height: 0;
   display: flex;
@@ -122,7 +123,7 @@
 :is(.library-panel[data-source='templates'], .library-panel[data-source='workflows']) .collection-action[data-action='open'] { color: var(--dinkster-accent-foreground); background: var(--dinkster-accent-background); border-color: var(--dinkster-accent-border); }
 
 .library-detail-rail {
-  display: none;
+  display: flex;
   min-width: 0;
   flex: 0 1 280px;
   flex-direction: column;
@@ -138,8 +139,8 @@
   user-select: text;
 }
 .library-detail-rail > * { flex: none; }
-.library-detail-header { display: flex; min-width: 0; align-items: flex-start; gap: var(--dinkster-space-8); }
-.library-detail-header > span:last-child { display: grid; min-width: 0; gap: var(--dinkster-space-4); }
+.library-detail-header { position: sticky; top: 0; z-index: 2; display: flex; min-width: 0; align-items: flex-start; gap: var(--dinkster-space-8); background: var(--dinkster-surface-inset); box-shadow: 0 calc(-1 * var(--dinkster-space-12)) 0 var(--dinkster-surface-inset); }
+.library-detail-header > span:nth-child(2) { display: grid; flex: 1; min-width: 0; gap: var(--dinkster-space-4); }
 .library-detail-header strong,
 .library-detail-header small { overflow-wrap: anywhere; }
 .library-detail-header strong { color: var(--dinkster-text-primary); font-weight: var(--dinkster-weight-bold); }
@@ -159,6 +160,14 @@
 .library-detail-actions button[data-tone='danger']:hover { border-color: var(--dinkster-danger-border); background: var(--dinkster-danger-wash); }
 .library-detail-actions button[data-tone='danger']:active { border-color: var(--dinkster-danger-border); background: var(--dinkster-danger-wash-pressed); }
 
+@container library-panel (max-width: 559px) {
+  .collection-content:has(> .library-detail-rail) { flex-direction: column; flex-wrap: nowrap; }
+  .collection-content:has(> .library-detail-rail) > .collection-items { flex: 1 1 0; }
+  .library-detail-rail { flex: 0 1 auto; max-height: 50%; box-sizing: border-box; }
+  .library-detail-rail[data-selected='false'] { display: none; }
+  .collection-content:has(> .library-detail-rail) .collection-entry > :is(.collection-details, .collection-actions) { display: none; }
+}
+
 @container library-panel (min-width: 560px) {
   :is(.library-panel[data-source='packs'], .library-panel[data-source='templates'], .library-panel[data-source='workflows']) .collection-content { flex-wrap: nowrap; }
   :is(.library-panel[data-source='packs'], .library-panel[data-source='templates'], .library-panel[data-source='workflows']) .collection-entry > :is(.collection-details, .collection-actions) { display: none; }
@@ -173,6 +182,12 @@
   .library-backend-context { grid-template-columns: minmax(0, 1fr) auto; }
   .library-backend-context > span:first-child { display: none; }
 }
+
+.modal-surface[data-modal='board-card-picker'] .library-panel { height: auto; flex: 0 1 auto; }
+.modal-surface[data-modal='board-card-picker'] .collection-panel { flex: 0 1 auto; }
+.modal-surface[data-modal='board-card-picker'] .collection-content { flex: none; flex-direction: column; flex-wrap: nowrap; }
+.modal-surface[data-modal='board-card-picker'] .collection-content > .collection-items { flex: none; height: min(320px, 32vh); max-height: none; }
+.modal-surface[data-modal='board-card-picker'] .library-detail-rail { flex: 0 1 auto; max-height: min(320px, 32vh); box-sizing: border-box; }
 
 .assets-panel {
   flex: 1;
