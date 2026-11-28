@@ -42,7 +42,7 @@ import { executionActivity } from './execution-activity.js'
 import { CollectionPanel } from './CollectionPanel.js'
 import { MediaDiagnostics, MediaValueInspector } from './MediaValueInspector.js'
 import { mediaMetadataOf } from './media-metadata.js'
-import { executionProblemDiagnostics, resolveNodeOccurrence, withoutPassedOnDefaults } from './problem-display.js'
+import { executionProblemDiagnostics, resolveNodeOccurrence, uniqueProblemDiagnostics, withoutPassedOnDefaults } from './problem-display.js'
 import { Icon } from './Icon.js'
 import { LibraryPanel } from './LibraryPanel.js'
 import { APP_EDITOR_KIND, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, type EditorHostContext } from './editors.js'
@@ -1797,7 +1797,7 @@ export function App(props: {
       ...(tab?.execution ? execution?.artifact?.diagnostics ?? [] : []),
       ...(execution === undefined ? [] : executionProblemDiagnostics(execution)),
     ]
-    const diagnostics = [...withoutPassedOnDefaults(solveDiagnostics(), others), ...others]
+    const diagnostics = uniqueProblemDiagnostics([...withoutPassedOnDefaults(solveDiagnostics(), others), ...others], tab?.store.doc)
     if (tab === undefined || tab.execution) return diagnostics
     const managed = app.problemFixes.diagnostics(tab)
     return [

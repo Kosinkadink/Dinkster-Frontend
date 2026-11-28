@@ -909,7 +909,7 @@ function compileImpl(
       const rule = d.code === 'node.rule.failed'
       const diagnostic = diag(d.severity, 'compile', d.code, `[${where}] ${d.message}`, {
         ...(d.anchor !== undefined ? { anchor: d.anchor } : {}),
-        ...(rule ? { refs: ruleProblemRefs(d, owner.graphId, owner.nodeId), ...(d.data !== undefined ? { data: d.data } : {}) }
+        ...(rule ? { refs: ruleProblemRefs(d, owner.graphId, owner.nodeId), data: { ...d.data, nodeMessage: d.message } }
           : d.refs !== undefined ? { refs: d.refs } : {}),
       })
       diags.push(diagnostic)
@@ -3147,6 +3147,8 @@ function compileImpl(
         if (conflict.code !== 'solve.varConflict' || conflict.severity !== 'error' || conflict.data?.['node'] !== fn.node.id) continue
         diags.push(diag('error', 'compile', 'compile.typeVariableConflict', conflict.message, {
           anchor: { occurrence: fn.occ, ...(conflict.anchor?.port !== undefined ? { port: conflict.anchor.port } : {}) },
+          ...(conflict.refs === undefined ? {} : { refs: conflict.refs }),
+          ...(conflict.data === undefined ? {} : { data: conflict.data }),
         }))
       }
     }

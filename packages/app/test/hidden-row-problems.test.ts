@@ -51,6 +51,32 @@ describe('a hidden row with a problem', () => {
     }
   })
 
+  it('names saved-value problems by their drawn row and node, not their storage address', () => {
+    const registry = new AppState().widgetRegistry
+    const cases = [
+      { spec: { widgetType: 'INT', options: {} }, value: 'old text', message: 'The saved value does not fit this field.' },
+      { spec: { widgetType: 'missing.kind', options: {} }, value: 7, message: 'This kind of field is not available; its saved value is shown as text.' },
+      { spec: { widgetType: 'INT', options: { max: 6 } }, value: 7, message: '7 > max 6' },
+      { spec: { widgetType: 'ASSET', options: {} }, value: 'input/missing.png', message: 'imported file "missing.png" is unavailable' },
+    ]
+    for (const { spec, value, message } of cases) {
+      const diagnostics = storedValueProblems(registry, 'g', {
+        nodeId: 'internal-node', inputId: 'internal-port', valueKey: 'private-storage-key',
+        nodeTitle: 'Make capture.settings', label: 'seed', spec,
+      }, value)
+      expect(diagnostics).toHaveLength(1)
+      const diagnostic = diagnostics[0]!
+      expect(diagnostic.message).toBe(`Make capture.settings: seed: ${message}`)
+      const projection = deriveProblemProjection({ diagnostics, graphId: 'g', instancePath: [] })
+      const lines = problemBoxLines(projection.nodes['internal-node']!, [
+        { key: 'private-storage-key', name: 'seed', field: true },
+      ], () => 'seed')
+      expect(lines).toMatchObject([{ message: `seed: ${message}` }])
+      expect(projection.rows['internal-node']).toEqual({ 'private-storage-key': spec.widgetType === 'ASSET' ? 'error' : 'warning' })
+      expect(diagnostic.refs?.[0]?.valueKey).toBe('private-storage-key')
+    }
+  })
+
   it('shows while its stored value is out of range, and hides again once it is fixed', () => {
     const int = { kind: 'concrete', types: ['INT'] }
     const schema = parseDinksterSchema('Sized', {
@@ -85,8 +111,8 @@ describe('a hidden row with a problem', () => {
     expect(fieldRows({ w: 3, extra: 10 })).toEqual(['w'])
     expect(fieldRows({ w: 7, extra: 4 })).toEqual(['w', 'extra'])
     const named = storedValueProblems(registry, 'g', { nodeId: 'n', inputId: 'field_73656564',
-      valueKey: 'field_73656564', label: 'renamed seed', spec: { widgetType: 'NUMBER', options: { min: 0, max: 10 } } }, 50)
-    expect(named[0]!.message).toContain('n.renamed seed:')
+      valueKey: 'field_73656564', label: 'renamed seed', spec: { widgetType: 'INT', options: { min: 0, max: 10 } } }, 50)
+    expect(named[0]!.message).toBe('renamed seed: 50 > max 10')
     expect(named[0]!.message).not.toContain('field_73656564')
     expect(named[0]!.refs?.[0]?.valueKey).toBe('field_73656564')
   })

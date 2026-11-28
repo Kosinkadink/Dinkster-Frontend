@@ -158,8 +158,8 @@ describe('golden pairs', () => {
     const refused = compile(compileInput(document, { kind: 'full' }, () => schemaWith([])))
     expect(refused.ok).toBe(false)
     if (!refused.ok) expect(rules(refused.diagnostics)).toEqual([
-      ['error', [{ graphId: base.root, nodeId: 'n0', portId: 'w', valueKey: 'w', direction: 'input' }], { rule: 0, hasFix: false, fields: ['w'] }],
-      ['error', [{ graphId: base.root, nodeId: 'n0' }], { rule: 1, hasFix: false, fields: ['w', 'h'] }],
+      ['error', [{ graphId: base.root, nodeId: 'n0', portId: 'w', valueKey: 'w', direction: 'input' }], { rule: 0, hasFix: false, fields: ['w'], nodeMessage: 'Width must be 6 or less' }],
+      ['error', [{ graphId: base.root, nodeId: 'n0' }], { rule: 1, hasFix: false, fields: ['w', 'h'], nodeMessage: 'Too big' }],
     ])
     const warned = compile(compileInput(document, { kind: 'full' }, () => schemaWith([{ step: 'Set', row: 'w', value: { value: 6 } }])))
     expect(warned.ok).toBe(true)

@@ -55,6 +55,30 @@ export function executionProblemDiagnostics(execution: ExecutionState): readonly
   })]
 }
 
+/** Editing and Run checks share a cause, not necessarily a diagnostic code or display sentence. */
+export function uniqueProblemDiagnostics(diagnostics: readonly Diagnostic[], document?: WorkflowDocument): readonly Diagnostic[] {
+  const seen = new Set<string>()
+  return diagnostics.filter((diagnostic) => {
+    const typeConflict = diagnostic.code === 'solve.varConflict' || diagnostic.code === 'compile.typeVariableConflict'
+    const rule = diagnostic.code === 'node.rule.failed' ? diagnostic.data?.['rule'] : undefined
+    if (!typeConflict && rule === undefined) return true
+    const occurrence = diagnostic.anchor?.occurrence
+    const ref = diagnostic.refs?.find((entry) => entry.nodeId !== undefined)
+    const resolved = occurrence === undefined || document === undefined ? undefined : resolveNodeOccurrence(document, occurrence)
+    const node = occurrence?.node ?? ref?.nodeId
+    const graph = resolved?.graphId ?? ref?.graphId
+    if (node === undefined || graph === undefined) return true
+    const key = JSON.stringify([graph, occurrence?.instancePath ?? [], node, diagnostic.severity,
+      ...(typeConflict
+        ? ['type-conflict', diagnostic.anchor?.port?.port ?? ref?.portId,
+          diagnostic.data?.['nodeMessage'] ?? diagnostic.message]
+        : ['rule', rule])])
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
 /** Preserve every active diagnostic source before graph projection. */
 export function composeCanvasProblemDiagnostics(args: {
   readonly owned: readonly Diagnostic[]
@@ -208,7 +232,7 @@ export function deriveProblemProjection(args: {
 }): ProblemProjection {
   const lines: Record<string, NodeProblemLine[]> = {}
   const seen = new Set<string>()
-  for (const diagnostic of withoutSupersededTypeProblems(args.diagnostics)) {
+  for (const diagnostic of uniqueProblemDiagnostics(withoutSupersededTypeProblems(args.diagnostics), args.document)) {
     if (diagnostic.severity === 'info') continue
     const nodeIds = new Set<string>()
     for (const target of diagnosticNodeTargets(diagnostic, args.document)) {
@@ -374,7 +398,7 @@ export function groupProblemDiagnostics(
   document?: WorkflowDocument,
 ): readonly ProblemGroup[] {
   const groups: ProblemGroup[] = []
-  const shown = withoutSupersededTypeProblems(diagnostics)
+  const shown = uniqueProblemDiagnostics(withoutSupersededTypeProblems(diagnostics), document)
   for (const section of problemSections) {
     const entries = shown.filter((diagnostic) => problemSectionOf(diagnostic) === section)
     if (entries.length === 0) continue
