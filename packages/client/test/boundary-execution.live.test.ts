@@ -76,7 +76,8 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
       })
       for (const [id, value, producer, port] of [['first', 0.4, 'maskB', 'mask'], ['second', 0.9, 'imageA', 'image']] as const) {
         Object.assign(document.graphs.root!.nodes[id]!.values, { [key]: value })
-        Object.assign(document.graphs.root!.links, { [id]: { id, from: { node: producer, port }, to: { node: id, port: group } } })
+        const linkId = `shape-${id}`
+        Object.assign(document.graphs.root!.links, { [linkId]: { id: linkId, from: { node: producer, port }, to: { node: id, port: group } } })
       }
       const store = new DocumentStore(document, coreCommandRegistry(), 200, undefined,
         () => ({ kind: 'initial', schemaResolverFor: (current) => documentResolver(current, resolve) }))
