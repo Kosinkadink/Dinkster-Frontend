@@ -369,9 +369,10 @@
   position: fixed;
   z-index: 30;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 10px;
-  width: min(340px, calc(100vw - 24px));
+  width: max-content;
+  max-width: min(340px, calc(100vw - 24px));
   padding: 10px 12px;
   border: 1px solid var(--dinkster-danger-border);
   border-radius: 7px;
@@ -400,6 +401,7 @@
   place-items: center;
   width: 24px;
   height: 24px;
+  min-height: 0;
   padding: 0;
   border: 0;
   border-radius: 4px;

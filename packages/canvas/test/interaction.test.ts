@@ -1681,7 +1681,7 @@ describe('small flow node wire gestures', () => {
         expect(store.doc.graphs.g0!.nodes).toEqual(before.graphs.g0!.nodes)
       } else {
         expect(store.doc).toEqual(before)
-        expect(refused).toHaveBeenCalledWith(output.type, input.type, to)
+        expect(refused).toHaveBeenCalledWith(output.type, input.type, { ...to, nodeTop: sink.y })
       }
       harness.controller.dispose()
     }

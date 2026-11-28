@@ -476,8 +476,8 @@ export interface InteractionHost {
    * batch after the pick.
    */
   onLinkDropOnEmpty?(context: LinkDropContext, worldX: number, worldY: number): void
-  /** A fresh wire refused at an explicit pin; the input position is in world coordinates. */
-  onLinkTypeRefused?(from: TypeExpr, to: TypeExpr, input: { readonly x: number; readonly y: number }): void
+  /** A fresh wire refused at an explicit pin; input and node top are in world coordinates. */
+  onLinkTypeRefused?(from: TypeExpr, to: TypeExpr, input: { readonly x: number; readonly y: number; readonly nodeTop: number }): void
   /** Double-click on an ordinary link; the host chooses reroute vs node splice. */
   onLinkDoubleClick?(context: LinkDoubleClickContext, screenX: number, screenY: number): void
   /**
@@ -4099,13 +4099,15 @@ export class InteractionController {
     if (g.moved && g.rewireLinkId === undefined && g.netRewire === undefined &&
         g.boundarySource === undefined && g.boundaryRewire === undefined && g.moveSource === undefined &&
         hit.kind === 'pin' && hit.direction === g.seeking && !pinLegal) {
-      const input = g.seeking === 'in' ? hit.pin : scene.nodes.find(node => node.id === g.intoPort?.node)
+      const inputNode = g.seeking === 'in' ? hit.node : scene.nodes.find(node => node.id === g.intoPort?.node)
+      const input = g.seeking === 'in' ? hit.pin : inputNode
         ?.layout.pins.find(pin => pin.direction === 'in' && pin.portId === g.intoPort?.port)
       const fromType = g.seeking === 'in' ? g.anchorType : hit.type
       const toType = g.seeking === 'in' ? hit.type : g.anchorType
-      if (input !== undefined && !linkTypesCompatible(scene, fromType, toType, input.acceptsList)) {
-        this.host.onLinkTypeRefused?.(fromType, toType, g.seeking === 'in'
-          ? { x: hit.node.x, y: hit.node.y + hit.pin.y } : g.anchor)
+      if (input !== undefined && inputNode !== undefined && !linkTypesCompatible(scene, fromType, toType, input.acceptsList)) {
+        this.host.onLinkTypeRefused?.(fromType, toType, {
+          x: inputNode.x, y: inputNode.y + input.y, nodeTop: inputNode.y,
+        })
         return
       }
     }

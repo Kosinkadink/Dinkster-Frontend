@@ -76,6 +76,7 @@ export function typeProblemWords(type: TypeExpr, form: 'value' | 'name' | 'plura
     if (parsed.kind !== 'concrete') return typeProblemWords(parsed, form)
     const words: Readonly<Record<string, readonly [string, string, string]>> = {
       IMAGE: ['image', 'an image', 'images'], MASK: ['mask', 'a mask', 'masks'],
+      MODEL: ['model', 'a model', 'models'],
       STRING: ['text', 'text', 'text values'], INT: ['whole number', 'a whole number', 'whole numbers'],
       FLOAT: ['number', 'a number', 'numbers'], LATENT: ['latent data', 'latent data', 'latent values'],
       BOOLEAN: ['true/false value', 'a true/false value', 'true/false values'],

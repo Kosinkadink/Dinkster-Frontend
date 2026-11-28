@@ -1377,7 +1377,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     readonly y: number
     readonly maxHeight: number
     readonly contentMaxHeight: number
-    readonly input?: { readonly x: number; readonly y: number }
+    readonly input?: { readonly x: number; readonly y: number; readonly nodeTop: number }
   }>()
   const [fileDropSurface, setFileDropSurface] = createSolidSignal<CanvasFileDropSurface>()
   let gestureRefusalId = 0
@@ -1416,7 +1416,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
 
   const activeTab = (): Tab | undefined => tabs().find((t) => t.id === activeTabId())
 
-  const showGestureRefusal = (diagnostics: readonly Diagnostic[], input?: { readonly x: number; readonly y: number }): void => {
+  const showGestureRefusal = (diagnostics: readonly Diagnostic[], input?: { readonly x: number; readonly y: number; readonly nodeTop: number }): void => {
     const diagnostic = diagnostics[0]
     if (diagnostic === undefined) return
     const canvas = canvasEl?.getBoundingClientRect()
@@ -3397,6 +3397,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           `Expected ${typeProblemWords(to)}; got ${typeProblemWords(from)}.`)], {
           x: rect.left + viewport.x + input.x * viewport.scale,
           y: rect.top + viewport.y + input.y * viewport.scale,
+          nodeTop: rect.top + viewport.y + input.nodeTop * viewport.scale,
         })
       },
       wheelNavigationMode: () => props.app.settings.get<WheelNavigationMode>('canvas.scrollBehavior'),
@@ -7458,16 +7459,31 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               const input = refusal.input
               const place = (): void => {
                 const canvas = canvasEl.getBoundingClientRect()
+                element.style.width = ''
+                element.style.maxWidth = `${Math.max(0, Math.min(340, canvas.width - 24))}px`
+                const size = element.getBoundingClientRect()
                 const placement = placeFloatingSurface({
-                  surface: { width: 340, height: element.scrollHeight },
+                  surface: size,
                   anchor: { left: input.x, right: input.x, top: input.y, bottom: input.y },
                   bounds: canvas,
                   direction: 'block', margin: 12, gap: 20,
                 })
+                const stage = canvasEl.closest('.canvas-stage')
+                const controls = [...(stage?.querySelectorAll<HTMLElement>(
+                  '.canvas-stage-toolbar > *, .minimap:not(.hidden), .canvas-corner-bar',
+                ) ?? [])].map(control => control.getBoundingClientRect()).filter(box => box.width > 0 && box.height > 0)
+                const overlapsControls = controls.some(box => placement.left < box.right &&
+                  placement.left + placement.width > box.left && placement.top < box.bottom &&
+                  placement.top + size.height > box.top)
+                const above = placement.top < input.y || overlapsControls
+                const topBound = Math.max(canvas.top + 12, ...controls.filter(box =>
+                  box.bottom <= input.nodeTop && placement.left < box.right && placement.left + placement.width > box.left,
+                ).map(box => box.bottom + 12))
+                const maxHeight = above ? Math.max(0, input.nodeTop - 12 - topBound) : placement.maxHeight
                 element.style.left = `${placement.left}px`
-                element.style.top = `${placement.top}px`
+                element.style.top = `${above ? Math.max(topBound, input.nodeTop - 12 - Math.min(size.height, maxHeight)) : placement.top}px`
                 element.style.width = `${placement.width}px`
-                element.style.maxHeight = `${placement.maxHeight}px`
+                element.style.maxHeight = `${maxHeight}px`
               }
               queueMicrotask(place)
               window.addEventListener('resize', place)
