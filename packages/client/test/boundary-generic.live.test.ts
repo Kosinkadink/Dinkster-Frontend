@@ -19,6 +19,8 @@ describe.skipIf(!LIVE_URL && !PREPARE)('native generic boundary delivery', () =>
       ? parseDinksterNodes(JSON.parse(readFileSync(PREPARE, 'utf8')))
       : await connection.fetchSchemas()
     const resolve = 'resolve' in registry ? registry.resolve : (type: string) => registry.schemas.get(type)
+    const schemaHash = 'hash' in registry ? registry.hash : 'generic-boundary'
+    const graphFeatures = 'graphFeatures' in registry ? registry.graphFeatures ?? [] : []
     const node = (id: string, type: string, extra = {}) => ({ id: asNodeId(id), type, values: {}, ...extra }) as GraphDef['nodes'][string]
     const graph = (id: string, nodes: GraphDef['nodes']): GraphDef => ({
       id, name: id, nodes, links: {}, nets: {}, reroutes: {}, nextOrdinal: 100,
@@ -124,7 +126,7 @@ describe.skipIf(!LIVE_URL && !PREPARE)('native generic boundary delivery', () =>
       expect(entry.doc.graphs.root!.nodes.second).toEqual(baseline.graphs.root!.nodes.second)
       if (!entry.extra) expect(entry.doc.graphs.detail).toEqual(baseline.graphs.detail)
       const compiled = compile({ document: entry.doc, revision: 1, resolve, scope: { kind: 'full' },
-        connection: asConnectionId('generic-boundary'), schemaHash: 'generic-boundary' })
+        connection: asConnectionId('generic-boundary'), schemaHash, graphFeatures })
       expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
       if (!compiled.ok) throw Error('Generic packet did not compile')
       const prompt = compiled.artifact.prompt, muted = entry.phase === 'flatten-muted'
@@ -189,8 +191,8 @@ describe.skipIf(!LIVE_URL && !PREPARE)('native generic boundary delivery', () =>
       }
       expect(completed).toBe(true)
     }
-    const original = compile({ document: baseline, revision: 1, resolve, scope: { kind: 'full' }, connection: asConnectionId('generic-boundary'), schemaHash: 'generic-boundary' })
-    const localized = compile({ document: detached, revision: 1, resolve, scope: { kind: 'full' }, connection: asConnectionId('generic-boundary'), schemaHash: 'generic-boundary' })
+    const original = compile({ document: baseline, revision: 1, resolve, scope: { kind: 'full' }, connection: asConnectionId('generic-boundary'), schemaHash, graphFeatures })
+    const localized = compile({ document: detached, revision: 1, resolve, scope: { kind: 'full' }, connection: asConnectionId('generic-boundary'), schemaHash, graphFeatures })
     expect(localized.ok && localized.artifact.prompt).toEqual(original.ok && original.artifact.prompt)
   })
 })
