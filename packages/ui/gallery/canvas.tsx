@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createSignal, onCleanup } from 'solid-js'
+import { For, Show, createEffect, createSignal, onCleanup, onMount } from 'solid-js'
 import {
   registerCatalog,
   type Json,
@@ -50,6 +50,8 @@ import {
   ProductSelect,
   ProductSection,
   ProductTextInput,
+  ProductTooltip,
+  TooltipController,
   type ProductNavigationGroup,
 } from '../src/index.js'
 import { NodeLookGallery } from './node-look.js'
@@ -391,6 +393,7 @@ function ExampleCard(props: {
   example: CanvasGalleryFixture['examples'][number]
   index: number
   onBadge: (hit: BadgeHit | undefined) => void
+  tooltips: TooltipController
 }) {
   let canvas!: HTMLCanvasElement
   const id = () =>
@@ -546,13 +549,28 @@ function ExampleCard(props: {
           (node) => renderer.getNodeBadgeLayout(node),
         )
       }
+      let hovered: string | undefined
       const hover = (event: PointerEvent) => {
         const target = event.type === 'pointerleave' ? undefined : hit(event)
-        canvas.title = target
-          ? (target.overflow ?? [target.badge])
-              .map((badge) => badge.glyph)
-              .join(', ')
-          : ''
+        const key = target && `${target.node.id}:${target.badge.id}`
+        if (key !== hovered) {
+          hovered = key
+          props.tooltips.hideMatching(() => true, canvas)
+          if (target) {
+            const label = (target.overflow ?? [target.badge]).map((badge) => badge.glyph).join(', ')
+            props.tooltips.show(label, {
+              x: event.clientX,
+              y: event.clientY,
+              paintedRect: () => {
+                const rect = canvas.getBoundingClientRect()
+                const badge = renderer.getNodeBadgeLayout(target.node).find((entry) => entry.badge.id === target.badge.id) ?? target.rect
+                return new DOMRect(rect.left + (badge.x - origin.x) * scale,
+                  rect.top + (badge.y - origin.y) * scale,
+                  badge.width * scale, badge.height * scale)
+              },
+            }, false, false, canvas)
+          }
+        }
         renderer.setOverlay({
           ...fixture.overlay,
           ...(target
@@ -616,7 +634,7 @@ function ExampleCard(props: {
     canvas.dataset.variant = variant.id
     onCleanup(() => {
       removeListeners?.()
-      canvas.removeAttribute('title')
+      props.tooltips.hideMatching(() => true, canvas)
       renderer.dispose()
       delete canvas.dataset.ready
     })
@@ -654,6 +672,28 @@ const canvasFontsLoaded = () => {
 }
 
 export function CanvasGallery() {
+  const tooltips = new TooltipController()
+  const [tooltip, setTooltip] = createSignal(tooltips.visible)
+  tooltips.register({ id: 'gallery.badge', resolve: (target) =>
+    typeof target === 'string' ? { lines: [target] } : undefined })
+  const unsubscribe = tooltips.subscribe(() => setTooltip(tooltips.visible))
+  onCleanup(() => { unsubscribe(); tooltips.hide() })
+  onMount(() => {
+    const key = (event: KeyboardEvent) => { if (event.key === 'Escape') tooltips.hide() }
+    const dismiss = () => tooltips.hide()
+    document.addEventListener('keydown', key)
+    document.addEventListener('pointerdown', dismiss)
+    window.addEventListener('blur', dismiss)
+    window.addEventListener('resize', dismiss)
+    window.addEventListener('scroll', dismiss, true)
+    onCleanup(() => {
+      document.removeEventListener('keydown', key)
+      document.removeEventListener('pointerdown', dismiss)
+      window.removeEventListener('blur', dismiss)
+      window.removeEventListener('resize', dismiss)
+      window.removeEventListener('scroll', dismiss, true)
+    })
+  })
   // Only the dark theme is designed; `?theme=light` keeps the light theme
   // reachable for checks without a control on the page.
   const theme = (): Theme =>
@@ -758,10 +798,12 @@ export function CanvasGallery() {
       example={example}
       index={index}
       onBadge={setBadgeDetails}
+      tooltips={tooltips}
     />
   )
   return (
     <>
+      <Show when={tooltip()}>{(tip) => <ProductTooltip tip={tip()} label="Context help" />}</Show>
       <Show when={page() === 'widget-states'}>
         <div class="dinkster-actions">
           <ProductField label="Widget kind">

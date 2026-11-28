@@ -1401,7 +1401,11 @@ for (const theme of ['dark', 'light'] as const) {
         if (id === 'run-editable' || id === 'run-frozen') {
           const running = page.getByTestId(`canvas-${id}-1`)
           await running.hover({ position: { x: 45, y: 185 } })
-          await expect(running).toHaveAttribute('title', 'Running')
+          const tooltip = page.getByRole('tooltip')
+          await expect(tooltip).toHaveText('Running')
+          await expect(running).not.toHaveAttribute('title')
+          await page.keyboard.press('Escape')
+          await expect(tooltip).toHaveCount(0)
         }
         await page.setViewportSize({ width: 390, height: 1000 })
         await cardsReady(page, id, theme)
