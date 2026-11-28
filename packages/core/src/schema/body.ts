@@ -535,6 +535,10 @@ export function checkBody(
       switch (row.kind) {
         case 'output':
           claim(ids.output, row.id, where, 'output')
+          if (typeof row.listCount === 'object' && 'formula' in row.listCount) {
+            const names = namesOf(frames)
+            Formula.parse(row.listCount.formula, { ...formulas, names: names.names, inputs: names.inputs, assets: names.assets, inMember: memberFrames.has(frames) })
+          }
           break
         case 'input':
         case 'state':

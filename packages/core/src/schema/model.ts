@@ -709,8 +709,8 @@ export interface OutputSpec extends PortSpecBase {
   /** Exact pre-execution value sourced from a typed primitive identity input. */
   readonly knownValue?: OutputKnownValue  /** Layout only: on a subgraph node, never share the line of the input pin above. */
   readonly ownRow?: true
-  /** Exact list item count, independent of type and runtime value. */
-  readonly listCount?: number | OutputListCount
+  /** Declared list count or count formula; file-derived answers remain estimates. */
+  readonly listCount?: number | OutputListCount | FormulaSpec
 }
 
 /** A stored value with no pin and no field, written by an editor or an action. */

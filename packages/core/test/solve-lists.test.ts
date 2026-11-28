@@ -18,6 +18,7 @@ import { solveOccurrenceTypes } from '../src/compile/occurrence-solve.js'
 import type { SchemaResolver } from '../src/schema/derive-boundary.js'
 import { type GroupSpec, type InputSpec, type NodeSchema, type OutputSpec, type TypeExpr } from '../src/schema/model.js'
 import { solveGraphTypes } from '../src/schema/solve.js'
+import { parseDinksterSchema } from '../src/schema/dinkster-wire.js'
 
 // ---------------------------------------------------------------------------
 // Builders (house style of solve.test.ts)
@@ -111,6 +112,31 @@ describe('declared list counts', () => {
     },
   }
   const resolveCounts: SchemaResolver = (type) => localSchemas[type]
+
+  it('admits an output count formula without inventing a known file count', () => {
+    const concrete = (name: string) => ({ kind: 'concrete', types: [name] })
+    const wire = { body: [
+      { kind: 'input', id: 'video', type: { kind: 'asset', element: concrete('IMAGE') } },
+      { kind: 'output', id: 'out', type: { kind: 'list', element: concrete('STRING') }, listCount: { formula: 'frames(video)' } },
+    ] }
+    const { schema, diagnostics } = parseDinksterSchema('Frames', wire as never)
+    expect(diagnostics).toEqual([])
+    expect(schema).toBeDefined()
+    const graph = defOf({ nodes: { frames: { type: 'Frames' }, copy: { type: 'Preserve' } },
+      links: { list: { from: ['frames', 'out'], to: ['copy', 'in'] } } })
+    const resolve: SchemaResolver = (type) => type === 'Frames' ? schema : resolveCounts(type)
+    const unknown = solveGraphTypes(graph, resolve)
+    expect(unknown.listCountFactOf(n('copy'), 'output', 'out')).toBeUndefined()
+    expect(unknown.portTypeOf(n('copy'), 'output', 'out')).toEqual(strings)
+    const estimated = solveGraphTypes(graph, resolve, {
+      outputListCountEstimateOf: (node) => node === n('frames') ? { kind: 'estimate', count: 17, sources: ['last-run'] } : undefined,
+    })
+    expect(estimated.listCountFactOf(n('copy'), 'output', 'out')).toEqual({ kind: 'estimate', count: 17, sources: ['last-run'] })
+    expect(estimated.listCountOf(n('copy'), 'output', 'out')).toBeUndefined()
+    for (const listCount of [{ formula: 'frames(missing)' }, { formula: 'frames(video)', input: 'video' }]) {
+      expect(parseDinksterSchema('Bad', { body: [wire.body[0], { ...wire.body[1], listCount }] } as never).schema).toBeUndefined()
+    }
+  })
 
   it('adds joined item counts, traces nets and widget taps, and leaves type checking unchanged', () => {
     const base = defOf({

@@ -1198,6 +1198,7 @@ export function solveGraphTypes(
       const exact = options.outputListCountOf?.(node, port)
       return exact !== undefined ? knownCount(exact) : options.outputListCountEstimateOf?.(node, port)
     }
+    if ('formula' in source) return options.outputListCountEstimateOf?.(node, port)
     if (source.group === undefined) return countOf(node, 'input', source.input)
     const group = [...scopeRowsOf(schemas.get(node)!.body)].find((row) => row.kind === 'group' && row.id === source.group)
     if (group?.kind !== 'group') return undefined

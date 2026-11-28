@@ -2210,7 +2210,7 @@ export function parseDinksterSchema(nodeType: string, wire: DinksterWireSchema):
     if (additionalInputs !== undefined) validateTupleDeclaration(additionalInputs, false)
     for (const output of decodedOutputs) {
       const count = output.listCount
-      if (typeof count === 'object') {
+      if (typeof count === 'object' && !('formula' in count)) {
         if (count.group === undefined) {
           if (decodedInputs.get(count.input)?.type.kind !== 'list') {
             throw new Error(`output '${output.id}' listCount must name a list input`)
@@ -2393,6 +2393,7 @@ function decodeOutputListCount(raw: unknown): OutputSpec['listCount'] {
     return raw
   }
   const count = wireObject(raw, 'output.listCount')
+  if ('formula' in count) return wireFormula(count, 'output.listCount')
   rejectUnknownFields(count, ['input', 'group'], 'output.listCount')
   const input = wireRowId(count['input'], 'output.listCount.input')
   return count['group'] === undefined ? { input } : { input, group: wireRowId(count['group'], 'output.listCount.group') }
