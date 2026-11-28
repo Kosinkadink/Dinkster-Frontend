@@ -978,7 +978,7 @@ export function ProjectsGallery() {
                 />
               </Match>
               <Match when={place() === 'installations'}>
-                <ProductProjectsView list={
+                <ProductProjectsView narrowPanel="list" list={
                   <ProductProjectList title="Installations" newLabel="Set up" onNew={() => setActivity('Set up opened')}
                     selected={installation()} onSelect={setInstallation} loadingLabel="Loading installations"
                     projects={[

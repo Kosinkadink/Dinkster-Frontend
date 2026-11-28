@@ -3,7 +3,9 @@ import {
   Index,
   Show,
   createContext,
+  createMemo,
   createUniqueId,
+  mergeProps,
   useContext,
   type JSX,
 } from 'solid-js'
@@ -175,20 +177,20 @@ export function ProductProjectRows(props: {
     | undefined
 }) {
   let list!: HTMLUListElement
+  const entries = createMemo(
+    () => new Map(props.projects?.map((project) => [project.id, project])),
+  )
   const move = (event: KeyboardEvent) => {
     const cell = (event.target as HTMLElement).closest('[role="gridcell"]')
-    if (
-      props.action &&
-      event.key === 'ArrowLeft' &&
-      cell?.hasAttribute('data-project-action')
-    ) {
+    const actionColumn = cell?.hasAttribute('data-project-action')
+    if (props.action && event.key === 'ArrowLeft' && actionColumn) {
       event.preventDefault()
-      cell.parentElement
+      cell?.parentElement
         ?.querySelector<HTMLElement>('[data-project-selection]')
         ?.focus()
       return
     }
-    if (props.action && event.target !== cell) return
+    if (props.action && event.target !== cell && !actionColumn) return
     if (props.action && event.key === 'ArrowRight') {
       const action = cell?.parentElement?.querySelector<HTMLButtonElement>(
         'button:not(:disabled)',
@@ -200,8 +202,13 @@ export function ProductProjectRows(props: {
       return
     }
     const projects = props.projects ?? []
+    const selection = cell?.parentElement?.querySelector(
+      '[data-project-selection]',
+    )
     const index = props.action
-      ? [...list.querySelectorAll('[data-project-selection]')].indexOf(cell!)
+      ? [...list.querySelectorAll('[data-project-selection]')].indexOf(
+          selection!,
+        )
       : projects.findIndex((project) => project.id === props.selected)
     const next =
       event.key === 'ArrowDown'
@@ -215,10 +222,16 @@ export function ProductProjectRows(props: {
               : undefined
     if (next === undefined || !projects[next]) return
     event.preventDefault()
-    props.onSelect(projects[next].id)
-    list
-      .querySelectorAll<HTMLElement>('[data-project-selection]')
-      [next]?.focus()
+    const nextSelection = list.querySelectorAll<HTMLElement>(
+      '[data-project-selection]',
+    )[next]
+    if (!actionColumn) props.onSelect(projects[next].id)
+    const nextAction = actionColumn
+      ? nextSelection?.parentElement?.querySelector<HTMLButtonElement>(
+          'button:not(:disabled)',
+        )
+      : undefined
+    ;(nextAction ?? nextSelection)?.focus()
   }
   return (
     <div class="dinkster-projects-row-group">
@@ -241,8 +254,9 @@ export function ProductProjectRows(props: {
             aria-labelledby={props.labelledBy}
             onKeyDown={move}
           >
-            <For each={projects()}>
-              {(project) => {
+            <For each={projects().map((project) => project.id)}>
+              {(id) => {
+                const project = mergeProps(() => entries().get(id)!)
                 const copy = () => (
                   <>
                     <span class="dinkster-project-row-name">
@@ -300,6 +314,34 @@ export function ProductProjectRows(props: {
                             class="dinkster-project-row-action"
                             role="gridcell"
                             data-project-action=""
+                            on:click={{
+                              capture: true,
+                              handleEvent: (event) => {
+                                const cell = event.currentTarget
+                                const button = (
+                                  event.target as HTMLElement
+                                ).closest('button')
+                                if (
+                                  !button ||
+                                  document.activeElement !== button
+                                )
+                                  return
+                                queueMicrotask(() => {
+                                  if (
+                                    cell.isConnected &&
+                                    (button.disabled || !button.isConnected) &&
+                                    (document.activeElement === button ||
+                                      document.activeElement === document.body)
+                                  ) {
+                                    cell.parentElement
+                                      ?.querySelector<HTMLElement>(
+                                        '[data-project-selection]',
+                                      )
+                                      ?.focus()
+                                  }
+                                })
+                              },
+                            }}
                           >
                             {action()(project)}
                           </div>
