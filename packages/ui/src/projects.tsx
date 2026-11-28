@@ -14,6 +14,7 @@ import {
 import { ChevronLeft, Plus, TriangleAlert } from 'lucide-solid'
 import { ProductButton, ProductIcon, ProductTextButton } from './controls.js'
 import { ProductDisclosure } from './account.js'
+import { ProductProgress } from './messages.js'
 
 /** One project in the projects page's list. */
 export interface ProductProjectEntry {
@@ -25,6 +26,8 @@ export interface ProductProjectEntry {
   reason?: string | undefined
   /** Opening shows progress under the row; failed marks it with a warning. */
   state?: 'opening' | 'failed' | 'draft' | undefined
+  /** Background job progress: omit value when its total is unknown. */
+  progress?: { label: string; value?: number | undefined } | undefined
 }
 
 const ProjectBack = createContext<() => JSX.Element>()
@@ -363,7 +366,19 @@ export function ProductProjectRows(props: {
                       )}
                     </Show>
                     <Show when={project.state === 'opening'}>
-                      <span class="dinkster-progress" aria-hidden="true" />
+                      <Show
+                        when={project.progress}
+                        fallback={
+                          <span class="dinkster-progress" aria-hidden="true" />
+                        }
+                      >
+                        {(progress) => (
+                          <ProductProgress
+                            label={progress().label}
+                            value={progress().value}
+                          />
+                        )}
+                      </Show>
                     </Show>
                   </li>
                 )

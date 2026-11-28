@@ -12,6 +12,7 @@ test('installation row cancellation stays separate from pointer and keyboard sel
       const nightly = grid.getByRole('row').filter({ hasText: 'Nightly' })
       const detail = page.getByRole('heading', { level: 2 })
       const cancel = grid.getByRole('button', { name: 'Cancel Nightly restore', exact: true })
+      await expect(nightly.getByRole('progressbar', { name: 'Nightly restore' })).toHaveAttribute('aria-valuenow', '0.42')
       await expect(stable).toHaveAttribute('aria-selected', 'true')
       await nightly.getByRole('gridcell').first().click()
       await expect(nightly).toHaveAttribute('aria-selected', 'true')

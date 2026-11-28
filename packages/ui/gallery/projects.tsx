@@ -983,7 +983,8 @@ export function ProjectsGallery() {
                     selected={installation()} onSelect={setInstallation} loadingLabel="Loading installations"
                     projects={[
                       { id: 'stable', name: 'Stable', detail: 'Stopped' },
-                      { id: 'nightly', name: 'Nightly', detail: cancelling() ? 'Cancelling restore' : 'Restoring software', state: 'opening' },
+                      { id: 'nightly', name: 'Nightly', detail: cancelling() ? 'Cancelling restore' : 'Restoring software', state: 'opening',
+                        progress: { label: 'Nightly restore', value: 0.42 } },
                     ]}
                     action={(row) => <Show when={row.id === 'nightly'}>
                       <ProductTextButton label="Cancel" aria-label="Cancel Nightly restore" disabled={cancelling()}
