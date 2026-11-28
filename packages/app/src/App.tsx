@@ -45,6 +45,7 @@ import { mediaMetadataOf } from './media-metadata.js'
 import { executionProblemDiagnostics, resolveNodeOccurrence, withoutPassedOnDefaults } from './problem-display.js'
 import { Icon } from './Icon.js'
 import { LibraryPanel } from './LibraryPanel.js'
+import { LibraryModels } from './LibraryModels.js'
 import { APP_EDITOR_KIND, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, type EditorHostContext } from './editors.js'
 import { builtinEditorBindings, builtinEditorRoles } from './builtin-bindings.js'
 import { AppView } from './AppView.js'
@@ -1397,17 +1398,17 @@ export function App(props: {
   // from the registry, so moving a surface is a descriptor change, not a
   // JSX rewrite. Bodies stay local components so they can close over App
   // state.
-  const BackendMetadataState = (props: { readonly children: JSX.Element; readonly independentMounts?: boolean }) => {
+  const BackendMetadataState = (props: { readonly children: JSX.Element; readonly independentMounts?: boolean; readonly backend?: () => Backend }) => {
     const [retrying, setRetrying] = createSolidSignal(false)
     const error = () => {
       backendsTick()
-      const backend = activeBackend()
+      const backend = props.backend?.() ?? activeBackend()
       if (props.independentMounts && backend.schemaState.get().status !== 'error') return undefined
       return backendMetadataError(backend)
     }
     const retry = async (): Promise<void> => {
       if (retrying()) return
-      const backend = activeBackend()
+      const backend = props.backend?.() ?? activeBackend()
       setRetrying(true)
       try {
         await Promise.all([
@@ -1423,12 +1424,51 @@ export function App(props: {
       } />}
     </Show>
   }
+  const [libraryModelsFocus, setLibraryModelsFocus] = createSolidSignal<{ readonly backend: Backend; readonly modelLocationId: string }>()
+  const libraryModelsBackend = () => libraryModelsFocus()?.backend ?? activeBackend()
+  const libraryActiveBackendId = createMemo(() => activeBackend().id)
+  createEffect(() => { libraryActiveBackendId(); setLibraryModelsFocus(undefined) })
+  createEffect(() => {
+    const focus = libraryModelsFocus()
+    if (focus && !backends().includes(focus.backend)) setLibraryModelsFocus(undefined)
+  })
+  const LibraryModelsBody = () => <Show when={libraryModelsBackend()} keyed>
+    {(backend) => {
+      const project = activeProjectId()
+      const downloadJobs = app.modelDownloadJobsFor(backend, project)
+      return backend.protocol === 'dinkster' ? <LibraryModels
+      connection={backend.connection}
+      downloadJobs={downloadJobs}
+      onDownload={(job) => {
+        const requirement = { name: job.name, kind: job.kind,
+          ...(job.digest === undefined ? {} : { asset: { digest: job.digest, name: job.name,
+            size: job.size, mediaType: 'application/octet-stream', virtualPath: job.file } }),
+        }
+        app.openModelDownloads(backend, [{ ...requirement, source: job.source }], {
+          focusedModel: requirement,
+          stillCurrent: () => libraryModelsBackend() === backend && activeProjectId() === project,
+        })
+      }}
+      focus={libraryModelsFocus()}
+      onOpenStorage={(modelLocationId) => {
+        openStorage(backend)
+        setStorageFocus({ id: backend.id, ...(modelLocationId ? { modelLocationId } : {}) })
+      }}
+      onAddModelFolder={() => {
+        openStorage(backend)
+        setStorageFocus({ id: backend.id, addModelFolder: true })
+      }}
+    /> : undefined}}
+  </Show>
   const LibraryBody = () => (
-    <BackendMetadataState>
+    <BackendMetadataState backend={libraryModelsBackend}>
     <LibraryPanel
       sources={librarySources()}
+      modelsFocus={libraryModelsFocus()}
+      onSourceChange={(id) => { if (id !== 'models') setLibraryModelsFocus(undefined) }}
+      models={libraryModelsBackend().protocol === 'dinkster' ? LibraryModelsBody : undefined}
       backend={() => {
-        const backend = activeBackend()
+        const backend = libraryModelsBackend()
         return { label: backend.label, protocol: backend.protocol, status: statusOf(backend) }
       }}
       refreshTick={libraryTick}
@@ -1440,7 +1480,7 @@ export function App(props: {
     />
     </BackendMetadataState>
   )
-  const [storageFocus, setStorageFocus] = createSolidSignal<{ readonly id: string; readonly hiddenModels?: boolean }>()
+  const [storageFocus, setStorageFocus] = createSolidSignal<{ readonly id: string; readonly hiddenModels?: boolean; readonly modelLocationId?: string; readonly addModelFolder?: boolean }>()
   const openStorage = (backend = activeBackend()): void => {
     setStorageFocus({ id: backend.id })
     app.modalPanel.set('')
@@ -1916,6 +1956,11 @@ export function App(props: {
       get description() { return message('storagePanel.description') }, get ariaLabel() { return message('storagePanel.title') },
       placement: 'dock', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 29,
       toggleTestId: 'storage-sidebar-toggle', component: () => <StoragePanel app={app} focusBackend={storageFocus()} activeBackend={activeBackend}
+        onOpenModels={(backend, modelLocationId) => {
+          setLibraryModelsFocus({ backend, modelLocationId })
+          app.modalPanel.set('')
+          setPanelOpen(app.panels, app.dock, 'library', 'left', true)
+        }}
         onOpenAssets={(backend, mountId) => {
           setAssetsBackendId(backend.id)
           setAssetsMountFocus(mountId === undefined ? undefined : { mountId })

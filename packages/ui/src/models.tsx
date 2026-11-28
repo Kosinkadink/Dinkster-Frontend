@@ -1,4 +1,5 @@
 import {
+  type JSX,
   For,
   Show,
   createMemo,
@@ -29,7 +30,7 @@ export interface ProductModelVersion {
   readonly message?: string
   readonly facts?: readonly {
     readonly label: string
-    readonly value: string
+    readonly value: JSX.Element
     readonly monospace?: boolean
   }[]
 }
@@ -59,6 +60,8 @@ export interface ProductModelListProps {
   readonly onShowFolder?: (modelId: string, versionId: string) => void
   readonly onCopyName?: (modelId: string, versionId: string) => void
   readonly onHide?: (modelId: string, versionId: string) => void
+  /** Replaces only an opened installed version's actions; undefined keeps defaults. */
+  readonly renderActions?: (modelId: string, versionId: string) => JSX.Element
 }
 
 export interface ProductModelListHandle {
@@ -165,7 +168,17 @@ export function ProductModelList(props: ProductModelListProps) {
       props.inlineDetails !== false &&
       (Boolean(version().facts?.length) ||
         (version().state === 'installed' &&
-          Boolean(props.onShowFolder || props.onCopyName || props.onHide)))
+          Boolean(
+            props.onShowFolder ||
+              props.onCopyName ||
+              props.onHide ||
+              props.renderActions,
+          )))
+    const actions = createMemo(() =>
+      props.inlineDetails !== false && open() && version().state === 'installed'
+        ? props.renderActions?.(model().id, version().id)
+        : undefined,
+    )
     const title = () => (propsRow.grouped ? version().name : model().name)
     const selected = () =>
       props.selected?.some(
@@ -209,6 +222,14 @@ export function ProductModelList(props: ProductModelListProps) {
       })
       activate()
     }
+    const summary = () =>
+      [
+        propsRow.grouped ? undefined : model().kind,
+        version().precision,
+        progressing() ? undefined : (version().message ?? stateLabel()),
+      ]
+        .filter(Boolean)
+        .join(', ')
     return (
       <ProductListRow
         ref={(button) => register(key(), button, () => act(props.onSelect))}
@@ -224,15 +245,11 @@ export function ProductModelList(props: ProductModelListProps) {
           : { onActivate: activate })}
         title={<span class="dinkster-model-name">{title()}</span>}
         description={
-          <span class="dinkster-model-summary" data-state={version().state}>
-            {[
-              propsRow.grouped ? undefined : model().kind,
-              version().precision,
-              progressing() ? undefined : (version().message ?? stateLabel()),
-            ]
-              .filter(Boolean)
-              .join(', ')}
-          </span>
+          summary() ? (
+            <span class="dinkster-model-summary" data-state={version().state}>
+              {summary()}
+            </span>
+          ) : undefined
         }
         status={
           progressing() ? (
@@ -281,28 +298,35 @@ export function ProductModelList(props: ProductModelListProps) {
           />
         </Show>
         <Show when={version().state === 'installed'}>
-          <div class="dinkster-model-actions">
-            <Show when={props.onShowFolder}>
-              <ProductTextButton
-                label={strings.modelShowFolder}
-                onClick={() => act(props.onShowFolder)}
-              />
-            </Show>
-            <Show when={props.onCopyName}>
-              <ProductTextButton
-                label={strings.modelCopyName}
-                onClick={() => act(props.onCopyName)}
-              />
-            </Show>
-            <Show when={props.onHide}>
-              <div class="dinkster-model-hide">
-                <ProductTextButton
-                  label={strings.modelHide}
-                  onClick={() => act(props.onHide)}
-                />
+          <Show
+            when={actions() !== undefined}
+            fallback={
+              <div class="dinkster-model-actions">
+                <Show when={props.onShowFolder}>
+                  <ProductTextButton
+                    label={strings.modelShowFolder}
+                    onClick={() => act(props.onShowFolder)}
+                  />
+                </Show>
+                <Show when={props.onCopyName}>
+                  <ProductTextButton
+                    label={strings.modelCopyName}
+                    onClick={() => act(props.onCopyName)}
+                  />
+                </Show>
+                <Show when={props.onHide}>
+                  <div class="dinkster-model-hide">
+                    <ProductTextButton
+                      label={strings.modelHide}
+                      onClick={() => act(props.onHide)}
+                    />
+                  </div>
+                </Show>
               </div>
-            </Show>
-          </div>
+            }
+          >
+            {actions()}
+          </Show>
         </Show>
       </ProductListRow>
     )
@@ -334,9 +358,11 @@ export function ProductModelList(props: ProductModelListProps) {
           title={<span class="dinkster-model-name">{model().name}</span>}
           description={[
             model().kind,
-            strings.modelHere.replace('{count}', String(installed())),
-            strings.modelToDownload.replace('{count}', String(missing())),
-          ].join(', ')}
+            installed() > 0 ? strings.modelHere.replace('{count}', String(installed())) : '',
+            missing() > 0 ? strings.modelToDownload.replace('{count}', String(missing())) : '',
+          ]
+            .filter(Boolean)
+            .join(', ')}
           trailing={
             <span class="dinkster-model-size">
               {strings.modelVersions.replace(

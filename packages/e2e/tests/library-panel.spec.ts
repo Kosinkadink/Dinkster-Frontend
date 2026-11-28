@@ -50,6 +50,14 @@ async function installFixture(page: Page): Promise<{
   let templateRequests = 0
   let release: (() => void) | undefined
 
+  await page.routeWebSocket('**/api/events*', () => {})
+  await page.route('/api/mounts', (route) => route.fulfill({ json: { mounts: [] } }))
+  await page.route('/api/assets/guess', (route) => {
+    const request = route.request().postDataJSON() as { names: string[] }
+    return route.fulfill({ json: {
+      matches: request.names.map((query) => ({ query, candidates: [] })),
+    } })
+  })
   await page.route('/api/settings', (route) => route.fulfill({ json: {
     features: { templates: { enabled: true } },
     categories: { granted: [], available: [] },
@@ -224,7 +232,7 @@ test('Library direct content preserves provenance, states, overflow, and respons
   fixture.setTemplateMode('error')
   await selectSource(page, 'packs')
   await selectSource(page, 'templates')
-  await expect(library.locator('[data-collection-state="error"]')).toContainText('GET /api/templates failed: 503')
+  await expect(library.locator('[data-collection-state="error"]')).toContainText('The engine reported an error.')
   await capture(page, 'after-library-error-1366x768')
 
   fixture.setTemplateMode('empty')
@@ -246,10 +254,13 @@ test('Library direct content preserves provenance, states, overflow, and respons
   await expect(library.locator('[data-testid="collection-source"][data-source="templates"]')).toHaveCount(0)
   await expect(library.locator('[data-testid="collection-source"][data-source="packs"]')).toHaveAttribute('aria-pressed', 'true')
   await page.setViewportSize({ width: 390, height: 844 })
-  const compactSource = library.getByTestId('library-source-select')
+  const compactSource = library.locator('.library-source-segmented')
   await expect(compactSource).toBeVisible()
   await expect(library.locator('.library-source-tabs')).toBeHidden()
-  await compactSource.dispatchEvent('pointerdown', { pointerType: 'touch' })
+  await compactSource.locator('label').filter({ hasText: /^Models$/ }).click()
+  await expect(library).toHaveAttribute('data-source', 'models')
+  await compactSource.locator('label').filter({ hasText: /^Packs$/ }).click()
+  await expect(library).toHaveAttribute('data-source', 'packs')
   await expect(library.locator('.library-backend-context')).toContainText('Dinkster - disconnected')
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
   await capture(page, 'after-library-disconnected-narrow-390x844')

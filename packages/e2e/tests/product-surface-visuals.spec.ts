@@ -597,11 +597,9 @@ test('Library Assets and Runs use shared empty and loading states', async ({ pag
   const library = page.getByTestId('library-overlay')
   for (const state of ['empty', 'loading', 'error'] as const) {
     await page.setViewportSize({ width: 1440, height: 900 })
-    await library.getByTestId('library-source-select').click()
-    await page.getByRole('option', { name: 'Packs', exact: true }).click()
+    await library.locator('.library-source-segmented label').filter({ hasText: /^Packs$/ }).click()
     mode = state
-    await library.getByTestId('library-source-select').click()
-    await page.getByRole('option', { name: 'Workflows', exact: true }).click()
+    await library.locator('.library-source-segmented label').filter({ hasText: /^Workflows$/ }).click()
     const presentation = library.locator('[data-collection-state]')
     await expect(presentation).toHaveAttribute('data-collection-state', state)
     if (state === 'loading') await expect(presentation.getByRole('status')).toContainText('Loading workflows')
@@ -945,6 +943,14 @@ test('A reopened workflow draws from the engine\'s recorded node definitions unl
   await expect.poll(drawn).toEqual({ registry: true, run: false, nodes: { source: 'Source', sink: 'Sink' }, rows: first.rows! + 1 })
 
   // The browser has now kept the real table; a record from before it does not replace it.
+  await expect.poll(() => page.evaluate(async () => {
+    const schemasPath = '/src/kept-schemas.ts', projectsPath = '/src/projects.ts'
+    const { readKeptSchemas } = await import(schemasPath)
+    const { activeProjectId } = await import(projectsPath)
+    const backend = window.__dinksterTest!.app.backendForTab(window.__dinksterTest!.app.activeTab()!)
+    const kept = await readKeptSchemas(backend.baseUrl, activeProjectId())
+    return (kept?.recordedAt ?? 0) > 1 && kept?.nodes['visual.Sink']?.displayName === 'Sink'
+  })).toBe(true)
   record = recorded(1)
   hold()
   await page.reload()

@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, untrack } from 'solid-js'
+import { createEffect, createMemo, createSignal, For, onCleanup, Show, untrack } from 'solid-js'
 import { RequestFailure, type DinksterConnection, type ModelSettingsState, type MountDescriptor, type MountLocations, type MountSettings, type MountScanProgress } from '@dinkster/client'
 import { canvasTypePaintForTheme, modelKindColorMap } from '@dinkster/canvas'
 import { formatByteProgress, semanticTokensForTheme } from '@dinkster/core'
@@ -16,29 +16,9 @@ import { useAppMessage } from './locale.js'
 import { ModelSettings } from './ModelSettings.js'
 import { MountFolderForm } from './MountFolderForm.js'
 import { failureMessage, folderFailureMessage, folderWriteFailureMessage } from './request-failure.js'
+import { FolderPath } from './FolderPath.js'
 
 type NativeBackend = Extract<Backend, { protocol: 'dinkster' }>
-
-function FolderPath(props: { readonly value: string }) {
-  const split = () => Math.max(props.value.lastIndexOf('/'), props.value.lastIndexOf('\\'))
-  const [shortened, setShortened] = createSignal(false)
-  let path!: HTMLElement
-  let prefix!: HTMLSpanElement
-  let suffix!: HTMLSpanElement
-  const measure = () => setShortened(prefix.scrollWidth + suffix.scrollWidth > path.clientWidth)
-  onMount(() => {
-    const observer = new ResizeObserver(measure)
-    observer.observe(path)
-    void document.fonts?.ready.then(measure)
-    onCleanup(() => observer.disconnect())
-  })
-  createEffect(() => { props.value; queueMicrotask(measure) })
-  return <code ref={path} class="storage-folder-path" title={props.value}>
-    <span ref={prefix}>{split() < 0 ? '' : props.value.slice(0, split())}</span>
-    <Show when={shortened()}><span>...</span></Show>
-    <span ref={suffix}>{split() < 0 ? props.value : props.value.slice(split())}</span>
-  </code>
-}
 
 export function StoragePanel(props: {
   readonly app: AppState
@@ -119,10 +99,14 @@ export function StorageFolders(props: {
   }
   createEffect(() => {
     const connection = props.connection
+    useSignal(connection.principalGeneration)()
     generation++
     setSettings(undefined)
     setLocations(undefined)
     setModels(undefined)
+    setError('')
+    setOperatorNotice(false)
+    setNotification(undefined)
     setBusy(false)
     setEditing(undefined)
     setLeaving(undefined)

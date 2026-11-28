@@ -3,9 +3,11 @@
 import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { registerCatalog, setLocale, type CollectionEntry, type CollectionSource } from '@dinkster/core'
+import { asConnectionId, createSignal as createCoreSignal, registerCatalog, setLocale, type CollectionEntry, type CollectionSource } from '@dinkster/core'
+import { DinksterConnection, RequestFailure, type ModelDownloadJob } from '@dinkster/client'
 import { LibraryPanel } from '../src/LibraryPanel.js'
-import { RequestFailure } from '@dinkster/client'
+import { LibraryModels } from '../src/LibraryModels.js'
+import { createWorkflowApp } from './fixtures/workflow-app.js'
 import '../src/locale.js'
 
 const source = (id: string, label: string, entries: readonly CollectionEntry[]): CollectionSource => ({
@@ -21,9 +23,417 @@ afterEach(() => {
   localStorage.clear()
   setLocale('en')
   vi.restoreAllMocks()
+  vi.useRealTimers()
 })
 
 describe('LibraryPanel', () => {
+  it('unites folder models with exact job versions and removes stopped lines when their records disappear', async () => {
+    vi.useFakeTimers()
+    const digest = `blake3:${'a'.repeat(64)}`
+    let published = false
+    const locations = ['studio', 'archive'].map((id) => ({ id, path: `/${id}`, mode: 'read', visibility: 'default-on', mounts: [id], enabled: true, active: true }))
+    const connection = new DinksterConnection({ id: asConnectionId('jobs'), baseUrl: '', clientId: 'human', project: 'studio', fetchFn: async (input) => {
+      const path = new URL(String(input), 'http://example.test').pathname
+      if (path === '/api/models/settings') return Response.json({ settings: { version: 1, downloadLocation: null, locations }, locations, revision: 'one', project: 'studio', changesAllowed: true, restartRequired: false, pendingRemovals: [] })
+      if (path === '/api/mounts') return Response.json({ mounts: locations.map((location) => ({ id: location.id, mode: 'read', state: 'ready', kind: 'model/checkpoint' })) })
+      if (path.endsWith('/entries')) return Response.json({ entries: path.includes('/studio/') || published ? [
+        { name: 'alpha.safetensors', virtualPath: 'alpha.safetensors', digest: path.includes('/studio/') ? digest : `blake3:${'b'.repeat(64)}`, size: 1024, mediaType: 'application/x-safetensors', kind: 'model/checkpoint' },
+        ...(path.includes('/studio/') ? [{ name: 'zeta-alias.safetensors', virtualPath: 'mounts/studio/zeta-alias.safetensors', digest, size: 1024, mediaType: 'application/x-safetensors', kind: 'model/checkpoint' }] : []),
+      ] : [] })
+      throw new Error(`Unexpected route ${path}`)
+    } })
+    const selection = { project: 'studio', provider: 'huggingface' as const, source: 'https://huggingface.co/example/model/resolve/main/alpha.safetensors',
+      repo: 'example/model', revision: 'c'.repeat(40), file: 'alpha.safetensors', sha256: 'd'.repeat(64), size: 8192,
+      license: 'apache-2.0', destination: '/archive/alpha.safetensors', mount: 'archive', kind: 'model/checkpoint' }
+    const downloading: ModelDownloadJob = { ...selection, name: 'alpha.safetensors', digest: `blake3:${'b'.repeat(64)}`, jobId: 'active', status: 'downloading', received: 3072 }
+    const stopped: ModelDownloadJob = { ...selection, name: 'beta.safetensors', file: 'beta.safetensors', jobId: 'stopped', status: 'failed', received: 1536 }
+    const checking: ModelDownloadJob = { ...selection, kind: 'model/diffusion', name: 'gamma.safetensors', file: 'gamma.safetensors', mount: 'studio', jobId: 'checking', status: 'verifying', received: 8192 }
+    const jobs = createCoreSignal<readonly ModelDownloadJob[]>([downloading, stopped, checking])
+    const opened: ModelDownloadJob[] = []
+    const root = document.createElement('div')
+    document.body.append(root)
+    const dispose = render(() => <LibraryModels connection={connection} downloadJobs={jobs} onDownload={(job) => opened.push(job)} onOpenStorage={() => {}} onAddModelFolder={() => {}} />, root)
+    try {
+      await vi.advanceTimersByTimeAsync(0)
+      expect(root.textContent).toContain('3 models in 2 folders')
+      expect(root.querySelector('input[type="search"]')?.getAttribute('placeholder')).toBe('Search models')
+      const row = (name: string) => [...root.querySelectorAll<HTMLButtonElement>('.dinkster-row-main')].find((button) => button.textContent?.includes(name))!
+      expect(row('alpha.safetensors').textContent).toContain('Checkpoints, 1 here, 1 to download')
+      expect(row('gamma.safetensors').textContent).toContain('Diffusion models')
+      row('alpha.safetensors').click()
+      expect(root.textContent).toContain('1 here, 1 to download')
+      expect(root.querySelector('[role="progressbar"][aria-valuenow="0.375"]')).not.toBeNull()
+      expect(root.textContent).toContain('38%, 3 of 8 KB')
+      expect(root.textContent).not.toContain('Downloading')
+      jobs.set([{ ...downloading, size: 0, received: 0 }, stopped, checking])
+      expect(root.textContent).toContain('0 B')
+      expect(root.textContent).not.toContain('Downloading')
+      expect(root.textContent).not.toContain('of 0 B')
+      expect(root.textContent).not.toContain('%')
+      jobs.set([downloading, stopped, checking])
+      expect(row('gamma.safetensors').textContent).toContain('Checking')
+      expect(root.textContent).toContain('Not downloaded')
+      root.querySelector<HTMLButtonElement>('[aria-label="Model kind"]')!.click()
+      const checkpoints = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent === 'Checkpoints')
+      expect(checkpoints).toBeDefined()
+      checkpoints!.click()
+      expect(root.textContent).toContain('2 models in 2 folders')
+      expect(root.textContent).not.toContain('gamma.safetensors')
+      expect(row('alpha.safetensors').textContent).toContain('1 here, 1 to download')
+      expect(row('alpha.safetensors').textContent).not.toContain('Checkpoints')
+      expect(row('alpha.safetensors').textContent).not.toContain(', 1 here')
+      const installed = [...root.querySelectorAll<HTMLButtonElement>('.dinkster-row-main')].find((button) => button.textContent === 'studio1 KB')!
+      expect(installed).toBeDefined()
+      expect(installed.querySelector('.dinkster-metadata')).toBeNull()
+      expect(row('archive').textContent).toContain('38%, 3 of 8 KB')
+      installed.click()
+      const facts = installed.closest('li')!.querySelector('dl')!
+      expect(facts.querySelector('code')?.title).toBe('alpha.safetensors')
+      expect([...facts.querySelectorAll('.dinkster-fact')].find((fact) => fact.querySelector('dt')?.textContent === 'Model folder')?.querySelector('dd')?.textContent).toBe('studio')
+      const aliases = [...facts.querySelectorAll('.dinkster-fact')].find((fact) => fact.querySelector('dt')?.textContent === 'Other names')!
+      expect([...aliases.querySelectorAll('code')].map((code) => code.title)).toEqual(['zeta-alias.safetensors'])
+      expect(row('beta.safetensors').textContent).toContain('Not downloaded')
+      root.querySelector<HTMLButtonElement>('[aria-label="Model kind"]')!.click()
+      ;[...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent === 'All kinds')!.click()
+      expect(root.textContent).toContain('3 models in 2 folders')
+      root.querySelector<HTMLButtonElement>('[aria-label="Download: beta.safetensors"]')!.click()
+      expect(opened).toEqual([stopped])
+      root.querySelector<HTMLButtonElement>('[aria-label="Model folder"]')!.click()
+      ;[...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent === 'archive')!.click()
+      expect(root.textContent).toContain('2 models in 1 folder')
+      expect(row('alpha.safetensors').textContent).not.toContain('1 KB')
+      expect(root.textContent).not.toContain('gamma.safetensors')
+      jobs.set([{ ...downloading, status: 'cancelled' }, stopped, checking])
+      expect(root.textContent).not.toContain('Downloading')
+      root.querySelector<HTMLButtonElement>('[aria-label="Download: alpha.safetensors"]')!.click()
+      expect(opened.at(-1)?.digest).toBe(downloading.digest)
+      jobs.set([{ ...downloading, status: 'completed', indexingPending: true }, checking])
+      expect(root.textContent).toContain('No matching models')
+      expect(root.textContent).not.toContain('beta.safetensors')
+      expect(root.textContent).not.toContain('Not downloaded')
+      await vi.advanceTimersByTimeAsync(0)
+      expect(root.textContent).toContain('No matching models')
+      published = true
+      jobs.set([{ ...downloading, status: 'completed', indexingPending: false }, checking])
+      await vi.advanceTimersByTimeAsync(0)
+      expect(root.textContent).toContain('1 model in 1 folder')
+      expect(row('alpha.safetensors').textContent).toContain('1 KB')
+      expect(root.textContent).not.toContain('Not downloaded')
+      jobs.set([checking])
+      expect(root.textContent).toContain('1 model in 1 folder')
+      root.querySelector<HTMLButtonElement>('[aria-label="Model folder"]')!.click()
+      ;[...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent === 'All model folders')!.click()
+      expect(row('alpha.safetensors').textContent).toContain('2 here')
+      expect(row('alpha.safetensors').textContent).not.toContain('to download')
+    } finally { dispose(); root.remove() }
+  })
+
+  it('replaces account-owned models and cancels an unanswered hide when the principal changes', async () => {
+    let principal = 'previous'
+    let jobsUnavailable = false
+    let currentReads = 0
+    let holdPrevious = false
+    let finishPrevious: ((response: Response) => void) | undefined
+    const job = (name: string): ModelDownloadJob => ({ name: `${name}-private.safetensors`, kind: 'model/checkpoint', project: 'default',
+      provider: 'huggingface', source: `https://huggingface.co/example/model/resolve/main/${name}-private.safetensors`,
+      repo: 'example/model', revision: 'c'.repeat(40), file: `${name}-private.safetensors`, sha256: 'd'.repeat(64),
+      size: 8192, license: 'apache-2.0', destination: `/${name}/${name}-private.safetensors`, mount: name,
+      jobId: `${name}-job`, status: 'failed', received: 317 })
+    vi.stubGlobal('fetch', async (input: unknown) => {
+      const path = new URL(String(input), 'http://example.test').pathname
+      if (path === '/api/account') return Response.json({ available: true, canStartSignIn: true, signInUnavailableReason: null, signedIn: false, profile: null, signIn: { state: 'idle' }, principalRevision: principal })
+      if (path === '/api/models/downloads') {
+        if (principal === 'current') currentReads++
+        if (holdPrevious && principal === 'previous') return new Promise<Response>((resolve) => { finishPrevious = resolve })
+        return jobsUnavailable ? new Response('Unavailable', { status: 503 }) : Response.json({ instance: 'engine', jobs: [job(principal)] })
+      }
+      const locations = [{ id: principal, path: `/${principal}`, mode: 'read', visibility: 'default-on', mounts: [principal], enabled: true, active: true }]
+      if (path === '/api/models/settings') return Response.json({ settings: { version: 1, downloadLocation: null, locations }, locations, revision: principal, project: 'default', changesAllowed: true, restartRequired: false, pendingRemovals: [] })
+      if (path === '/api/mounts') return Response.json({ mounts: [{ id: principal, mode: 'read', state: 'ready', kind: 'model/checkpoint' }] })
+      if (path.endsWith('/entries')) return Response.json({ entries: [{ name: `${principal}.safetensors`, virtualPath: `folder/${principal}.safetensors`, digest: `blake3:${'a'.repeat(64)}`, size: 1024, mediaType: 'application/x-safetensors', kind: 'model/checkpoint' }] })
+      return Response.json({})
+    })
+    const app = createWorkflowApp(null)
+    const backend = app.backends.get()[0]!
+    if (backend.protocol !== 'dinkster') throw new Error('Expected native backend')
+    const connection = backend.connection
+    await connection.accountStatus()
+    const root = document.createElement('div')
+    document.body.append(root)
+    const dispose = render(() => <LibraryModels connection={connection} downloadJobs={app.modelDownloadJobsFor(backend)} onOpenStorage={() => {}} onAddModelFolder={() => {}} />, root)
+    try {
+      await vi.waitFor(() => expect(root.textContent).toContain('previous.safetensors'))
+      await vi.waitFor(() => expect(root.textContent).toContain('previous-private.safetensors'))
+      const previousController = app.modelDownloadsFor(backend)
+      jobsUnavailable = true
+      await previousController.refresh()
+      expect(root.textContent).toContain('previous-private.safetensors')
+      holdPrevious = true
+      const latePrevious = previousController.refresh()
+      await vi.waitFor(() => expect(finishPrevious).toBeDefined())
+      ;[...root.querySelectorAll<HTMLButtonElement>('.dinkster-row-main')].find((row) => row.textContent?.includes('previous.safetensors'))!.click()
+      ;[...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Hide in this project')!.click()
+      expect(root.textContent).toContain('Hide "previous.safetensors" from this project?')
+      principal = 'current'
+      await connection.accountStatus()
+      await vi.waitFor(() => expect(root.textContent).toContain('current.safetensors'))
+      expect(root.textContent).not.toContain('previous')
+      expect(root.textContent).not.toContain('from this project?')
+      expect(currentReads).toBeGreaterThan(0)
+      finishPrevious!(Response.json({ instance: 'engine', jobs: [job('previous')] }))
+      await latePrevious
+      expect(root.textContent).not.toContain('previous')
+      root.querySelector<HTMLButtonElement>('.dinkster-row-main')!.click()
+      expect(root.querySelector('code')?.title).toBe('folder/current.safetensors')
+      expect(root.textContent).toContain('Model foldercurrent')
+      jobsUnavailable = false
+      await app.modelDownloadsFor(backend).refresh()
+      expect(root.textContent).toContain('current-private.safetensors')
+      expect(root.textContent).toContain('2 models in 1 folder')
+      expect(root.textContent).not.toContain('previous')
+    } finally { dispose(); app.dispose(); root.remove(); vi.unstubAllGlobals() }
+  })
+
+  it('cancels hide questions on selection and backend changes and ignores obsolete hide completions', async () => {
+    vi.useFakeTimers()
+    for (const failed of [false, true]) {
+      const replies: ((response: Response) => void)[] = []
+      const writes: string[] = []
+      const settings = new Map<string, unknown>()
+      const connection = (id: string) => new DinksterConnection({
+        id: asConnectionId(id), baseUrl: '', clientId: 'human', project: id,
+        fetchFn: async (input) => {
+          const path = new URL(String(input), 'http://example.test').pathname
+          if (path.startsWith('/api/models/hidden/')) {
+            writes.push(path)
+            return new Promise<Response>((resolve) => replies.push(resolve))
+          }
+          if (path === '/api/models/settings') {
+            const locations = [{ id: 'models', path: `/${id}`, mode: 'read', visibility: 'default-on', mounts: ['models'], enabled: true, active: true }]
+            const state = { settings: { version: 1, downloadLocation: null, locations }, locations, revision: id, project: id, changesAllowed: true, restartRequired: false, pendingRemovals: [] }
+            settings.set(id, state)
+            return Response.json(state)
+          }
+          if (path === '/api/mounts') return Response.json({ mounts: [{ id: 'models', mode: 'read', state: 'ready', kind: 'model/checkpoint' }] })
+          if (path.endsWith('/entries')) return Response.json({ entries: ['first', 'second'].map((name, index) => ({ name: `${id}-${name}.safetensors`, virtualPath: `${id}-${name}.safetensors`, digest: `blake3:${(index ? 'b' : 'a').repeat(64)}`, size: 1024, mediaType: 'application/x-safetensors', kind: 'model/checkpoint' })) })
+          throw new Error(`Unexpected route ${path}`)
+        },
+      })
+      const [current, setCurrent] = createSignal(connection('previous'))
+      const root = document.createElement('div')
+      document.body.append(root)
+      const dispose = render(() => <LibraryModels connection={current()} onOpenStorage={() => {}} onAddModelFolder={() => {}} />, root)
+      const action = (label: string) => [...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === label)!
+      const row = (name: string) => [...root.querySelectorAll<HTMLButtonElement>('.dinkster-row-main')].find((button) => button.textContent?.includes(name))!
+      try {
+        await vi.advanceTimersByTimeAsync(0)
+        row('previous-first').click()
+        action('Hide in this project').click()
+        row('previous-second').focus()
+        expect(root.textContent).not.toContain('from this project?')
+        expect(writes).toEqual([])
+        row('previous-first').focus()
+        action('Hide in this project').click()
+        action('Hide in this project').click()
+        expect(action('Cancel').disabled).toBe(true)
+        row('previous-first').click()
+        row('previous-second').click()
+        expect(root.textContent).not.toContain('from this project?')
+        action('Hide in this project').click()
+        action('Hide in this project').click()
+        replies[0]!(failed ? new Response('Obsolete selection failure', { status: 503 }) : Response.json(settings.get('previous')))
+        await vi.advanceTimersByTimeAsync(0)
+        expect(root.textContent).toContain('Hide "previous-second.safetensors" from this project?')
+        expect(action('Cancel').disabled).toBe(true)
+        expect(root.querySelector('[role="alert"]')).toBeNull()
+        setCurrent(connection('current'))
+        await vi.advanceTimersByTimeAsync(0)
+        expect(root.textContent).not.toContain('from this project?')
+        row('current-first').click()
+        action('Hide in this project').click()
+        action('Hide in this project').click()
+        expect(writes).toEqual(['/api/models/hidden/previous', '/api/models/hidden/previous', '/api/models/hidden/current'])
+        replies[1]!(failed ? new Response('Obsolete failure', { status: 503 }) : Response.json(settings.get('previous')))
+        await vi.advanceTimersByTimeAsync(0)
+        expect(root.textContent).toContain('Hide "current-first.safetensors" from this project?')
+        expect(action('Cancel').disabled).toBe(true)
+        expect(root.querySelector('[role="alert"]')).toBeNull()
+        replies[2]!(new Response('Current failure', { status: 503 }))
+        await vi.advanceTimersByTimeAsync(0)
+        expect(root.querySelector('[role="alert"]')?.textContent).toContain('Model visibility could not be changed.')
+        expect(action('Cancel').disabled).toBe(false)
+        action('Cancel').click()
+        expect(root.querySelector('[role="alert"]')).toBeNull()
+        expect(root.textContent).not.toContain('from this project?')
+      } finally { dispose(); root.remove() }
+    }
+  })
+
+  it('keeps the current backend models when an earlier folder read finishes or fails late', async () => {
+    vi.useFakeTimers()
+    for (const failed of [false, true]) {
+      let finish!: (response: Response) => void
+      const pending = new Promise<Response>((resolve) => { finish = resolve })
+      const connection = (id: string, delayed: boolean) => new DinksterConnection({
+        id: asConnectionId(id), baseUrl: '', clientId: 'human', project: id,
+        fetchFn: async (input) => {
+          const path = new URL(String(input), 'http://example.test').pathname
+          if (path === '/api/models/settings') {
+            const locations = [{ id: 'models', path: `/${id}`, mode: 'read', visibility: 'default-on', mounts: ['models'], enabled: true, active: true }]
+            return Response.json({ settings: { version: 1, downloadLocation: null, locations }, locations, revision: id, project: id, changesAllowed: true, restartRequired: false, pendingRemovals: [] })
+          }
+          if (path === '/api/mounts') return Response.json({ mounts: [{ id: 'models', mode: 'read', state: 'ready', kind: 'model/checkpoint' }] })
+          if (path.endsWith('/entries')) return delayed ? pending : Response.json({ entries: [{ name: `${id}.safetensors`, virtualPath: `${id}.safetensors`, digest: `blake3:${'a'.repeat(64)}`, size: 1024, mediaType: 'application/x-safetensors', kind: 'model/checkpoint' }] })
+          throw new Error(`Unexpected route ${path}`)
+        },
+      })
+      const [current, setCurrent] = createSignal(connection('previous', true))
+      const root = document.createElement('div')
+      document.body.append(root)
+      const dispose = render(() => <LibraryModels connection={current()} onOpenStorage={() => {}} onAddModelFolder={() => {}} />, root)
+      try {
+        await vi.advanceTimersByTimeAsync(0)
+        expect(root.textContent).toContain('Reading models')
+        setCurrent(connection('current', false))
+        await vi.advanceTimersByTimeAsync(0)
+        expect(root.textContent).toContain('current.safetensors')
+        expect(root.textContent).toContain('1 model in 1 folder')
+        finish(failed ? new Response('Previous folder unavailable', { status: 503 }) : Response.json({ entries: [{ name: 'previous.safetensors', virtualPath: 'previous.safetensors', digest: `blake3:${'b'.repeat(64)}`, size: 2048, mediaType: 'application/x-safetensors', kind: 'model/checkpoint' }] }))
+        await vi.advanceTimersByTimeAsync(0)
+        expect(root.textContent).toContain('current.safetensors')
+        expect(root.textContent).toContain('1 model in 1 folder')
+        expect(root.textContent).not.toContain('previous.safetensors')
+        expect(root.querySelector('[role="alert"]')).toBeNull()
+        root.querySelector<HTMLButtonElement>('.dinkster-row-main')!.click()
+        expect(root.querySelector('code')?.title).toBe('current.safetensors')
+        expect(root.textContent).not.toContain('/previous')
+      } finally { dispose(); root.remove() }
+    }
+  })
+
+  it('filters equal-digest copies by their actual folder and hides the selected revision in its project', async () => {
+    const digest = `blake3:${'a'.repeat(64)}`
+    const otherDigest = `blake3:${'b'.repeat(64)}`
+    const locations = ['studio', 'archive'].map((id) => ({ id, path: `/${id}`, mode: 'read' as const, visibility: 'default-on' as const, mounts: [id], enabled: true, active: true }))
+    const state = { settings: { version: 1, downloadLocation: null, locations }, locations, revision: 'first', project: 'commercial', changesAllowed: true, restartRequired: false, pendingRemovals: [] }
+    let hidden = false
+    let rejectHide = true
+    const writes: unknown[] = []
+    const connection = new DinksterConnection({ id: asConnectionId('library'), baseUrl: '', clientId: 'human', project: 'commercial', fetchFn: async (input, init) => {
+      const url = new URL(String(input), 'http://example.test')
+      if (url.pathname === '/api/models/hidden/commercial') {
+        writes.push(JSON.parse(String(init?.body)))
+        if (rejectHide) return new Response('Unavailable', { status: 503 })
+        hidden = true
+        return Response.json(state)
+      }
+      if (url.pathname === '/api/models/settings') return Response.json(state)
+      if (url.pathname === '/api/mounts') return Response.json({ mounts: locations.map((location) => ({ id: location.id, mode: 'read', state: location.id === 'archive' ? 'scanning' : 'ready', kind: 'model/checkpoint' })) })
+      if (url.pathname.endsWith('/entries')) {
+        const archive = url.pathname.includes('/archive/')
+        const entries = hidden ? [] : [
+          { name: archive ? 'zeta.safetensors' : 'alpha.safetensors', virtualPath: archive ? 'renamed/zeta.safetensors' : 'alpha.safetensors', digest, size: 1024, mediaType: 'application/x-safetensors', kind: 'model/checkpoint' },
+          ...(!archive ? [{ name: 'unique.safetensors', virtualPath: 'unique.safetensors', digest: otherDigest, size: 2048, mediaType: 'application/x-safetensors', kind: 'model/checkpoint' }] : []),
+        ]
+        return Response.json({ entries: entries.filter((entry) => !url.searchParams.has('kind') || entry.kind === url.searchParams.get('kind')) })
+      }
+      throw new Error(`Unexpected route ${url.pathname}`)
+    } })
+    const folders: (string | undefined)[] = []
+    const [focus, setFocus] = createSignal<{ readonly modelLocationId: string }>({ modelLocationId: 'studio' })
+    const root = document.createElement('div')
+    document.body.append(root)
+    const dispose = render(() => <LibraryModels connection={connection} focus={focus()} onOpenStorage={(id) => folders.push(id)} onAddModelFolder={() => {}} />, root)
+    try {
+      await vi.waitFor(() => expect(root.textContent).toContain('2 models in 1 folder'))
+      root.querySelector<HTMLButtonElement>('[aria-label="Model folder"]')!.click()
+      ;[...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent === 'All model folders')!.click()
+      await vi.waitFor(() => expect(root.textContent).toContain('2 models in 2 folders'))
+      root.querySelector<HTMLButtonElement>('[aria-label="Model folder"]')!.click()
+      const archive = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent === 'archive')!
+      archive.click()
+      await vi.waitFor(() => expect(root.textContent).toContain('1 model in 1 folder'))
+      setFocus({ modelLocationId: 'studio' })
+      await vi.waitFor(() => expect(root.textContent).toContain('2 models in 1 folder'))
+      const search = root.querySelector<HTMLInputElement>('input[type="search"]')!
+      search.value = 'unique'
+      search.dispatchEvent(new Event('input', { bubbles: true }))
+      await vi.waitFor(() => expect(root.textContent).toContain('1 model in 1 folder'))
+      setFocus({ modelLocationId: 'archive' })
+      await vi.waitFor(() => {
+        expect(search.value).toBe('')
+        expect(root.textContent).toContain('1 model in 1 folder')
+      })
+      root.querySelector<HTMLButtonElement>('[aria-label="Model folder"]')!.click()
+      ;[...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent === 'All model folders')!.click()
+      await vi.waitFor(() => expect(root.textContent).toContain('2 models in 2 folders'))
+      setFocus({ modelLocationId: 'archive' })
+      await vi.waitFor(() => expect(root.textContent).toContain('1 model in 1 folder'))
+      expect(root.textContent).not.toContain('unique.safetensors')
+      expect(root.textContent).toContain('Reading archive')
+      root.querySelector<HTMLButtonElement>('.dinkster-row-main')!.click()
+      await vi.waitFor(() => expect(root.textContent).toContain('renamed/zeta.safetensors'))
+      const action = (label: string) => [...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === label)!
+      action('Show folder').click()
+      expect(folders).toEqual(['archive'])
+      action('Hide in this project').click()
+      expect(writes).toEqual([])
+      expect(root.textContent).toContain('Hide "alpha.safetensors" from this project?')
+      await vi.waitFor(() => expect(document.activeElement).toBe(action('Cancel')))
+      expect(root.textContent).toContain('renamed/zeta.safetensors')
+      action('Cancel').click()
+      expect(root.textContent).not.toContain('from this project?')
+      expect(writes).toEqual([])
+      action('Hide in this project').click()
+      action('Cancel').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      expect(root.textContent).not.toContain('from this project?')
+      expect(writes).toEqual([])
+      action('Hide in this project').click()
+      action('Hide in this project').click()
+      await vi.waitFor(() => expect(root.querySelector('[role="alert"]')?.textContent).toContain('Model visibility could not be changed.'))
+      expect(root.textContent).toContain('from this project?')
+      expect(root.textContent).toContain('renamed/zeta.safetensors')
+      expect(action('Cancel').disabled).toBe(false)
+      rejectHide = false
+      action('Hide in this project').click()
+      await vi.waitFor(() => expect(root.textContent).toContain('No matching models'))
+      expect(writes).toEqual(Array.from({ length: 2 }, () => ({ asset: { digest, name: 'zeta.safetensors', size: 1024, mediaType: 'application/x-safetensors', virtualPath: 'renamed/zeta.safetensors' }, kind: 'model/checkpoint' })))
+    } finally { dispose() }
+  })
+
+  it('opens Models without leaving collection results reachable and returns to the chosen collection', async () => {
+    const [modelsFocus, setModelsFocus] = createSignal<object>()
+    const root = document.createElement('div')
+    document.body.append(root)
+    const dispose = render(() => <LibraryPanel
+      backend={() => backend}
+      sources={[source('packs', 'Packs', [{ id: 'installed', title: 'Installed pack' }])]}
+      models={() => <p>Models in this project</p>}
+      modelsFocus={modelsFocus()}
+    />, root)
+    try {
+      await vi.waitFor(() => expect(root.textContent).toContain('Installed pack'))
+      const models = root.querySelector<HTMLButtonElement>('[data-source="models"]')!
+      expect(models).not.toBeNull()
+      models.click()
+      expect(root.querySelector('[data-testid="library-overlay"]')?.getAttribute('data-source')).toBe('models')
+      expect(root.textContent).toContain('Models in this project')
+      expect(root.querySelector('.library-collection-body')?.hasAttribute('hidden')).toBe(true)
+      root.querySelector<HTMLButtonElement>('[data-source="packs"]')!.click()
+      await vi.waitFor(() => {
+        expect(root.textContent).not.toContain('Models in this project')
+        expect(root.querySelector('.library-collection-body')?.hasAttribute('hidden')).toBe(false)
+        expect(root.textContent).toContain('Installed pack')
+      })
+      setModelsFocus({})
+      await vi.waitFor(() => expect(root.querySelector('[data-testid="library-overlay"]')?.getAttribute('data-source')).toBe('models'))
+      root.querySelector<HTMLButtonElement>('[data-source="packs"]')!.click()
+      await vi.waitFor(() => expect(root.querySelector('[data-testid="library-overlay"]')?.getAttribute('data-source')).toBe('packs'))
+      setModelsFocus({})
+      await vi.waitFor(() => expect(root.querySelector('[data-testid="library-overlay"]')?.getAttribute('data-source')).toBe('models'))
+    } finally { dispose() }
+  })
+
   it('adds and withdraws a capability-controlled source without leaving its results reachable', async () => {
     const packs = source('packs', 'Packs', [{ id: 'pack', title: 'Installed pack' }])
     const templates = source('templates', 'Templates', [{ id: 'starter', title: 'Starter workflow' }])

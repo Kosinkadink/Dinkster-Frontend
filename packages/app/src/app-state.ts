@@ -3095,6 +3095,13 @@ export class AppState {
     return controller
   }
 
+  /** Project inventory comes only from engine job records, not workflow requirements. */
+  modelDownloadJobsFor(backend: Backend, project = activeProjectId()): ReadonlySignal<readonly ModelDownloadJob[]> {
+    const get = (): readonly ModelDownloadJob[] => (this.observedModelDownloads.get(backend) ?? [])
+      .filter((job) => job.project === project)
+    return { get, subscribe: (listener) => this.observeModelDownloads(backend, project, () => listener(get())) }
+  }
+
   /** Exact per-variant state, including transfers discovered outside this window. */
   modelDownloadStateFor(backend: Backend, requirement: ModelDownloadRequirement, project = activeProjectId()): ReadonlySignal<ModelDownloadState | undefined> {
     const get = (): ModelDownloadState | undefined => {
@@ -3110,12 +3117,17 @@ export class AppState {
         (['completed', 'cancelled', 'failed'].includes(row.job.status) || row.job.received > job.received)) return row
       return { requirement, pending: row?.pending ?? false, job }
     }
-    return { get, subscribe: (listener) => {
-      const unsubscribe = this.modelDownloadsChanged.subscribe(() => listener(get()))
-      const stop = !this.disposed && this.backends.get().includes(backend)
-        ? this.modelDownloadsFor(backend, project).observe() : () => {}
-      return () => { unsubscribe(); stop() }
-    } }
+    return { get, subscribe: (listener) => this.observeModelDownloads(backend, project, () => listener(get())) }
+  }
+
+  private observeModelDownloads(backend: Backend, project: string, listener: () => void): () => void {
+    const observe = (): (() => void) => !this.disposed && this.backends.get().includes(backend)
+      ? this.modelDownloadsFor(backend, project).observe() : () => {}
+    const unsubscribe = this.modelDownloadsChanged.subscribe(listener)
+    let stop = observe()
+    const unsubscribePrincipal = backend.protocol === 'dinkster'
+      ? backend.connection.principalGeneration.subscribe(() => { stop(); stop = observe() }) : () => {}
+    return () => { unsubscribe(); unsubscribePrincipal(); stop() }
   }
 
   private publishModelDownloadTasks(backend: Backend): void {
@@ -5419,6 +5431,7 @@ export class AppState {
       )
       const disposePrincipal = connection.principalGeneration.subscribe((generation) => {
         principalGeneration = generation
+        this.releaseModelDownloads(nativeBackend)
         handleStatusChange('disconnected')
         for (const held of [registry, base.keptRegistry]) {
           const previous = held.get()

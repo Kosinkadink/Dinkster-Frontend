@@ -1,13 +1,14 @@
 import { createEffect, createMemo, createSignal, createUniqueId, For, onCleanup, Show, type JSX } from 'solid-js'
 import type { ConnectionStatus } from '@dinkster/client'
 import type { CollectionEntry, CollectionSource, MessageParams } from '@dinkster/core'
+import { ProductSegmented } from '@dinkster/ui'
 import { CollectionPanel, type CollectionPanelState } from './CollectionPanel.js'
 import { initialsOf } from './collections.js'
 import { useAppMessage } from './locale.js'
 import { ProductSelect } from './ProductSelect.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
 
-const DIRECT_LIBRARY_SOURCES = new Set(['packs', 'templates', 'workflows', 'boards'])
+const DIRECT_LIBRARY_SOURCES = new Set(['packs', 'templates', 'workflows', 'boards', 'models'])
 const ACTIVITY_SOURCES = new Set(['history', 'runs'])
 type LibraryMessage = (key: string, params?: MessageParams) => string
 
@@ -19,6 +20,9 @@ interface LibraryBackendContext {
 
 export interface LibraryPanelProps {
   readonly sources: readonly CollectionSource[]
+  readonly models?: (() => JSX.Element) | undefined
+  readonly modelsFocus?: object | undefined
+  readonly onSourceChange?: (id: string) => void
   readonly backend: () => LibraryBackendContext
   readonly refreshTick?: () => number
   readonly catalogRecovery?: JSX.Element
@@ -29,7 +33,8 @@ export interface LibraryPanelProps {
 }
 
 function LibrarySourceControl(props: {
-  readonly sources: readonly CollectionSource[]
+  readonly sources: readonly Pick<CollectionSource, 'id' | 'label'>[]
+  readonly segmented?: boolean
   readonly selectedId: () => string
   readonly select: (id: string) => void
   readonly message: LibraryMessage
@@ -72,14 +77,23 @@ function LibrarySourceControl(props: {
           )}
         </For>
       </div>
-      <ProductSelect
+      <Show when={props.segmented} fallback={<ProductSelect
         class="library-source-select"
         testId="library-source-select"
         ariaLabel={props.message('library.source.collection')}
         selectedId={props.selectedId()}
         options={props.sources.map((source) => ({ id: source.id, label: source.label, value: source.id }))}
         onSelect={(option) => props.select(option.value)}
-      />
+      />}>
+        <div class="library-source-segmented">
+          <ProductSegmented
+            label={props.message('library.source.collection')}
+            value={props.selectedId()}
+            options={props.sources.map((source) => ({ value: source.id, label: source.label }))}
+            onChange={props.select}
+          />
+        </div>
+      </Show>
     </>
   )
 }
@@ -240,6 +254,7 @@ export function LibraryPanel(props: LibraryPanelProps) {
   const settleTimers = new Set<ReturnType<typeof setTimeout>>()
   let panelRoot: HTMLDivElement | undefined
   let displayedSourceId: string | undefined
+  let selectCollection: (id: string) => void = () => {}
   let requestSequence = 0
   let latestFirstPageRequest = 0
   const afterCollectionSettles = (action: () => void): void => {
@@ -274,12 +289,17 @@ export function LibraryPanel(props: LibraryPanelProps) {
     },
   })))
   createEffect(() => {
-    if (!props.sources.some((source) => source.id === sourceId())) {
+    if (!(props.models && sourceId() === 'models') && !props.sources.some((source) => source.id === sourceId())) {
       setSourceId(props.sources[0]?.id ?? '')
       setTransitionSourceId(undefined)
     }
   })
-  const sourceLabel = () => props.sources.find((source) => source.id === sourceId())?.label ?? 'library'
+  createEffect(() => {
+    if (props.modelsFocus === undefined || !props.models) return
+    setSourceId('models')
+    setTransitionSourceId(undefined)
+  })
+  const sourceLabel = () => sourceId() === 'models' ? message('library.models.title') : props.sources.find((source) => source.id === sourceId())?.label ?? 'library'
   const directSource = () => DIRECT_LIBRARY_SOURCES.has(sourceId())
   const activitySource = () => ACTIVITY_SOURCES.has(sourceId())
   const transitioning = () => transitionSourceId() === sourceId()
@@ -338,14 +358,38 @@ export function LibraryPanel(props: LibraryPanelProps) {
         <strong>{props.backend().label}</strong>
         <span role="status">{props.backend().protocol === 'dinkster' ? 'Dinkster' : 'ComfyUI'} - {props.backend().status}</span>
       </div>
+      <Show when={props.models}>
+        <div class="library-collection-control">
+          <LibrarySourceControl
+            sources={[...props.sources, { id: 'models', label: message('library.models.title') }]}
+            selectedId={sourceId}
+            segmented
+            select={(id) => {
+              props.onSourceChange?.(id)
+              if (id === 'models') {
+                setTransitionSourceId(undefined)
+                setSourceId(id)
+              } else if (sourceId() === 'models') {
+                setSourceId(id)
+                selectCollection(id)
+              } else selectSource(id, selectCollection)
+            }}
+            message={message}
+          />
+        </div>
+      </Show>
+      <div class="library-collection-body" hidden={sourceId() === 'models'}>
       <CollectionPanel
         sources={panelSources()}
-        sourceRail={({ selectedId, select }) => <LibrarySourceControl
+        sourceRail={({ selectedId, select }) => {
+          selectCollection = select
+          return <Show when={!props.models}><LibrarySourceControl
           sources={props.sources}
           selectedId={selectedId}
           select={(id) => selectSource(id, select)}
           message={message}
-        />}
+        /></Show>
+        }}
         modeKey="dinkster.library.view.v1"
         searchLabel={message('library.search', { source: sourceLabel().toLocaleLowerCase() })}
         searchPlaceholder={message('library.search', { source: sourceLabel().toLocaleLowerCase() })}
@@ -387,6 +431,8 @@ export function LibraryPanel(props: LibraryPanelProps) {
         {...(props.sourceActions ? { sourceActions: props.sourceActions } : {})}
         {...(props.onSourceAction ? { onSourceAction: props.onSourceAction } : {})}
       />
+      </div>
+      <Show when={sourceId() === 'models'}>{props.models?.()}</Show>
     </div>
   )
 }

@@ -7,6 +7,7 @@ test('disabled templates have no entry points or background requests', async ({ 
       featureRequests.push(request.url())
     }
   })
+  await page.route('/api/mounts', (route) => route.fulfill({ json: { mounts: [] } }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1,
     dinkster: { version: 'disabled-feature-test', schemaWire: 2 },
@@ -46,8 +47,7 @@ test('disabled templates have no entry points or background requests', async ({ 
   await page.getByTestId('library-toggle').click()
   await expect(page.getByTestId('library-overlay')).toBeVisible()
   await expect(page.locator('[data-source="templates"]')).toHaveCount(0)
-  await page.getByTestId('library-source-select').click()
-  await expect(page.getByRole('option', { name: 'Templates', exact: true })).toHaveCount(0)
+  await expect(page.getByTestId('library-overlay').getByRole('radio', { name: 'Templates', exact: true })).toHaveCount(0)
   await page.mouse.move(800, 450)
   await page.screenshot({ path: testInfo.outputPath('disabled-library.png'), animations: 'disabled' })
   await page.keyboard.press('Escape')

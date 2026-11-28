@@ -221,14 +221,23 @@ describe('addBackend / removeBackend', () => {
     const backend = addOffline('http://model-owner:8188')
     const state = app.modelDownloadStateFor(backend, requirement)
     const values: (number | undefined)[] = []
-    const unsubscribe = state.subscribe((row) => values.push(row?.job?.received))
+    let unsubscribe = () => {}
+    const inventory = app.modelDownloadJobsFor(backend)
+    const observations: (readonly ModelDownloadJob[])[] = []
+    const stopInventory = inventory.subscribe((rows) => observations.push(rows))
     try {
       await vi.waitFor(() => expect(state.get()?.job?.received).toBe(317))
+      unsubscribe = state.subscribe((row) => values.push(row?.job?.received))
       expect(state.get()?.job?.jobId).toBe('external')
+      expect(inventory.get().map((job) => job.jobId)).toEqual(['external', 'wrong-hash', 'wrong-kind'])
+      expect(app.modelDownloadJobsFor(backend, 'elsewhere').get().map((job) => job.jobId)).toEqual(['wrong-project'])
+      expect(app.modelDownloadJobsFor(app.backends.get()[0]!).get()).toEqual([])
       expect(app.modelDownloadStateFor(backend, { name, kind: requirement.kind }).get()).toBeUndefined()
       expect(app.modelDownloadStateFor(app.backends.get()[0]!, requirement).get()).toBeUndefined()
       jobs = []
       await app.modelDownloadsFor(backend).refresh()
+      expect(inventory.get()).toEqual([])
+      expect(observations.at(-1)).toEqual([])
       const page = new AbortController()
       let pageCurrent = true
       const open = () => app.openModelDownloads(backend, [{ ...requirement, source }], {
@@ -260,6 +269,7 @@ describe('addBackend / removeBackend', () => {
         path: selection.destination, reused: false, renamed: false }]
       await app.modelDownloadsFor(backend).refresh()
       expect(state.get()?.job?.status).toBe('completed')
+      expect(inventory.get()[0]?.status).toBe('completed')
       jobs = [{ ...selection, jobId: 'another-window', status: 'downloading', received: 6053 }]
       await app.modelDownloadsFor(backend).refresh()
       expect(state.get()?.job?.received).toBe(6053)
@@ -294,13 +304,15 @@ describe('addBackend / removeBackend', () => {
       app.removeBackend(backend.id)
       expect(app.assetConsent.get()).toBeUndefined()
       expect(state.get()).toBeUndefined()
+      expect(inventory.get()).toEqual([])
+      expect(observations.at(-1)).toEqual([])
       expect(values.at(-1)).toBeUndefined()
       const replacement = addOffline('http://model-owner:8188')
       app.openModelDownloads(backend, [requirement])
       expect(app.assetConsent.get()).toBeUndefined()
       expect(app.modelDownloadStateFor(replacement, requirement).get()).toBeUndefined()
       expect(requests.some((request) => request.url.includes('/start') || request.url.includes('/api/jobs'))).toBe(false)
-    } finally { unsubscribe() }
+    } finally { unsubscribe(); stopInventory() }
   })
 
   it('disconnect retires only its own download dialog and permits a fresh review', async () => {
