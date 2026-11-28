@@ -58,7 +58,7 @@ const strings: FixesNoticeStrings = {
   summary: (changes, nodes) =>
     `${plural(changes, 'adjustment', 'adjustments')} across ${plural(nodes, 'node', 'nodes')}`,
   group: (kind, count) => `${kinds[kind] ?? kind} (${count})`,
-  settings: 'Open the Review upgrades setting',
+  settings: 'Open Automatic fixes settings',
 }
 
 const change = (
@@ -210,7 +210,7 @@ const cards: readonly NoticeCard[] = [
     id: 'removed-choices',
     title: 'Removed choices only',
     description:
-      'Review upgrades governs node replacements, not removed choices. With only removed choices in the list, there is no link to that setting.',
+      'The settings link currently appears for node replacements. With only removed choices in the list, there is no link.',
     changes: firstKinds.filter((item) => item.kind === 'removedChoice'),
     review: true,
     stage: 'wide',
@@ -572,7 +572,7 @@ function NoticeExample(props: {
             {chosen() === ''
               ? 'Nothing chosen yet.'
               : chosen() === 'settings'
-                ? 'Opens the Review upgrades setting.'
+                ? 'Opens Automatic fixes settings.'
                 : `Moves the canvas to ${changes().find((change) => change.target === chosen())?.node}.`}
           </figcaption>
           <Show when={props.card.arrives}>

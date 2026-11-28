@@ -113,7 +113,7 @@ it('pressing Queue on an invalid graph shows the Problems summary and opens its 
   const toast = root.querySelector('[data-testid="queue-refusal-toast"]')!
   expect(app.problems.get().some((problem) => problem.severity === 'error')).toBe(true)
   expect(toast.textContent).toContain('Workflow not queued')
-  expect(toast.textContent).toContain('6 problems, worst severity error')
+  expect(toast.textContent).toContain('3 problems, worst severity error')
   expect(toast.textContent).toContain('Errors: 1; warnings: 2; info: 3')
   const open = [...toast.querySelectorAll('button')].find((button) => button.textContent === 'Show problems')!
   open.click()

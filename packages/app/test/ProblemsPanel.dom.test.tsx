@@ -67,6 +67,7 @@ function mountPanel(
   selection?: import('../src/ProblemsPanel.js').ProblemsPanelProps['selection'],
   panelDiagnostics: () => readonly Diagnostic[] = () => diagnostics,
   compatSkips: () => readonly { readonly packId: string; readonly nodeId: string; readonly reason: string }[] = () => [],
+  fixes?: import('../src/ProblemsPanel.js').ProblemFixActions,
 ) {
   const tab = {
     id: 'tab-dom', store: { doc: workflow },
@@ -85,6 +86,7 @@ function mountPanel(
   document.body.append(root)
   const unmount = render(() => (
     <ProblemsPanel app={app} diagnostics={panelDiagnostics} compatSkips={compatSkips}
+      {...(fixes === undefined ? {} : { fixes })}
       {...(selection === undefined ? {} : { selection })} />
   ), root)
   return { app, diagnosticFocus, root, unmount }
@@ -99,6 +101,56 @@ afterEach(() => {
 })
 
 describe('ProblemsPanel browser interactions', () => {
+  it('keeps numeric details focused through stale messages and moves focus only when a fix removes it', async () => {
+    const offered = diag('warning', 'environment', 'automatic.numberOutsideLimits', 'Numbers: amount: Stored value 14 is outside the allowed values.', {
+      data: { problemFixKey: 'number-fix' },
+    })
+    const [list, setList] = createSolidSignal<readonly Diagnostic[]>([offered])
+    let remove = false
+    const { root, unmount } = mountPanel(undefined, list, () => [], {
+      all: () => ({ label: 'Fix all', run: () => { setList([]) } }),
+      forProblem: () => ({ label: 'Use 12', run: () => {
+        setList(remove ? [] : [{ ...offered, message: 'Numbers: amount: Could not apply this fix. The workflow changed.' }])
+      } }),
+    })
+    const details = root.querySelector<HTMLDetailsElement>('details.problem')!
+    const summary = details.querySelector('summary')!
+    details.open = true
+    const button = details.querySelector<HTMLButtonElement>('.problem-detail button')!
+    button.focus()
+    button.click()
+    await Promise.resolve()
+    expect(root.querySelector('[data-section="workflow"]')).not.toBeNull()
+    expect(root.querySelector('details.problem')).toBe(details)
+    expect(details.open).toBe(true)
+    expect(details.textContent).toContain('Could not apply this fix. The workflow changed.')
+    expect(document.activeElement).toBe(summary)
+    setList([{ ...offered, message: 'Numbers: amount: Stored value 14 is outside the allowed values.' }])
+    expect(details.open).toBe(true)
+    expect(document.activeElement).toBe(summary)
+    remove = true
+    button.click()
+    await Promise.resolve()
+    const panel = root.querySelector('[data-testid="problems-panel"]')!
+    expect(root.querySelector('details.problem')).toBeNull()
+    expect(document.activeElement).toBe(panel)
+
+    setList([offered])
+    root.querySelector<HTMLElement>('summary')!.focus()
+    Array.from(root.querySelectorAll<HTMLButtonElement>('button')).find((candidate) => candidate.textContent === 'Fix all')!.click()
+    await Promise.resolve()
+    expect(document.activeElement).toBe(panel)
+
+    setList([offered])
+    const editor = document.createElement('input')
+    document.body.append(editor)
+    editor.focus()
+    root.querySelector<HTMLButtonElement>('.problem-detail button')!.click()
+    await Promise.resolve()
+    expect(document.activeElement).toBe(editor)
+    unmount()
+  })
+
   it('folds repeated and exact missing models into one workflow download action without folding media', async () => {
     const app = prepareWorkflowApp(new AppState())
     const backend = app.addBackend('http://model-problems:8000', 'Models', false, 'dinkster')!

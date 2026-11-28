@@ -66,6 +66,38 @@ test('list rows expand independently of their sibling menu and navigation does n
   await expect(version).not.toHaveAttribute('aria-controls')
 })
 
+test('stacked form values start on the same line in app and site densities', async ({ page }) => {
+  for (const route of ['#field-alignment', '#site-field-alignment']) {
+    await page.goto(`/${route}`)
+    await expect(page.getByLabel('Text field', { exact: true })).toBeVisible()
+    await page.evaluate(() => document.fonts.ready)
+    const origins = []
+    for (const label of ['Dropdown', 'Text field', 'Password field', 'Number field']) {
+      origins.push(await page.getByLabel(label, { exact: true }).evaluate((control) => {
+        const input = control as HTMLInputElement
+        const face = control.closest('.product-number') ?? control
+        const faceLeft = face.getBoundingClientRect().left
+        const value = control.querySelector('.dinkster-canvas-list-label')
+        if (value?.firstChild) {
+          const range = document.createRange()
+          range.setStart(value.firstChild, 0)
+          range.setEnd(value.firstChild, 1)
+          return { left: range.getBoundingClientRect().left, faceLeft }
+        }
+        const style = getComputedStyle(input)
+        return {
+          left: input.getBoundingClientRect().left + parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft),
+          faceLeft,
+        }
+      }))
+    }
+    for (const origin of origins) {
+      expect(origin.left - origin.faceLeft).toBe(13)
+      expect(origin.left).toBe(origins[0]!.left)
+    }
+  }
+})
+
 test('single-line fields match their density while site dialogs keep app field sizing', async ({ page }) => {
   await page.goto('/#controls')
   await page.getByRole('textbox', { name: 'Display name', exact: true }).waitFor()
@@ -736,7 +768,7 @@ test('quiet text menus keep shared focus, checked selection and dismissal withou
     await expect(any).toBeFocused()
     await any.hover()
     await expect(any).toHaveCSS('background-color', await token(page, '--dinkster-surface-raised'))
-    await expect(trigger).toHaveCSS('background-color', await token(page, '--dinkster-interaction-hover'))
+    await expect(trigger).toHaveCSS('background-color', await token(page, '--dinkster-interaction-pressed'))
     await expect(page).toHaveScreenshot(`quiet-menu-${theme}-open.png`)
     await page.keyboard.press('Escape')
     await expect(section.getByRole('menu')).toHaveCount(0)
@@ -750,7 +782,7 @@ test('quiet text menus keep shared focus, checked selection and dismissal withou
     await expect(page).toHaveScreenshot(`quiet-menu-${theme}-focus.png`)
     await page.keyboard.press('ArrowDown')
     await expect(any).toBeFocused()
-    await expect(trigger).toHaveCSS('background-color', await token(page, '--dinkster-interaction-hover'))
+    await expect(trigger).toHaveCSS('background-color', await token(page, '--dinkster-interaction-pressed'))
     await expect(page).toHaveScreenshot(`quiet-menu-${theme}-keyboard-open.png`)
     await page.keyboard.press('ArrowDown')
     await page.keyboard.press('Enter')
@@ -1545,12 +1577,18 @@ test('the canvas corner bar keeps one width right-justified under the minimap, i
     return {
       bar: style('[data-testid="canvas-chrome-corner-small"] .canvas-corner-bar').borderTopColor,
       menu: style('[data-testid="canvas-chrome-corner-settings"] .minimap-menu').borderTopColor,
+      minimapBackground: style('[data-testid="canvas-chrome-corner-settings"] [data-testid="minimap-settings"]').backgroundColor,
+      minimapGroupBackground: style('[data-testid="canvas-chrome-corner-settings"] .canvas-corner-split').backgroundColor,
+      zoomBackground: style('[data-testid="canvas-chrome-corner-zoom"] [data-testid="canvas-zoom-level"]').backgroundColor,
       fitColor: style('[data-testid="canvas-chrome-corner-small"] [data-testid="canvas-fit-view"]').color,
       listColor: style('[data-testid="canvas-chrome-run-ready"] .workflow-queue-toggle').color,
       ready: run('ready'),
       off: run('off'),
     }
   })
+  expect(outlines.minimapBackground).toBe('rgba(0, 0, 0, 0)')
+  expect(outlines.minimapGroupBackground).not.toBe(outlines.minimapBackground)
+  expect(outlines.zoomBackground).toBe(outlines.minimapGroupBackground)
   expect(outlines.ready.list).toBe(outlines.bar)
   expect(outlines.menu).toBe(outlines.bar)
   expect(outlines.listColor).toBe(outlines.fitColor)

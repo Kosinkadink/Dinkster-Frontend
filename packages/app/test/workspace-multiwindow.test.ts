@@ -727,6 +727,86 @@ describe('AppState multi-window workspace', () => {
     expect(other.doc.graphs.g0!.nodes.n1!.title).toBeUndefined()
   })
 
+  it('keeps an automatic numeric notice after shared acknowledgement, until a later edit', async () => {
+    const factory = authorityFactories()
+    const app = createEditableApp()
+    app.settings.set('automaticFixes.numberOutsideLimits', 'ask')
+    const backend = app.backends.get()[0]!
+    backend.registry.set(buildDinksterRegistry(backend.id, {
+      schemaVersion: 1, epoch: 1, dinkster: { version: 'test', schemaWire: 2 }, nodes: { X: {
+        body: [{ kind: 'input', id: 'amount', type: { kind: 'concrete', types: ['INT'] }, default: 0,
+          widget: { type: 'NUMBER', min: 0, max: 20, step: 4 } }],
+      } },
+    }))
+    const source = workflow()
+    await app.openDocument({ ...source, graphs: { ...source.graphs, g0: { ...source.graphs.g0!, nodes: {
+      n1: { ...source.graphs.g0!.nodes.n1!, values: { amount: 14 } },
+    } } } }, 'Numbers')
+    await app.enableWorkspaceAuthority(factory.document, factory.workspace)
+    const tab = app.activeTab()!
+    await app.applyProblemFixes(tab, app.scanTabNumberFixes(tab), true)
+    await (tab.store as unknown as { settle(): Promise<void> }).settle()
+    await drainTasks()
+    expect(tab.store.doc.graphs.g0!.nodes.n1!.values.amount).toBe(12)
+    expect(app.adjustmentNotices.get().get(tab.id)?.adjustments.map((item) => item.details)).toEqual([['amount: 14 to 12']])
+    expect(app.adjustmentNoticeState(tab.id)).toBe('ready')
+    const revision = tab.store.revision
+    for (const invocation of [
+      { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'amount', value: 12 } },
+      { command: 'node.setValues', params: { graphId: 'g0', nodeId: 'n1', values: { amount: 12 } } },
+      { command: 'batch', params: { invocations: [
+        { command: 'node.setValues', params: { graphId: 'g0', nodeId: 'n1', values: { amount: 12 } } },
+      ] } },
+    ]) {
+      expect((await app.dispatchTo(tab, invocation)).ok).toBe(true)
+      await (tab.store as unknown as { settle(): Promise<void> }).settle()
+      await drainTasks()
+      expect(tab.store.revision).toBe(revision)
+      expect(app.adjustmentNoticeState(tab.id)).toBe('ready')
+      expect(app.adjustmentNotices.get().get(tab.id)?.adjustments.map((item) => item.details)).toEqual([['amount: 14 to 12']])
+    }
+    expect((await app.dispatchEditTo(tab, { command: 'node.setValue', params: {
+      graphId: 'g0', nodeId: 'n1', inputId: 'amount', value: 8,
+    } })).ok).toBe(true)
+    await (tab.store as unknown as { settle(): Promise<void> }).settle()
+    await drainTasks()
+    expect(app.adjustmentNotices.get().has(tab.id)).toBe(false)
+  })
+
+  it('keeps an undone numeric correction suppressed when its document session is promoted', async () => {
+    const factory = authorityFactories()
+    const app = createEditableApp()
+    const backend = app.backends.get()[0]!
+    backend.registry.set(buildDinksterRegistry(backend.id, {
+      schemaVersion: 1, epoch: 1, dinkster: { version: 'test', schemaWire: 2 }, nodes: { X: {
+        body: [{ kind: 'input', id: 'amount', type: { kind: 'concrete', types: ['INT'] }, default: 0,
+          widget: { type: 'NUMBER', min: 0, max: 20, step: 4 } }],
+      } },
+    }))
+    const source = workflow()
+    await app.openDocument({ ...source, graphs: { ...source.graphs, g0: { ...source.graphs.g0!, nodes: {
+      n1: { ...source.graphs.g0!.nodes.n1!, values: { amount: 14 } },
+    } } } }, 'Numbers')
+    const local = app.activeTab()!
+    await vi.waitFor(() => expect(local.store.doc.graphs.g0!.nodes.n1!.values.amount).toBe(12))
+    const promotion = app.enableWorkspaceAuthority(factory.document, factory.workspace)
+    expect(app.undoAdjustments(local.id)).toBe(true)
+    await promotion
+    const promoted = app.activeTab()!
+    expect(promoted.store).not.toBe(local.store)
+    expect(promoted.store.doc.graphs.g0!.nodes.n1!.values.amount).toBe(14)
+    expect(app.scanTabNumberFixes(promoted).map((fix) => fix.valueKey)).toEqual([])
+    expect(app.scanTabProblemFixes(promoted, promoted.store.doc, { keptOnly: true }).map((fix) => fix.kind === 'number' ? fix.valueKey : fix.rule)).toEqual(['amount'])
+    expect(app.redoAdjustments(promoted.id)).toBe(true)
+    expect(promoted.store.doc.graphs.g0!.nodes.n1!.values.amount).toBe(12)
+    expect(app.undoAdjustments(promoted.id)).toBe(true)
+    expect((await app.dispatchEditTo(promoted, { command: 'node.setValue', params: {
+      graphId: 'g0', nodeId: 'n1', inputId: 'amount', value: 8,
+    } })).ok).toBe(true)
+    expect(promoted.store.doc.graphs.g0!.nodes.n1!.values.amount).toBe(8)
+    expect(app.scanTabProblemFixes(promoted, promoted.store.doc, { keptOnly: true })).toEqual([])
+  })
+
   it('keeps the shared session alive when a tab is replaced with new metadata', async () => {
     const factory = authorityFactories()
     const app = createEditableApp()
@@ -954,6 +1034,7 @@ describe('advancement plans survive workspace-authority promotion', () => {
     app.registerSchemas([seedSchema])
     expect((await app.openDocument(seedFixture(), 'Promotion Seed'))).toEqual([])
     const tab = app.activeTab()!
+    await vi.waitFor(() => expect(tab.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: 10, down: 10 }))
     const result = compile({
       document: tab.store.doc, revision: 0, resolve: resolveSeed, scope: { kind: 'full' },
       connection: asConnectionId('local'), schemaHash: 'test',
@@ -968,7 +1049,7 @@ describe('advancement plans survive workspace-authority promotion', () => {
     expect(promoted.store).not.toBe(tab.store)
 
     app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })
-    await expect.poll(() => promoted.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: 13, down: 10 })
+    await expect.poll(() => promoted.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: 13, down: 8 })
   })
 
   it('preserves editor-role schema resolution in the promoted command registry', async () => {

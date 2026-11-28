@@ -339,7 +339,7 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
     setCommitPending(true)
     setCommitError(undefined)
     try {
-      const outcome = await props.app.dispatchTo(ed.tab, invocation)
+      const outcome = await props.app.dispatchEditTo(ed.tab, invocation)
       if (!live || ed.tab.store !== store) return false
       if (!outcome.ok) {
         setCommitError(outcome.diagnostics[0]?.message ?? message('widgetEditor.commitRefused'))

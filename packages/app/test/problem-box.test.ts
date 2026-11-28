@@ -62,6 +62,20 @@ describe('problemBoxLines', () => {
     expect(shown?.rowName).toBeUndefined()
   })
 
+  it('names the field of a declared fix even when its message does not name it', () => {
+    for (const message of ['Width must be at most 4.', 'Could not apply this fix. The workflow changed.']) {
+      const problem: NodeProblemLine = {
+        kind: 'warning', row: 'width',
+        diagnostic: diag('warning', 'compile', 'node.rule.failed', `Generate image: ${message}`, {
+          data: { nodeMessage: message, rule: 0, fields: ['width'], hasFix: true },
+        }),
+      }
+      expect(problemBoxLines([problem], problemBoxRows(node), (row) => row)[0]).toMatchObject({
+        row: 'width', rowName: 'width', message,
+      })
+    }
+  })
+
   it('lists the whole node first, then rows top to bottom, strongest first on a row', () => {
     const lines = problemBoxLines([
       line('warning', 'steps.max', 'steps'),
