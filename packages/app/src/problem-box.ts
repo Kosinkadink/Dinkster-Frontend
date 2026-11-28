@@ -1,18 +1,22 @@
 import { outputRowKey, type SceneNode } from '@dinkster/canvas'
+import type { Diagnostic } from '@dinkster/core'
+import type { ExecutionLogEntry } from '@dinkster/client'
+import type { ProblemFix } from './problem-fixes.js'
 import type { NodeProblemKind, NodeProblemLine } from './problem-display.js'
 
 /** What a line in the node's box offers; none of them fetches anything by itself. */
-export type ProblemBoxAction = 'edit-field' | 'locate-asset' | 'review-model' | 'model-management' | 'model-storage'
+export type ProblemBoxAction = 'edit-field' | 'locate-asset' | 'review-model' | 'model-management' | 'model-storage' | 'apply-problem-fix' | 'check-problem-fix' | 'show-log' | 'dismiss-run'
 
 /** One line in a node's problem box: one cause, with its row's name and its actions. */
 export interface ProblemBoxLine {
   readonly key: string
-  readonly kind: NodeProblemKind
+  readonly kind: NodeProblemKind | 'info'
   readonly row?: string
   readonly rowName?: string
   readonly message: string
   readonly actions: readonly ProblemBoxAction[]
-  readonly problem: NodeProblemLine
+  readonly problem?: NodeProblemLine
+  readonly fix?: ProblemFix
 }
 
 /** A row a problem can belong to, in the order the node draws its rows. */
@@ -21,6 +25,39 @@ export interface ProblemBoxRow {
   readonly name: string
   /** The row holds a field the user can put the cursor in. */
   readonly field: boolean
+}
+
+/** Runtime details remain in Log; the node shows only the message and its input row. */
+export function runtimeProblemBoxLines(
+  errors: readonly Diagnostic[],
+  logs: readonly ExecutionLogEntry[],
+  level: 'error' | 'warning' | 'info',
+  rows: readonly ProblemBoxRow[],
+): readonly ProblemBoxLine[] {
+  if (level !== 'error') return logs.filter((entry) => entry.level === level).map((entry) => ({
+    key: `log-${entry.seq}`,
+    kind: level,
+    message: entry.message,
+    actions: ['show-log', 'dismiss-run'],
+  }))
+  return errors.map((diagnostic, index) => {
+    let message = diagnostic.runtime?.exceptionMessage ?? diagnostic.message
+    const prefix = diagnostic.runtime?.exceptionType
+    if (prefix !== undefined && message.startsWith(`${prefix}: `)) message = message.slice(prefix.length + 2)
+    if (message.startsWith('execution: ')) message = message.slice('execution: '.length)
+    const namedInput = /^input ['"]([^'"]+)['"]: /u.exec(message)
+    const input = diagnostic.anchor?.port?.port ?? diagnostic.data?.['inputId'] ?? namedInput?.[1]
+    const row = typeof input === 'string' ? rows.find((candidate) => candidate.key === input) : undefined
+    if (row !== undefined && namedInput !== null && namedInput[1] === input) message = message.slice(namedInput[0].length)
+    return {
+      key: `error-${index}`,
+      kind: 'error',
+      ...(row === undefined ? {} : { row: row.key }),
+      message,
+      actions: ['show-log', 'dismiss-run'],
+      problem: { kind: 'error', diagnostic, ...(row === undefined ? {} : { row: row.key }) },
+    }
+  })
 }
 
 /** The node's rows as problem rows, top to bottom. */
@@ -34,7 +71,7 @@ export function problemBoxRows(node: SceneNode): readonly ProblemBoxRow[] {
       if (row.input !== undefined) rows.push({ key: row.input.portId, name: row.input.name ?? row.input.label, field: false })
       if (row.output !== undefined) rows.push({ key: outputRowKey(row.output.portId), name: row.output.name ?? row.output.label, field: false })
     } else if (row.kind === 'fallback') {
-      rows.push({ key: row.label, name: row.label, field: false })
+      rows.push({ key: row.valueKey, name: row.label, field: false })
     }
   }
   return rows
@@ -51,7 +88,7 @@ export function problemBoxLines(
   rows: readonly ProblemBoxRow[],
   rowName: (row: string) => string,
   display: (problem: NodeProblemLine) => string = (problem) => problem.diagnostic.message,
-): readonly ProblemBoxLine[] {
+): readonly (ProblemBoxLine & { readonly kind: NodeProblemKind; readonly problem: NodeProblemLine })[] {
   const order = new Map<string, number>()
   rows.forEach((row, index) => { if (!order.has(row.key)) order.set(row.key, index) })
   const rank = (problem: NodeProblemLine): number =>
@@ -65,10 +102,10 @@ export function problemBoxLines(
       const diagnostic = problem.diagnostic
       const nodeMessage = diagnostic.data?.['nodeMessage']
       const actions: ProblemBoxAction[] = diagnostic.code === 'asset.availability.missing' && typeof diagnostic.data?.['input'] === 'string'
-        ? ['locate-asset']
+        ? [...(typeof diagnostic.data['kind'] === 'string' && diagnostic.data['kind'].startsWith('model/') ? ['review-model' as const] : []), 'locate-asset']
         : diagnostic.code.startsWith('model.availability.') && typeof diagnostic.data?.['input'] === 'string'
           ? [
-            ...(diagnostic.code === 'model.availability.missing' && diagnostic.data['plannable'] === true ? ['review-model' as const] : []),
+            ...(diagnostic.code === 'model.availability.missing' ? ['review-model' as const] : []),
             ...(diagnostic.code === 'model.availability.model-hidden' ? ['model-management' as const] : []),
             ...(diagnostic.code === 'model.availability.folder-disabled' ? ['model-storage' as const] : []),
             'locate-asset',
@@ -79,7 +116,7 @@ export function problemBoxLines(
         kind: problem.kind,
         ...(problem.row === undefined ? {} : {
           row: problem.row,
-          ...(typeof nodeMessage === 'string' ? {} : { rowName: row?.name ?? rowName(problem.row) }),
+          ...(typeof nodeMessage === 'string' && diagnostic.code !== 'node.rule.failed' ? {} : { rowName: row?.name ?? rowName(problem.row) }),
         }),
         ...(diagnostic.code === 'compile.input.missing' && diagnostic.hiddenRequiredField !== undefined
           ? { rowName: diagnostic.hiddenRequiredField } : {}),

@@ -28,6 +28,7 @@ import { graphAllocator } from './alloc.js'
 import type { CommandDefinition } from './contract.js'
 import {
   REPLACEMENT_MIGRATION_ARCHIVE_EXT_KEY,
+  REPLACEMENT_SIGNATURE_EXT_KEY,
   replacementSourceStateHash,
   type NodeReplacePlan,
 } from '../replace/plan.js'
@@ -230,6 +231,7 @@ const nodeReplace: CommandDefinition = {
       typeof p.nodeId !== 'string' ||
       typeof p.from !== 'string' ||
       typeof p.to !== 'string' ||
+      (p.targetSignature !== undefined && (typeof p.targetSignature !== 'string' || p.targetSignature.length === 0 || p.from !== p.to || p.sourceStateGuard === undefined)) ||
       !isObj(p.values) ||
       !Array.isArray(p.inputRewires) ||
       !p.inputRewires.every(isLinkRewire) ||
@@ -282,6 +284,13 @@ const nodeReplace: CommandDefinition = {
 
     if (p.sourceStateGuard !== undefined && replacementSourceStateHash(def, node) !== p.sourceStateGuard)
       return [err('replace.stale', `node.replace: source state of '${p.nodeId}' changed since planning`)]
+
+    if (p.targetSignature !== undefined && context.kind === 'initial') {
+      if (context.schemaResolverFor === undefined)
+        return [err('replace.schemaAuthorityUnavailable', 'node.replace: trusted schema authority is unavailable for a signed migration')]
+      if (context.schemaResolverFor(doc)(p.to)?.signature !== p.targetSignature)
+        return [err('replace.stale', `node.replace: target signature for '${p.nodeId}' changed since planning`)]
+    }
 
     if (targetSchemaGuards !== undefined) {
       if (context.kind === 'initial') {
@@ -552,10 +561,14 @@ const nodeReplace: CommandDefinition = {
     } else if (node.controllers !== undefined) {
       tx.remove(['graphs', graphId, 'nodes', p.nodeId, 'controllers'])
     }
-    if (migrationArchive !== undefined) {
+    if (migrationArchive !== undefined || p.targetSignature !== undefined) {
       tx.set(['graphs', graphId, 'nodes', p.nodeId, 'ext'], {
         ...(node.ext ?? {}),
-        [REPLACEMENT_MIGRATION_ARCHIVE_EXT_KEY]: p.migrationArchive!,
+        ...(migrationArchive === undefined ? {} : { [REPLACEMENT_MIGRATION_ARCHIVE_EXT_KEY]: p.migrationArchive! }),
+        ...(p.targetSignature === undefined ? {} : { [REPLACEMENT_SIGNATURE_EXT_KEY]: {
+          type: p.to, signature: p.targetSignature,
+          environmentSignature: doc.environment?.nodes[p.from]?.signature ?? null,
+        } }),
       })
     }
 

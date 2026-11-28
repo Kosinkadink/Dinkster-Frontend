@@ -21,14 +21,18 @@ import {
   type PickRequest,
   type PressOutcome,
   type PressTarget,
+  type SchemaResolver,
   type WidgetSpec,
 } from '@dinkster/core'
 import type { LookupCall, LookupEntry } from '@dinkster/client'
 import { buildScene, defaultTokens, linkBounds, type Scene } from '@dinkster/canvas'
 import type { AppState, Tab } from './app-state.js'
 import { canvasMeasures } from './canvas-measures.js'
+import { lookupAnswersOf } from './lookup-demand.js'
 import { pastedImageName, readClipboardImage } from './clipboard-image.js'
 import { desktopSaveBridge } from './desktop-bridge.js'
+import { RequestFailure } from '@dinkster/client'
+import { failureMessage } from './request-failure.js'
 
 /** The box under a button's line: a note or skip (circled i), or a failure (warning triangle). */
 export interface ButtonBox {
@@ -97,22 +101,13 @@ const targetOf = (place: ButtonPlace): PressTarget => ({
  */
 const NO_HOST_EDITOR = new Set(['COMPOSITOR', 'CURVE', 'PAINTER', 'MASK', 'IMAGE_COMPARE'])
 
-/**
- * Runs declared buttons for the canvas: one press at a time per button, its
- * working words and Cancel, and the box it leaves until the next click.
- */
-export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
-  const [states, setStates] = createSignal<ReadonlyMap<string, ButtonState>>(new Map())
-  const running = new Map<string, AbortController>()
-
-  const update = (key: string, next: ButtonState | undefined): void => {
-    const copy = new Map(states())
-    if (next === undefined) copy.delete(key)
-    else copy.set(key, next)
-    setStates(copy)
+/** The shared editor host for declared buttons and stored-value fixes. */
+export function createActionHost(app: AppState, surfaces: ButtonSurfaces | undefined, place: ButtonPlace, resolve?: SchemaResolver): ActionHost {
+  const resolverOf = (tab: Tab) => resolve ?? app.registryForTab(tab)?.resolve ?? (() => undefined)
+  const surfacesOf = (): ButtonSurfaces => {
+    if (surfaces === undefined) throw new Error('This fix cannot ask a question or open an editor.')
+    return surfaces
   }
-
-  const resolverOf = (tab: Tab) => app.registryForTab(tab)?.resolve ?? (() => undefined)
 
   const lookupCall = (request: LookupRequest): LookupCall => ({
     nodeType: request.nodeType,
@@ -126,19 +121,20 @@ export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
   const lookupsOf = (tab: Tab) => app.backendForTab(tab).lookups
 
   /** What `buttonAvailability` reads; cheap enough for every repaint and hover. */
-  const lookOf = (place: ButtonPlace): Pick<ActionHost, 'schemaOf' | 'schemaResolverFor' | 'editorFor'> => {
+  const lookOf = (place: ButtonPlace): Pick<ActionHost, 'schemaOf' | 'schemaResolverFor' | 'editorFor' | 'lookupAnswers'> => {
     const { tab } = place
     const resolve = resolverOf(tab)
     const editorFor = (field: ElaboratedInput) => {
       const spec = field.spec.widget
-      if (spec === undefined || NO_HOST_EDITOR.has(spec.widgetType) || isAssetWidgetInput(field.spec)) return undefined
+      if (surfaces === undefined || spec === undefined || NO_HOST_EDITOR.has(spec.widgetType) || isAssetWidgetInput(field.spec)) return undefined
       if (app.widgetRegistryForTab(tab).kind(spec.widgetType) === undefined) return undefined
       return (signal: AbortSignal, initial: Json | undefined) =>
-        surfaces.edit({ place, label: field.spec.displayName ?? field.spec.id, spec, initial }, signal)
+        surfacesOf().edit({ place, label: field.spec.displayName ?? field.spec.id, spec, initial }, signal)
     }
     return {
       schemaOf: (doc, graphId, node) => documentNodeResolver(doc, resolve)(graphId, node, place.instancePath as readonly NodeId[] | undefined),
       schemaResolverFor: (doc) => documentResolver(doc, resolve),
+      lookupAnswers: lookupAnswersOf(lookupsOf(tab)),
       editorFor,
     }
   }
@@ -163,7 +159,7 @@ export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
             owner: { instancePath: path.slice(0, -1).map(asNodeId), node: asNodeId(path.at(-1)!) }, plannerAvailable: true,
           } }),
         })
-        const scene = surfaces.projectScene?.(place, measured) ?? measured
+        const scene = surfaces?.projectScene?.(place, measured) ?? measured
         const destination = scene.nodes.find((item) => item.id === target.nodeId)!
         const layout = scene.nodes.find((item) => item.id === node.id)!.layout
         const gap = defaultTokens.rowHeight * 2
@@ -205,11 +201,11 @@ export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
       },
       call: (request, progress, signal) => backend.connection.callPackFunction(request, progress, signal),
       pick: (request, signal) => pick(place, request, signal),
-      ask: (request, signal) => surfaces.ask(place, request, signal),
+      ask: (request, signal) => surfacesOf().ask(place, request, signal),
       openPicker: (field, signal) => {
         const spec = field.spec.widget
         if (spec === undefined) return Promise.reject(new Error(`${field.spec.id} has no picker.`))
-        return surfaces.edit({ place, label: field.spec.displayName ?? field.spec.id, spec, initial: undefined }, signal)
+        return surfacesOf().edit({ place, label: field.spec.displayName ?? field.spec.id, spec, initial: undefined }, signal)
       },
       async pasteImage(field, signal) {
         const spec = field.spec.widget
@@ -217,7 +213,7 @@ export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
         const image = await readClipboardImage(() => navigator.clipboard.read())
         if (image === undefined) throw new Error('The clipboard holds no image.')
         const stagedFile = new File([image.blob], pastedImageName(image.mediaType), { type: image.mediaType })
-        const value = await surfaces.edit({ place, label: field.spec.displayName ?? field.spec.id, spec, initial: undefined, stagedFile }, signal)
+        const value = await surfacesOf().edit({ place, label: field.spec.displayName ?? field.spec.id, spec, initial: undefined, stagedFile }, signal)
         if (value === undefined) throw new Error('The image was not stored.')
         return value
       },
@@ -265,7 +261,7 @@ export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
           throw new Error(`${url} is not a web address.`)
         }
         if (address.protocol !== 'https:' && address.protocol !== 'http:') throw new Error('Only web addresses open in a new tab.')
-        if (confirm && !await surfaces.confirmLink(place, address.href, signal)) throw new Error('The link was not opened.')
+        if (confirm && !await surfacesOf().confirmLink(place, address.href, signal)) throw new Error('The link was not opened.')
         // A blank same-origin tab gives an observable refusal. Sever its opener
         // before navigating, and suppress the referrer on that navigation.
         const opened = window.open('about:blank', '_blank')
@@ -304,7 +300,7 @@ export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
           return open(list, entry.state === 'ready' || entry.state === 'stale' || entry.state === 'paused' ? entry.state : 'failed')
         })()
       }
-      const shown = surfaces.edit({
+      const shown = surfacesOf().edit({
         place,
         label: place.label ?? 'Pick',
         spec: { widgetType: 'COMBO', options: { options: options as unknown as Json[] } },
@@ -316,8 +312,26 @@ export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
     return open(request.options, request.state) as Promise<string | number | boolean | undefined>
   }
 
+  return hostFor(place)
+}
+
+/**
+ * Runs declared buttons for the canvas: one press at a time per button, its
+ * working words and Cancel, and the box it leaves until the next click.
+ */
+export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
+  const [states, setStates] = createSignal<ReadonlyMap<string, ButtonState>>(new Map())
+  const running = new Map<string, AbortController>()
+
+  const update = (key: string, next: ButtonState | undefined): void => {
+    const copy = new Map(states())
+    if (next === undefined) copy.delete(key)
+    else copy.set(key, next)
+    setStates(copy)
+  }
+
   const availability = (place: ButtonPlace): ButtonAvailability =>
-    buttonAvailability(place.tab.store.doc, targetOf(place), lookOf(place))
+    buttonAvailability(place.tab.store.doc, targetOf(place), createActionHost(app, surfaces, place))
 
   const report = (place: ButtonPlace, outcome: PressOutcome): void => {
     // A press that went through already ends its message with its notes; a failed one does not.
@@ -348,7 +362,7 @@ export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
         const backend = app.backendForTab(place.tab)
         const registry = app.registryForTab(place.tab)
         const schemaState = backend.schemaState.get()
-        const outcome = await runPress(store, targetOf(place), hostFor(place), {
+        const outcome = await runPress(store, targetOf(place), createActionHost(app, surfaces, place), {
           signal: controller.signal,
           onProgress: (progress) => update(key, progress === undefined ? { place } : { place, busy: progress.text }),
           stillCurrent: () => app.tabs.get().includes(place.tab) && place.tab.store === store &&
@@ -357,7 +371,7 @@ export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
         })
         report(place, outcome)
       } catch (error) {
-        report(place, { kind: 'failed', warning: true, message: `Nothing was changed. ${error instanceof Error ? error.message : String(error)}`, skipped: [], notes: [] })
+        report(place, { kind: 'failed', warning: true, message: error instanceof RequestFailure ? failureMessage(error, 'Nothing was changed.') : `Nothing was changed. ${error instanceof Error ? error.message : String(error)}`, skipped: [], notes: [] })
       } finally {
         running.delete(key)
         // Focused buttons read both the result and whether a press is still running.

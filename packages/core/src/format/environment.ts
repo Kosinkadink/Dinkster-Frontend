@@ -10,9 +10,9 @@
  * Contract (agreed with the backend): the stamp is a RECORD, never
  * identity. Nothing here is load-bearing - loading, compiling, and
  * executing never read it; absence is fully valid; a malformed stamp is
- * sanitized away with a warning, never an error. Its two consumers are
- * load-time drift diagnostics (below) and backend-side environment
- * reproduction (dinkster-pack reproduce).
+ * sanitized away with a warning, never an error. Consumers are display of
+ * saved input names, load-time drift diagnostics (below), and backend-side
+ * environment reproduction (dinkster-pack reproduce).
  */
 
 import { diag, type Diagnostic } from '../diagnostics.js'
@@ -77,9 +77,12 @@ export function stampEnvironment(
       continue
     }
     hasLiveSignature = true
+    const inputLabels = Object.fromEntries(schema.body.flatMap((item) => item.kind === 'input'
+      ? [[item.id, item.displayName ?? item.id]] : []))
     nodes[type] = {
       ...(schema.pack !== undefined ? { pack: schema.pack } : {}),
       signature: schema.signature,
+      ...(Object.keys(inputLabels).length === 0 ? {} : { inputLabels }),
     }
     if (schema.pack !== undefined) {
       packIds.add(schema.pack)
@@ -191,7 +194,12 @@ export function sanitizeEnvironment(raw: unknown): {
           continue
         }
         const pack = optStr((n as Record<string, unknown>)['pack'])
-        nodes[type] = { ...(pack !== undefined ? { pack } : {}), signature }
+        const labels = (n as Record<string, unknown>)['inputLabels']
+        const inputLabels = isObj(labels) ? Object.fromEntries(Object.entries(labels).filter(
+          (entry): entry is [string, string] => typeof entry[1] === 'string' && entry[1].length > 0,
+        )) : undefined
+        nodes[type] = { ...(pack !== undefined ? { pack } : {}), signature,
+          ...(inputLabels === undefined ? {} : { inputLabels }) }
       }
     }
   }

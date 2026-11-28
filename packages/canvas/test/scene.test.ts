@@ -21,9 +21,16 @@ import {
   coreCommandRegistry,
   occurrenceDynamicView,
   loadDocument,
+  effectiveWidgetDefault,
+  formatWidgetValue,
+  normalizedComboOptions,
+  parseDinksterSchema,
+  registerCatalog,
+  stampEnvironment,
   type Json,
   type NodeProgress,
   type NodeSchema,
+  type TypeExpr,
   type WorkflowDocument,
   boundaryOf,
   boundaryItems,
@@ -32,6 +39,7 @@ import { historicalSchemas as schemas } from './historical-schemas.js'
 import { buildScene, boundaryPositions, boundaryNodesInGroup, nodesInGroup, nodeStatesForGraph, scenesEqual, updateSceneNodePositions, updateSceneNodeValues, NET_STUB_GAP, NET_STUB_HEIGHT, NET_STUB_PAD_X, type Scene } from '../src/scene.js'
 import { canvasPaintTokens, defaultTokens } from '../src/tokens.js'
 import type { TextMeasurer, WidgetMeasure } from '../src/layout.js'
+import { hitTestPin } from '../src/hit.js'
 
 const coreRoot = join(dirname(fileURLToPath(import.meta.url)), '../../core')
 const readJson = (rel: string): unknown => JSON.parse(readFileSync(join(coreRoot, rel), 'utf8'))
@@ -53,6 +61,122 @@ function sceneOf(workflow: string, graphId = 'g0') {
 }
 
 describe('buildScene', () => {
+  it('preserves record fields on direct and rerouted wires into a generic input', () => {
+    const record: TypeExpr = { kind: 'record', name: 'Settings', fields: [
+      { id: 'seed-id', name: 'noise', type: { kind: 'concrete', name: 'INT' }, optional: false },
+      { id: 'label-id', name: 'label', type: { kind: 'concrete', name: 'STRING' }, optional: true },
+    ] }
+    const source: NodeSchema = { type: 'Make', displayName: 'Make', category: 'test', source: 'v3', isOutputNode: false,
+      body: [{ kind: 'output', id: 'record', type: record }] }
+    const sink: NodeSchema = { ...source, type: 'Sink', body: [{ kind: 'input', id: 'value', type: { kind: 'wildcard' }, optional: false }] }
+    const loaded = loadDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'record-wires', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Root', nextOrdinal: 3, nodes: {
+        make: { id: 'make', type: 'Make', values: {} }, sink: { id: 'sink', type: 'Sink', values: {} },
+        other: { id: 'other', type: 'Sink', values: {} },
+      }, links: {
+        direct: { id: 'direct', from: { node: 'make', port: 'record' }, to: { node: 'sink', port: 'value' } },
+        first: { id: 'first', from: { node: 'make', port: 'record' }, to: { reroute: 'r0' } },
+        middle: { id: 'middle', from: { reroute: 'r0' }, to: { reroute: 'r1' } },
+        last: { id: 'last', from: { reroute: 'r1' }, to: { node: 'other', port: 'value' } },
+      }, nets: {}, reroutes: { r0: { id: 'r0' }, r1: { id: 'r1' } } } },
+      view: { graphs: {} },
+    })
+    expect(loaded.diagnostics).toEqual([])
+    const scene = buildScene({ document: loaded.document!, graphId: 'g0', resolve: (type) => type === 'Make' ? source : sink,
+      tokens: defaultTokens, measure, widgetMeasure })
+    expect(scene.links.map((link) => [link.id, link.fromType])).toEqual([
+      ['direct', record], ['first', record], ['middle', record], ['last', record],
+    ])
+    const graph = loaded.document!.graphs.g0!
+    const document = { ...loaded.document!, graphs: { g0: { ...graph, links: {}, reroutes: {}, boundary: { body: [
+      { kind: 'input' as const, id: 'incoming', binds: { kind: 'port' as const, node: asNodeId('sink'), port: asPortId('value') } },
+      { kind: 'output' as const, id: 'outgoing', binds: { kind: 'port' as const, node: asNodeId('make'), port: asPortId('record') } },
+    ] } } } }
+    const bound = { ...sink, body: [{ kind: 'input' as const, id: 'value', type: record, optional: false }] }
+    const inside = buildScene({ document, graphId: 'g0', resolve: documentResolver(document, (type) => type === 'Make' ? source : bound),
+      tokens: defaultTokens, measure, widgetMeasure })
+    expect(inside.links.map((link) => [link.id, link.fromType])).toEqual([
+      ['boundary:inputs:incoming', record], ['boundary:outputs:outgoing', record],
+    ])
+
+    const subset: TypeExpr = { kind: 'record', name: 'Subset', fields: [
+      { id: 'other-seed', name: 'noise', type: { kind: 'concrete', name: 'INT' }, optional: false },
+    ] }
+    const otherRecord: TypeExpr = { kind: 'record', name: 'Other', fields: [
+      ...subset.fields,
+      { id: 'strength', name: 'strength', type: { kind: 'concrete', name: 'FLOAT' }, optional: true },
+    ] }
+    const occurrenceLoad = loadDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'record-occurrences', root: 'root',
+      graphs: {
+        root: { id: 'root', name: 'Root', nextOrdinal: 4, nodes: {
+          make: { id: 'make', type: 'Make', values: {} }, other: { id: 'other', type: 'Other', values: {} },
+          first: { id: 'first', type: '#body', values: {} }, second: { id: 'second', type: '#body', values: {} },
+        }, links: {
+          start: { id: 'start', from: { node: 'make', port: 'record' }, to: { reroute: 'r0' } },
+          middle: { id: 'middle', from: { reroute: 'r0' }, to: { reroute: 'r1' } },
+          end: { id: 'end', from: { reroute: 'r1' }, to: { node: 'first', port: 'incoming' } },
+          otherLink: { id: 'otherLink', from: { node: 'other', port: 'record' }, to: { node: 'second', port: 'incoming' } },
+        }, nets: {}, reroutes: { r0: { id: 'r0' }, r1: { id: 'r1' } } },
+        body: { id: 'body', name: 'Body', nextOrdinal: 1,
+          nodes: { sink: { id: 'sink', type: 'Sink', values: {} } }, links: {}, nets: {}, reroutes: {},
+          boundary: { body: [{ kind: 'input', id: 'incoming', binds: { kind: 'port', node: 'sink', port: 'value' } }] },
+        },
+      }, view: { graphs: {} },
+    })
+    expect(occurrenceLoad.diagnostics).toEqual([])
+    const occurrences = occurrenceLoad.document!
+    const parentRecord = (node: string, current = occurrences, linkId = 'boundary:inputs:incoming') => buildScene({
+      document: current, graphId: 'body', tokens: defaultTokens, measure, widgetMeasure,
+      resolve: documentResolver(current, (type) => type === 'Make' ? source : type === 'Other'
+        ? { ...source, type: 'Other', body: [{ kind: 'output', id: 'record', type: otherRecord }] }
+        : { ...sink, body: [{ kind: 'input', id: 'value', type: subset, optional: false }] }),
+      occurrence: { owner: { instancePath: [], node: asNodeId(node) }, plannerAvailable: true },
+    }).links.find((link) => link.id === linkId)?.fromType
+    expect(parentRecord('first')).toEqual(record)
+    expect(parentRecord('second')).toEqual(otherRecord)
+    const disconnected = { ...occurrences, graphs: { ...occurrences.graphs,
+      root: { ...occurrences.graphs.root!, links: {} },
+    } }
+    expect(parentRecord('first', disconnected)).toEqual(subset)
+    const junction: WorkflowDocument = { ...occurrences, graphs: { ...occurrences.graphs,
+      body: { ...occurrences.graphs.body!,
+        reroutes: { junction: { id: asRerouteId('junction') } },
+        links: { feed: { id: asLinkId('feed'), from: { reroute: asRerouteId('junction') },
+          to: { node: asNodeId('sink'), port: asPortId('value') } } },
+        boundary: boundaryOf([{ id: 'incoming', binds: {
+          kind: 'port', node: asNodeId('sink'), port: asPortId('value'), viaReroute: asRerouteId('junction'),
+        } }], []),
+      },
+    } }
+    expect(parentRecord('first', junction)).toEqual(record)
+    expect(parentRecord('second', junction)).toEqual(otherRecord)
+    expect(parentRecord('first', junction, 'feed')).toEqual(record)
+    expect(parentRecord('second', junction, 'feed')).toEqual(otherRecord)
+    const chain: WorkflowDocument = { ...junction, graphs: { ...junction.graphs,
+      body: { ...junction.graphs.body!,
+        reroutes: { ...junction.graphs.body!.reroutes, tail: { id: asRerouteId('tail') } },
+        links: {
+          middle: { id: asLinkId('middle'), from: { reroute: asRerouteId('junction') }, to: { reroute: asRerouteId('tail') } },
+          feed: { ...junction.graphs.body!.links.feed!, from: { reroute: asRerouteId('tail') } },
+        },
+      },
+    } }
+    expect(parentRecord('first', chain, 'feed')).toEqual(record)
+    expect(parentRecord('second', chain, 'feed')).toEqual(otherRecord)
+    const locallyDriven: WorkflowDocument = { ...chain, graphs: { ...chain.graphs,
+      body: { ...chain.graphs.body!,
+        nodes: { ...chain.graphs.body!.nodes, local: { id: asNodeId('local'), type: 'Other', values: {} } },
+        links: { ...chain.graphs.body!.links,
+          local: { id: asLinkId('local'), from: { node: asNodeId('local'), port: asPortId('record') },
+            to: { reroute: asRerouteId('junction') } },
+        },
+      },
+    } }
+    expect(parentRecord('first', locallyDriven, 'feed')).toEqual(otherRecord)
+  })
+
   it('keeps mapped Save wires on their real inputs through folding and undo', () => {
     const schema: NodeSchema = {
       type: 'Save', displayName: 'Save', category: 'test', source: 'v3', isOutputNode: true,
@@ -234,6 +358,277 @@ describe('buildScene', () => {
     expect(failing[0]!.anchor).toEqual({ port: { node: 'n0', port: 'batch_size' } })
     expect(failing[0]!.message).toBe('Could not work out batch_size. Using the default, 1.')
     expect(warnings(sceneWith({ width: 64, height: 64, batch_size: 2 }))).toHaveLength(0)
+  })
+
+  it('lists removed and retyped record selections on their fields until explicitly reselected', () => {
+    const integer: TypeExpr = { kind: 'concrete', name: 'INT' }
+    const text: TypeExpr = { kind: 'concrete', name: 'STRING' }
+    const selected = (type: string) => JSON.stringify({ path: ['seed-id'], name: 'seed', type: { kind: 'concrete', types: [type] } })
+    const saved = selected('INT')
+    const document = loadDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'record-warnings', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'root', nextOrdinal: 3, links: {}, nets: {}, reroutes: {}, nodes: {
+        read: { id: 'read', type: 'Read', values: { field: saved } },
+        change: { id: 'change', type: 'Change', values: { field: saved } },
+      } } }, view: { graphs: { g0: { nodes: {} } } },
+    }).document!
+    const sceneWith = (fields: Extract<TypeExpr, { kind: 'record' }>['fields'], selection = saved, wired: boolean | 'rerouted' = false) => {
+      const record: TypeExpr = { kind: 'record', name: 'settings', fields }
+      const schema = (type: string): NodeSchema => ({
+        type, displayName: type, category: 'Records', source: 'v3', isOutputNode: false,
+        body: [
+          { kind: 'input', id: 'record', type: record, optional: false },
+          { kind: 'input', id: 'field', type: text, optional: false },
+          ...(type === 'Read' ? [] : [{ kind: 'input' as const, id: 'value', optional: false,
+            type: { kind: 'record_field' as const, input: 'record', index: 'field' } }]),
+          { kind: 'output', id: type === 'Read' ? 'value' : 'record', type: type === 'Read'
+            ? { kind: 'record_field', input: 'record', index: 'field' } : record },
+        ],
+      })
+      const graph = document.graphs.g0!
+      const current = { ...document, graphs: { g0: { ...graph, nodes: Object.fromEntries(Object.entries(graph.nodes)
+        .map(([id, node]) => [id, { ...node, values: { field: selection } }])),
+        reroutes: wired === 'rerouted' ? { r: { id: asRerouteId('r') } } : {},
+        links: wired === 'rerouted' ? {
+          read: { id: asLinkId('read'), from: { node: asNodeId('read'), port: asPortId('value') }, to: { reroute: asRerouteId('r') } },
+          tail: { id: asLinkId('tail'), from: { reroute: asRerouteId('r') }, to: { node: asNodeId('change'), port: asPortId('value') } },
+        } : wired ? { read: { id: asLinkId('read'), from: { node: asNodeId('read'), port: asPortId('value') },
+          to: { node: asNodeId('change'), port: asPortId('value') } } } : {},
+      } } }
+      return buildScene({ document: current, graphId: 'g0', resolve: schema, tokens: defaultTokens, measure, widgetMeasure })
+    }
+    const warnings = (scene: Scene) => scene.diagnostics.filter((diagnostic) => diagnostic.code === 'record-field-removed')
+    const normal = sceneWith([{ id: 'seed-id', name: 'noise', type: integer, optional: false }])
+    expect(warnings(normal)).toEqual([])
+    const valueEditor = (scene: Scene) => scene.nodes.find((node) => node.id === 'change')?.layout.rows
+      .find((row) => row.kind === 'widget' && row.inputId === 'value')
+    expect(valueEditor(normal)).toMatchObject({ kind: 'widget', type: integer })
+    for (const name of ['FLOAT', 'BOOLEAN']) {
+      const type: TypeExpr = { kind: 'concrete', name }
+      expect(valueEditor(sceneWith([{ id: 'seed-id', name: 'seed', type, optional: false }], selected(name))))
+        .toMatchObject({ kind: 'widget', type })
+    }
+    expect(valueEditor(sceneWith([{ id: 'seed-id', name: 'seed', type: { kind: 'concrete', name: 'IMAGE' }, optional: false }], selected('IMAGE'))))
+      .toBeUndefined()
+    const removed = warnings(sceneWith([{ id: 'different-id', name: 'seed', type: text, optional: false }]))
+    expect(removed.map((diagnostic) => [diagnostic.severity, diagnostic.message, diagnostic.anchor?.port]))
+      .toEqual(['read', 'change'].map((node) => ['warning', "Record field 'seed' was removed.", { node, port: 'field' }]))
+    const retyped = [{ id: 'seed-id', name: 'seed', type: text, optional: false }]
+    expect(warnings(sceneWith(retyped)).map((diagnostic) => diagnostic.message))
+      .toEqual(["Record field 'seed' changed type from INT to STRING.", "Record field 'seed' changed type from INT to STRING."])
+    expect(warnings(sceneWith(retyped, selected('STRING')))).toEqual([])
+    const output = (scene: Scene) => scene.nodes.find((node) => node.id === 'read')?.layout.pins
+      .find((pin) => pin.direction === 'out' && pin.widgetTap !== true && pin.portId === 'value')
+    expect(output(sceneWith([]))).toBeUndefined()
+    expect(output(sceneWith(retyped))).toBeUndefined()
+    for (const fields of [[], retyped]) {
+      for (const wired of [true, 'rerouted'] as const) {
+        const retained = sceneWith(fields, saved, wired)
+        expect(valueEditor(retained)).toMatchObject({ optional: true })
+        expect(output(retained)).toMatchObject({ type: integer, inactive: true, maybeAbsent: true })
+        expect(output(retained)?.kept).toContain('seed')
+        for (const link of retained.links) expect(link).toMatchObject({ dimmed: true, maybeAbsent: true })
+        const read = retained.nodes.find((node) => node.id === 'read')!
+        expect(hitTestPin(retained, read.x + read.layout.width, read.y + output(retained)!.y)).toBeUndefined()
+        expect(retained.nodes.find((node) => node.id === 'change')?.layout.pins
+          .find((pin) => pin.direction === 'out' && pin.widgetTap !== true && pin.portId === 'record')?.kept).toBeUndefined()
+      }
+    }
+    const reselected = sceneWith(retyped, selected('STRING'), true)
+    expect(valueEditor(reselected)).toMatchObject({ kind: 'widget', type: text })
+    expect(output(reselected)).toMatchObject({ type: text })
+    expect(output(reselected)?.kept).toBeUndefined()
+    expect(reselected.links.find((link) => link.id === 'read')?.dimmed).toBeUndefined()
+    expect(document.graphs.g0!.nodes.read!.values.field).toBe(saved)
+  })
+
+  it('selects nested record fields one level at a time through one saved value and undo', () => {
+    registerCatalog('en', { 'canvas.record.fieldOf': 'Field of {record}', 'canvas.record.noFields': 'No fields' })
+    const atom = { kind: 'concrete', types: ['INT'] }
+    const inner = { kind: 'record', types: ['pack.settings'], fields: [
+      { id: 'seed-id', name: 'seed', type: atom, optional: false },
+      { id: 'other-id', name: 'other', type: atom, optional: false },
+    ] }
+    const selected = (path: string[], name: string, type: unknown) => JSON.stringify({ path, name, type })
+    const whole = selected(['settings-id'], 'settings', inner)
+    const seed = selected(['settings-id', 'seed-id'], 'settings / seed', atom)
+    const other = selected(['settings-id', 'other-id'], 'settings / other', atom)
+    const parsed = parseDinksterSchema('Read', { body: [
+      { kind: 'input', id: 'record', required: true, type: { kind: 'record', types: ['pack.bundle'], fields: [
+        { id: 'settings-id', name: 'settings', type: inner, optional: false },
+        { id: 'number-id', name: 'number', type: atom, optional: false },
+      ] } },
+      { kind: 'input', id: 'field', pin: false, type: { kind: 'concrete', types: ['COMBO'] }, default: JSON.stringify(['settings-id']),
+        widget: { type: 'COMBO', options: [
+          { value: whole, label: 'settings' }, { value: seed, label: 'settings / seed' },
+          { value: other, label: 'settings / other' },
+          { value: selected(['number-id'], 'number', atom), label: 'number' },
+        ] } },
+      { kind: 'output', id: 'value', type: { kind: 'record_field', input: 'record', index: 'field' } },
+    ] } as never)
+    expect(parsed.diagnostics).toEqual([])
+    const document = loadDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'nested-picker', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'root', nextOrdinal: 2, links: {}, nets: {}, reroutes: {},
+        nodes: { read: { id: 'read', type: 'Read', values: { field: whole } } } } }, view: { graphs: {} },
+    }).document!
+    const session = createLocalSession(document, coreCommandRegistry())
+    let schema = parsed.schema!
+    const scene = () => buildScene({ document: session.doc, graphId: 'g0', resolve: () => schema,
+      tokens: defaultTokens, measure, widgetMeasure: () => ({ viewId: 'core.select', rows: 1 }) })
+    const rows = () => scene().nodes[0]!.layout.rows.filter((row) => row.kind === 'widget')
+    const start = rows()
+    expect(start).toHaveLength(2)
+    expect(start.map((row) => row.label)).toEqual(['field', ''])
+    expect(start.map((row) => row.name)).toEqual(['Field of pack.bundle', 'Field of settings'])
+    expect(new Set(start.map((row) => row.valueKey)).size).toBe(2)
+    expect(start.map((row) => row.familyOwner?.valueKey)).toEqual(['field', 'field'])
+    expect(normalizedComboOptions(start[0]!.spec).map((option) => option.label)).toEqual(['settings', 'number'])
+    expect(formatWidgetValue(effectiveWidgetDefault(start[0]!.spec), start[0]!.spec)).toBe('settings')
+    expect(normalizedComboOptions(start[1]!.spec).map((option) => option.label).slice(1)).toEqual(['seed', 'other'])
+    expect(start[1]!.derivedValue).toBe(whole)
+    const choose = (value: Json) => session.dispatch({ command: 'node.setValue', params: {
+      graphId: 'g0', nodeId: 'read', inputId: 'field', value,
+    } })
+    expect(choose(other).ok).toBe(true)
+    expect(rows()[1]!.derivedValue).toBe(other)
+    expect(scene().nodes[0]!.elaborated!.items.find((item) => item.kind === 'output')!.spec.type)
+      .toEqual({ kind: 'concrete', name: 'INT' })
+    expect(session.doc.graphs.g0!.nodes.read!.values).toEqual({ field: other })
+    expect(session.undo()).toBe(true)
+    expect(rows()[1]!.derivedValue).toBe(whole)
+    expect(session.redo()).toBe(true)
+    expect(rows()[1]!.derivedValue).toBe(other)
+    expect(choose(whole).ok).toBe(true)
+    expect(scene().nodes[0]!.elaborated!.items.find((item) => item.kind === 'output')!.spec.type.kind).toBe('record')
+    expect(choose(selected(['number-id'], 'number', atom)).ok).toBe(true)
+    expect(rows()).toHaveLength(1)
+    expect(choose(seed).ok).toBe(true)
+    const changeField = (depth: 'parent' | 'child', remove: boolean) => {
+      schema = { ...parsed.schema!, body: parsed.schema!.body.map((item) => {
+        if (item.kind !== 'input' || item.id !== 'record' || item.type.kind !== 'record') return item
+        return { ...item, type: { ...item.type, fields: item.type.fields.flatMap((field) => {
+          if (field.id !== 'settings-id') return [field]
+          if (depth === 'parent') return remove ? [] : [{ ...field, type: { kind: 'concrete', name: 'STRING' } }]
+          if (field.type.kind !== 'record') return [field]
+          return [{ ...field, type: { ...field.type, fields: field.type.fields.flatMap((child) =>
+            child.id !== 'seed-id' ? [child] : remove ? [] : [{ ...child, type: { kind: 'concrete', name: 'STRING' } }]) } }]
+        }) } }
+      }) }
+    }
+    for (const depth of ['child', 'parent'] as const) {
+      for (const remove of [true, false]) {
+        changeField(depth, remove)
+        const row = rows().at(-1)!
+        expect(rows()).toHaveLength(depth === 'parent' ? 1 : 2)
+        expect(row.derivedValue).toBe(seed)
+        expect(normalizedComboOptions(row.spec).find((option) => option.value === seed)?.label)
+          .toBe(depth === 'parent' ? 'settings / seed (removed)' : 'seed (removed)')
+        const warnings = scene().diagnostics.filter((diagnostic) => diagnostic.code === 'record-field-removed')
+        expect(warnings).toHaveLength(1)
+        expect(warnings[0]!.refs?.[0]?.valueKey).toBe(depth === 'parent' ? 'field' : '$record/field/1')
+        expect(session.doc.graphs.g0!.nodes.read!.values).toEqual({ field: seed })
+      }
+    }
+    const emptyParsed = parseDinksterSchema('Read', { body: [
+      { kind: 'input', id: 'record', required: true, type: { kind: 'record', types: ['pack.bundle'], fields: [] } },
+      { kind: 'input', id: 'field', pin: false, type: { kind: 'concrete', types: ['COMBO'] }, default: '[]', widget: { type: 'COMBO' } },
+      { kind: 'output', id: 'value', type: { kind: 'record_field', input: 'record', index: 'field' } },
+    ] } as never)
+    expect(emptyParsed.diagnostics).toEqual([])
+    const emptyBody = emptyParsed.schema!.body
+    schema = { ...parsed.schema!, body: emptyBody }
+    expect(rows()).toHaveLength(1)
+    expect(rows()[0]!.disabled).not.toBe(true)
+    expect(normalizedComboOptions(rows()[0]!.spec).find((option) => option.value === seed)?.label).toBe('settings / seed (removed)')
+    expect(choose('[]').ok).toBe(true)
+    const emptyRow = rows()[0]!
+    expect(rows()).toHaveLength(1)
+    expect(emptyRow.label).toBe('field')
+    expect(emptyRow.disabled).toBe(true)
+    expect(emptyRow.inert).toBe(true)
+    expect(emptyRow.disabledReason).toBeUndefined()
+    expect(emptyRow.derivedValue).toBe('')
+    expect(emptyRow.spec.options['placeholder']).toBe('No fields')
+    expect(normalizedComboOptions(emptyRow.spec)).toEqual([])
+    expect(scene().diagnostics).toEqual([])
+    const emptyOutput = scene().nodes[0]!.layout.pins.find((pin) => pin.direction === 'out' && pin.portId === 'value')
+    expect(emptyOutput).toBeDefined()
+    expect(emptyOutput!.type).toEqual({ kind: 'wildcard' })
+    expect(emptyOutput!.kept).toBeUndefined()
+    const oldField: TypeExpr = { kind: 'record_field', input: 'oldRecord', index: 'oldField' }
+    const freshField: TypeExpr = { kind: 'record_field', input: 'record', index: 'field' }
+    for (const elements of [[oldField, freshField], [freshField, oldField]]) {
+      schema = { ...schema, body: [
+        ...emptyBody.filter((item) => item.kind !== 'output'),
+        { kind: 'input', id: 'oldRecord', type: { kind: 'record', name: 'pack.old', fields: [] }, optional: false },
+        { kind: 'input', id: 'oldField', type: { kind: 'concrete', name: 'COMBO' }, optional: false,
+          widget: { widgetType: 'COMBO', options: {}, default: seed } },
+        { kind: 'output', id: 'value', type: { kind: 'tuple', elements } },
+      ] }
+      const output = scene().nodes[0]!.elaborated!.items.find((item) => item.kind === 'output')!
+      expect(output.kind === 'output' && output.kept).toContain('was removed')
+      expect(output.spec.hidden).toBe(true)
+    }
+    schema = { ...schema, body: [...emptyBody, { kind: 'input', id: 'replacement', optional: false,
+      type: { kind: 'record_field', input: 'record', index: 'field' } }] }
+    const replacement = scene().nodes[0]!.elaborated!.items.find((item) => item.kind === 'input' && item.spec.id === 'replacement')!
+    expect(replacement.kind === 'input' && replacement.spec.optional).toBe(true)
+    schema = parsed.schema!
+    expect(rows()[0]!.disabled).not.toBe(true)
+    expect(rows()[0]!.inert).not.toBe(true)
+    expect(scene().diagnostics).toEqual([])
+    expect(rows()).toHaveLength(1)
+    expect(normalizedComboOptions(rows()[0]!.spec).find((option) => option.value === '[]')?.label).toBe('number')
+    const promoted = loadDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'promoted-picker', root: 'root',
+      graphs: {
+        root: { id: 'root', name: 'Root', nextOrdinal: 2, links: {}, nets: {}, reroutes: {}, nodes: {
+          first: { id: 'first', type: '#body', values: { choice: seed } },
+          second: { id: 'second', type: '#body', values: { choice: whole } },
+        } },
+        body: { id: 'body', name: 'Body', nextOrdinal: 1, links: {}, nets: {}, reroutes: {},
+          nodes: { read: { id: 'read', type: 'Read', values: { field: whole } } },
+          boundary: { body: [{ kind: 'input', id: 'choice', promoted: true,
+            binds: { kind: 'port', node: 'read', port: 'field' } }] },
+        },
+      }, view: { graphs: {} },
+    })
+    expect(promoted.diagnostics).toEqual([])
+    const promotedSession = createLocalSession(promoted.document!, coreCommandRegistry())
+    const promotedScene = (owner?: string) => buildScene({ document: promotedSession.doc,
+      graphId: owner === undefined ? 'root' : 'body',
+      resolve: documentResolver(promotedSession.doc, (type) => type === 'Read' ? parsed.schema : undefined),
+      tokens: defaultTokens, measure, widgetMeasure: () => ({ viewId: 'core.select', rows: 1 }),
+      ...(owner === undefined ? {} : { occurrence: {
+        owner: { instancePath: [], node: asNodeId(owner) }, plannerAvailable: true,
+      } }),
+    })
+    for (const [id, value] of [['first', seed], ['second', whole]] as const) {
+      const outer = promotedScene().nodes.find((node) => node.id === id)!
+      const outerRows = outer.layout.rows.filter((row) => row.kind === 'widget')
+      expect(outerRows).toHaveLength(2)
+      expect(outerRows[1]!.derivedValue).toBe(value)
+      expect(outerRows.map((row) => row.familyOwner?.valueKey)).toEqual(['choice', 'choice'])
+      const panel = promotedScene(id).boundaryNodes.find((node) => node.side === 'inputs')!
+      const fields = panel.layout.rows.filter((row) => row.kind === 'widget')
+      expect(fields).toHaveLength(2)
+      expect(fields[1]!.derivedValue).toBe(value)
+      expect(fields.map((row) => row.familyOwner)).toEqual(fields.map(() => ({
+        graphId: 'root', nodeId: id, construct: 'choice', valueKey: 'choice',
+      })))
+    }
+    const panelRow = promotedScene('first').boundaryNodes.find((node) => node.side === 'inputs')!
+      .layout.rows.filter((row) => row.kind === 'widget')[1]!
+    const owner = panelRow.familyOwner!
+    expect(promotedSession.dispatch({ command: 'node.setValue', params: {
+      graphId: owner.graphId, nodeId: owner.nodeId, inputId: owner.valueKey!, value: other,
+    } }).ok).toBe(true)
+    expect(promotedSession.doc.graphs.root!.nodes.first!.values).toEqual({ choice: other })
+    expect(promotedSession.doc.graphs.root!.nodes.second!.values).toEqual({ choice: whole })
+    expect(promotedSession.doc.graphs.body!.nodes.read!.values).toEqual({ field: whole })
+    expect(promotedSession.undo()).toBe(true)
+    expect(promotedSession.doc.graphs.root!.nodes.first!.values).toEqual({ choice: seed })
   })
 
   it('keeps numeric edit scenes equal to a fresh build and declines value-dependent presentation', () => {
@@ -520,6 +915,22 @@ describe('buildScene', () => {
       ['batch_size', '1'],
       ['color', '0'],
     ])
+    const stored = loadDocument({ ...doc, view: { graphs: {} }, graphs: { g0: { ...doc.graphs.g0, links: {}, nets: {}, reroutes: {}, nodes: {
+      n0: { id: 'n0', type: 'Make', values: { field_73656564: 7, field_67756964616e6365: 13 } },
+    } } } }).document!
+    const schema = parseDinksterSchema('Make', { signature: 'make-fields', body: [
+      { kind: 'input', id: 'field_73656564', label: 'renamed seed', type: { kind: 'concrete', types: ['INT'] } },
+      { kind: 'input', id: 'field_67756964616e6365', label: 'guidance', type: { kind: 'concrete', types: ['INT'] } },
+    ] } as never).schema!
+    const environment = stampEnvironment(stored, { resolve: () => schema })
+    const reopened = loadDocument(JSON.parse(JSON.stringify({ ...stored, environment }))).document!
+    const missingRows = (document: WorkflowDocument) => buildScene({ document, graphId: 'g0', resolve: () => undefined,
+      tokens: defaultTokens, measure, widgetMeasure }).nodes[0]!.layout.rows.filter((row) => row.kind === 'fallback')
+    expect(missingRows(reopened).map((row) => [row.valueKey, row.label, row.text])).toEqual([
+      ['field_73656564', 'renamed seed', '7'], ['field_67756964616e6365', 'guidance', '13'],
+    ])
+    expect(missingRows(stored).map((row) => row.label)).toEqual(['Field 1', 'Field 2'])
+    expect(reopened.graphs).toEqual(stored.graphs)
   })
 
   it('an unresolved node keeps its manual size override (never snaps back to natural size)', () => {

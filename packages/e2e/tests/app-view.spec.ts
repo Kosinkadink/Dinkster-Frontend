@@ -34,9 +34,8 @@ async function exposureAffordancePoint(page: Page, inputId: string): Promise<{ x
     const row = node.layout.rows.find((item) => item.kind === 'widget' && item.inputId === inputId)!
     const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
     const viewport = window.__dinksterTest!.renderer!.getViewport()
-    const numeric = inputId === 'count'
     return {
-      x: rect.left + (node.x + node.layout.width - (row.inset ?? 0) - (numeric ? 25 : 13)) * viewport.scale + viewport.x,
+      x: rect.left + (node.x + node.layout.width - (row.inset ?? 0) - 13) * viewport.scale + viewport.x,
       y: rect.top + (node.y + row.y + row.height / 2) * viewport.scale + viewport.y,
     }
   }, inputId)
@@ -71,6 +70,7 @@ test.beforeEach(async ({ page }, testInfo) => {
     await page.routeWebSocket('**/api/events?*', () => {})
   }
   await page.goto('/')
+  await waitForWorkspaceReady(page)
   if (mockRename) {
     await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined)).toBe(true)
   } else {
@@ -79,7 +79,6 @@ test.beforeEach(async ({ page }, testInfo) => {
       return backend.schemaState.get().status === 'ready' && backend.workerCatalog.get().status === 'ready'
     })).toBe(true)
   }
-  await waitForWorkspaceReady(page)
   await page.evaluate(async (remoteRoute) => {
     const widget = (id: string, widgetType: string, defaultValue: unknown, options: Record<string, unknown> = {}) => ({
       kind: 'input', id, type: { kind: 'concrete', name: widgetType === 'COMBO' ? 'COMBO' : widgetType }, optional: false,

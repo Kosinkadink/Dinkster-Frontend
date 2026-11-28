@@ -457,9 +457,11 @@ test('a floating when-gated panel hides while disabled and returns when re-enabl
   await expect(floating).toBeVisible()
 })
 
-test('logs live in the toggleable bottom panel; the status bar stays put', async ({ page }) => {
+test('logs shrink the canvas in the toggleable bottom panel; the status bar stays put', async ({ page }) => {
   await expect(page.getByTestId('bottom-panel')).not.toBeVisible()
   await expect(page.getByTestId('status-bar')).toBeVisible()
+  const canvas = page.getByTestId('graph-canvas')
+  const before = (await canvas.boundingBox())!
 
   await page.getByTestId('bottom-panel-toggle').click()
   const zone = page.getByTestId('dock-zone-bottom')
@@ -474,6 +476,9 @@ test('logs live in the toggleable bottom panel; the status bar stays put', async
   const panel = (await page.getByTestId('bottom-panel').boundingBox())!
   const status = (await page.getByTestId('status-bar').boundingBox())!
   expect(panel.y + panel.height).toBeLessThanOrEqual(status.y + 1)
+  const after = (await canvas.boundingBox())!
+  expect(after.height).toBeLessThan(before.height - 100)
+  expect(after.y + after.height).toBeLessThanOrEqual(panel.y + 1)
 
   // Close via the header X; the status bar survives.
   await zone.getByTestId('dock-zone-close').click()
@@ -482,8 +487,17 @@ test('logs live in the toggleable bottom panel; the status bar stays put', async
   await expect(page.getByTestId('bottom-panel-toggle')).toBeFocused()
 })
 
-test('bottom panel and rail toggles are independent of the dock', async ({ page }) => {
+test('the dock shrinks the canvas and stays independent of bottom panel and rail toggles', async ({ page }) => {
+  const canvas = page.getByTestId('graph-canvas')
+  const before = (await canvas.boundingBox())!
   await page.getByTestId('library-toggle').click()
+  await expect(page.getByTestId('library-overlay')).toBeVisible()
+  const after = (await canvas.boundingBox())!
+  expect(after.x).toBeGreaterThan(before.x + 200)
+  expect(after.width).toBeLessThan(before.width - 200)
+  const dock = (await page.getByTestId('dock-panel').boundingBox())!
+  expect(dock.x + dock.width).toBeLessThanOrEqual(after.x + 1)
+
   await page.getByTestId('bottom-panel-toggle').click()
   await expect(page.getByTestId('dock-panel')).toBeVisible()
   await expect(page.getByTestId('bottom-panel')).toBeVisible()
@@ -496,35 +510,6 @@ test('bottom panel and rail toggles are independent of the dock', async ({ page 
   await expect(page.getByTestId('bottom-panel')).toBeVisible()
   await page.getByTestId('rail-toggle').click()
   await expect(page.getByTestId('dock-zone-right')).toBeVisible()
-})
-
-test('open dock shrinks the canvas instead of covering it', async ({ page }) => {
-  const canvas = page.getByTestId('graph-canvas')
-  const before = (await canvas.boundingBox())!
-
-  await page.getByTestId('library-toggle').click()
-  await expect(page.getByTestId('library-overlay')).toBeVisible()
-  const after = (await canvas.boundingBox())!
-
-  // Canvas moved right and narrowed by the dock width; it is still there.
-  expect(after.x).toBeGreaterThan(before.x + 200)
-  expect(after.width).toBeLessThan(before.width - 200)
-
-  const dock = (await page.getByTestId('dock-panel').boundingBox())!
-  expect(dock.x + dock.width).toBeLessThanOrEqual(after.x + 1)
-})
-
-test('open bottom panel shrinks the canvas instead of covering it', async ({ page }) => {
-  const canvas = page.getByTestId('graph-canvas')
-  const before = (await canvas.boundingBox())!
-
-  await page.getByTestId('bottom-panel-toggle').click()
-  await expect(page.getByTestId('bottom-panel')).toBeVisible()
-  const after = (await canvas.boundingBox())!
-
-  expect(after.height).toBeLessThan(before.height - 100)
-  const panel = (await page.getByTestId('bottom-panel').boundingBox())!
-  expect(after.y + after.height).toBeLessThanOrEqual(panel.y + 1)
 })
 
 test('narrow side surfaces preserve tabs and status without document overflow', async ({ page }) => {

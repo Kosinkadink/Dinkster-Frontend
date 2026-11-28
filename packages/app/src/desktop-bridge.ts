@@ -1,19 +1,5 @@
 import type { AssetRef } from '@dinkster/core'
 
-export const DESKTOP_ENGINE_ACCELERATORS = ['cpu', 'cuda', 'mps', 'rocm', 'xpu'] as const
-export type DesktopEngineAccelerator = typeof DESKTOP_ENGINE_ACCELERATORS[number]
-
-export function desktopEngineAcceleratorLabel(accelerator: DesktopEngineAccelerator): string {
-  return accelerator === 'rocm' ? 'ROCm' : accelerator.toUpperCase()
-}
-
-export interface DesktopLifecycleStatus {
-  readonly phase: 'idle' | 'detecting' | 'downloading' | 'installing' | 'starting' | 'running' | 'failed' | 'stopped'
-  readonly detail: string
-  readonly variant?: DesktopEngineAccelerator
-  readonly error?: string
-}
-
 export type DesktopPanelPlacement = 'dock' | 'rail' | 'bottom'
 
 export type DesktopWindowContext =
@@ -46,11 +32,33 @@ export type DesktopSaveResult =
   | { readonly status: 'saved'; readonly name: string }
   | { readonly status: 'closed' }
 
+export interface WslStatus {
+  readonly available: boolean
+  readonly ready: boolean
+  readonly distribution: string
+  readonly detail: string
+}
+
+export interface WslJob {
+  readonly id: string
+  readonly operation: 'prepare' | 'copy-models'
+  readonly state: 'running' | 'cancelling' | 'completed' | 'cancelled' | 'failed'
+  readonly progress: { readonly stage: string; readonly completed: number; readonly total: number | null }
+  readonly result?: WslStatus | string
+  readonly error?: string
+}
+
 export interface DinksterDesktopBridge {
+  wslStatus?(): Promise<WslStatus>
+  prepareWsl?(): Promise<WslJob>
+  wslProjectRoot?(id: string): Promise<string>
+  /** Undefined means the native folder picker was closed without choosing. */
+  copyWslModels?(): Promise<WslJob | undefined>
+  wslJob?(id: string): Promise<WslJob>
+  cancelWslJob?(id: string): Promise<WslJob>
   saveFile?(bytes: Uint8Array, suggestedName: string): Promise<DesktopSaveResult>
   locale(): Promise<string>
-  status(): Promise<DesktopLifecycleStatus>
-  retry(): Promise<void>
+  info(): Promise<unknown>
   fileCapabilities(backendUrl: string): Promise<{ readonly nativeFolderChoice: boolean; readonly reveal: boolean; readonly resolvePath?: boolean }>
   chooseDirectory(backendUrl: string): Promise<string | undefined>
   revealFile?(backendUrl: string, asset: { readonly digest: string; readonly scope: 'local'; readonly project: string }): Promise<{ readonly mode: 'selected' | 'folder' }>
@@ -85,8 +93,6 @@ export interface DinksterDesktopBridge {
   connectionCredentials(): Promise<DesktopConnectionCredentials>
   /** Drain deep links queued for this window. */
   takeDeepLinks(): Promise<readonly DesktopDeepLink[]>
-  onStatus(listener: (status: DesktopLifecycleStatus) => void): () => void
-  onLog(listener: (line: string) => void): () => void
   onWindowLayout(listener: (layout: DesktopWindowLayout) => void): () => void
   onDeepLinkPending(listener: () => void): () => void
 }
@@ -107,7 +113,7 @@ export function desktopSaveBridge(): { saveFile(bytes: Uint8Array, suggestedName
 export function desktopBridge(): DinksterDesktopBridge | undefined {
   const bridge = window.dinksterDesktop
   return bridge && 'locale' in bridge && typeof bridge.locale === 'function' &&
-    'status' in bridge && typeof bridge.status === 'function' ? bridge : undefined
+    'info' in bridge && typeof bridge.info === 'function' ? bridge : undefined
 }
 
 export function desktopFileBridge(): DesktopFileBridge | undefined {

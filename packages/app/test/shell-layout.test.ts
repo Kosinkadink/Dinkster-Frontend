@@ -27,16 +27,16 @@ describe('ShellLayout persistence', () => {
     const first = layoutOn(store)
     first.activityBarVisible.set(false)
     first.statusBarVisible.set(false)
-    first.previewSize('left', 500)
+    first.previewSize('left', 1300)
     first.commitSize('left')
-    first.previewSize('bottom', 300)
+    first.previewSize('bottom', 850)
     first.commitSize('bottom')
 
     const second = layoutOn(store)
     expect(second.activityBarVisible.get()).toBe(false)
     expect(second.statusBarVisible.get()).toBe(false)
-    expect(second.leftWidth.get()).toBe(500)
-    expect(second.bottomHeight.get()).toBe(300)
+    expect(second.leftWidth.get()).toBe(1300)
+    expect(second.bottomHeight.get()).toBe(850)
     expect(second.rightWidth.get()).toBe(REGION_SIZE_BOUNDS.right.fallback)
   })
 
@@ -55,8 +55,8 @@ describe('ShellLayout persistence', () => {
   it('an external settings write (settings dialog) updates the live shell', () => {
     const settings = new SettingsRegistry(storage())
     const layout = new ShellLayout(settings)
-    settings.set('shell.layout.left.width', 500)
-    expect(layout.leftWidth.get()).toBe(500)
+    settings.set('shell.layout.left.width', 1450)
+    expect(layout.leftWidth.get()).toBe(1450)
   })
 
   it('an unrelated settings change never clobbers an in-flight drag preview', () => {
@@ -83,10 +83,10 @@ describe('ShellLayout persistence', () => {
 })
 
 describe('ShellLayout semantics', () => {
-  it('clamps every size write to the region bounds', () => {
+  it('keeps large size preferences while enforcing minimums and finite values', () => {
     const layout = layoutOn(storage())
     layout.previewSize('left', 10_000)
-    expect(layout.leftWidth.get()).toBe(REGION_SIZE_BOUNDS.left.max)
+    expect(layout.leftWidth.get()).toBe(10_000)
     layout.previewSize('left', 0)
     expect(layout.leftWidth.get()).toBe(REGION_SIZE_BOUNDS.left.min)
     layout.previewSize('bottom', -50)

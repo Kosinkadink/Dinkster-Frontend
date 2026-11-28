@@ -1028,6 +1028,9 @@ describe('formulas', () => {
     expect(refusal([n, g, { kind: 'note', id: 'x', text: { lookup: 'pack.mod.fn', args: ['g'] } }]))
       .toContain("pack.mod.fn: argument 'g' reads the members of a group whose count is a formula, which is not built yet")
     expect(refusal([n, g], { titleSuffix: { formula: 'str(len(g))' } })).toContain('is not built yet')
+    const ask = { step: 'ask', title: 'Count', rows: [{ id: 'answer', type: int }] }
+    expect(refusal([n, g, { kind: 'button', id: 'set', label: 'Set', steps: [ask,
+      { step: 'set', field: 'n', value: { formula: 'answer + len(g)' } }] }])).toContain("reads 'g'")
     // A member reads its own sibling and its position, and a group that grows by hand is read as before.
     expect(refusal([n, { ...g, memberLabel: { formula: 'str(s)' } }])).toBeUndefined()
     expect(refusal([n, { ...g, member: [{ ...g.member[0], label: { formula: '"s " + str(index() + 1)' } }] }])).toBeUndefined()
@@ -1414,7 +1417,7 @@ describe('formula properties', () => {
     const sizes = { kind: 'group', id: 'g', member: [field('s')], keys: { numbered: { prefix: 'item', start: 0 } }, grows: 'link', minMembers: 2 }
     const rules = (check: string, fix: unknown[] = []) => {
       const { schema, diagnostics } = parseDinksterSchema('Formulas', { body: [field('w'), field('h'), pick, sizes], validate: [
-        { check: { formula: check }, message: 'Too big', fix },
+        { check: { formula: check }, message: 'Too big', fix, ...(fix.length > 0 ? { fixLabel: 'Use 4' } : {}) },
       ] } as never)
       expect(diagnostics).toEqual([])
       return (values: Record<string, unknown>, dynamic: Record<string, unknown> = { pick: { selected: 'a' } }) =>

@@ -1,4 +1,5 @@
 import { splitProps, type JSX } from 'solid-js'
+import { ProductActionLabel } from '@dinkster/ui'
 
 export type ProductButtonVariant = 'primary' | 'secondary' | 'accent' | 'danger' | 'ghost'
 export type ProductControlSize = 'control' | 'compact'
@@ -7,8 +8,9 @@ export function ProductButton(props: JSX.ButtonHTMLAttributes<HTMLButtonElement>
   readonly variant?: ProductButtonVariant
   readonly size?: ProductControlSize
   readonly loading?: boolean
+  readonly labels?: readonly string[] | undefined
 }) {
-  const [local, button] = splitProps(props, ['variant', 'size', 'loading', 'class', 'children', 'disabled'])
+  const [local, button] = splitProps(props, ['variant', 'size', 'loading', 'class', 'children', 'disabled', 'labels'])
   return (
     <button
       {...button}
@@ -17,7 +19,7 @@ export function ProductButton(props: JSX.ButtonHTMLAttributes<HTMLButtonElement>
       data-size={local.size ?? 'control'}
       aria-busy={local.loading === true ? 'true' : button['aria-busy']}
       disabled={local.disabled === true || local.loading === true}
-    >{local.children}</button>
+    ><ProductActionLabel labels={local.labels}>{local.children}</ProductActionLabel></button>
   )
 }
 
@@ -25,11 +27,6 @@ type ProductTextInputType = 'text' | 'search' | 'url' | 'password' | 'email' | '
 
 export function ProductFileInput(props: Omit<JSX.InputHTMLAttributes<HTMLInputElement>, 'type' | 'hidden'>) {
   return <input {...props} type="file" hidden />
-}
-
-export function ProductColorInput(props: Omit<JSX.InputHTMLAttributes<HTMLInputElement>, 'type'>) {
-  const [local, input] = splitProps(props, ['class'])
-  return <input {...input} type="color" class={`product-text-input product-color-input${local.class ? ` ${local.class}` : ''}`} />
 }
 
 export function ProductTextInput(props: Omit<JSX.InputHTMLAttributes<HTMLInputElement>, 'type'> & {

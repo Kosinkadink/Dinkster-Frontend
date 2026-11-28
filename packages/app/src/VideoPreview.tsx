@@ -2,6 +2,7 @@ import { For, Show, createEffect, createMemo, createSignal, on, onCleanup } from
 import type { NodePreview } from '@dinkster/canvas'
 import { ProductSlider } from './ProductSlider.js'
 import { PreviewDownload } from './PreviewDownload.js'
+import { failureMessage } from './request-failure.js'
 import { DEFAULT_VIDEO_PREFERENCES, videoInspectionOf, type VideoInspection, type VideoPreferences } from './video-preview.js'
 import './video-preview.css'
 
@@ -141,7 +142,7 @@ export function VideoPreview(props: {
     try {
       const result = await source.request('frame', { frame: selector, signal: controller.signal })
       if (controller.signal.aborted) return
-      if (!result.available) { setError(`Frame unavailable: ${result.error} (${result.status}, ${result.reason})`); return }
+      if (!result.available) { setError(`Frame unavailable. ${result.error}`); return }
       if (result.mime !== 'image/png') { setError('Frame unavailable: expected a PNG rendition'); return }
       if (frame()) URL.revokeObjectURL(frame()!)
       setFrame(URL.createObjectURL(new Blob([result.bytes], { type: result.mime })))
@@ -149,7 +150,7 @@ export function VideoPreview(props: {
       setColor(result.colorTransform)
       setError('')
     } catch (error) {
-      if (!controller.signal.aborted) setError(`Frame unavailable: ${String(error)}`)
+      if (!controller.signal.aborted) setError(failureMessage(error, 'Frame unavailable.'))
     } finally {
       if (frameRequest === controller) setFramePending(false)
     }
@@ -170,12 +171,12 @@ export function VideoPreview(props: {
     try {
       const result = await source.request('thumbs', { thumbs: source.thumbnailCount, signal: controller.signal })
       if (controller.signal.aborted || generation !== selection) return
-      if (!result.available) { setError(`Thumbnails unavailable: ${result.error} (${result.status}, ${result.reason})`); return }
+      if (!result.available) { setError(`Thumbnails unavailable. ${result.error}`); return }
       if (result.mime !== 'image/png') { setError('Thumbnails unavailable: expected a PNG strip'); return }
       setThumbs(URL.createObjectURL(new Blob([result.bytes], { type: result.mime })))
       setThumbColor(result.colorTransform)
     } catch (error) {
-      if (!controller.signal.aborted && generation === selection) setError(`Thumbnails unavailable: ${String(error)}`)
+      if (!controller.signal.aborted && generation === selection) setError(failureMessage(error, 'Thumbnails unavailable.'))
     }
   }
   const select = async (index: number): Promise<void> => {
@@ -204,7 +205,7 @@ export function VideoPreview(props: {
       setColor(result.colorTransform)
       setPlaybackColor(result.colorTransform)
     } catch (error) {
-      if (request === selection) setError(`Video ${index + 1} unavailable: ${String(error)}`)
+      if (request === selection) setError(failureMessage(error, `Video ${index + 1} unavailable.`))
     } finally {
       if (request === selection) setBusy(false)
       if (selectionRequest === controller) selectionRequest = undefined

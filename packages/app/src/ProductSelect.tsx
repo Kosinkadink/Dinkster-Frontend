@@ -1,5 +1,6 @@
 import { createEffect, createMemo, createSignal, createUniqueId, For, on, onCleanup, onMount, Show, type JSX } from 'solid-js'
 import { Portal } from 'solid-js/web'
+import { Check, ChevronDown } from 'lucide-solid'
 import { semanticDesignTokens } from '@dinkster/core'
 import { placeFloatingSurface } from '@dinkster/core/floating-surface'
 
@@ -258,7 +259,7 @@ export function ProductSelect<T>(props: {
         ref={trigger}
         id={props.id}
         type="button"
-        class={`product-select${props.class ? ` ${props.class}` : ''}`}
+        class={`dinkster-input dinkster-select-trigger product-select${props.class ? ` ${props.class}` : ''}`}
         data-testid={props.testId}
         data-selected-id={props.selectedId}
         role="combobox"
@@ -278,15 +279,16 @@ export function ProductSelect<T>(props: {
         onClick={() => { if (!pending()) open() ? close(true) : show() }}
         onKeyDown={keydown}
       >
-        <span class="product-select-value">{selectedOption()?.label ?? props.selectedId}</span>
-        <span class="product-select-caret" aria-hidden="true" />
+        <span class="dinkster-canvas-list-label">{selectedOption()?.label ?? props.selectedId}</span>
+        <ChevronDown class="dinkster-icon" aria-hidden="true" />
       </button>
       <Show when={open()}>
         <Portal mount={trigger?.closest('dialog') ?? document.body}>
           <div
             ref={listbox}
             id={listboxId}
-            class="product-select-listbox floating-surface"
+            class="product-select-listbox floating-surface dinkster-select-list"
+            data-density={trigger?.closest('[data-density]')?.getAttribute('data-density') ?? undefined}
             role="listbox"
             aria-busy={pending()}
             aria-label={props.ariaLabel}
@@ -309,12 +311,8 @@ export function ProductSelect<T>(props: {
                 return (
                   <div
                     id={optionId(index())}
-                    classList={{
-                      'product-select-option': true,
-                      active: index() === activeIndex(),
-                      selected: id === props.selectedId,
-                      disabled: option().disabled === true,
-                    }}
+                    class="dinkster-canvas-list-option"
+                    data-active={index() === activeIndex()}
                     data-option-id={id}
                     role="option"
                     aria-selected={id === props.selectedId}
@@ -322,7 +320,12 @@ export function ProductSelect<T>(props: {
                     onPointerMove={() => { if (!pending() && option().disabled !== true) setActiveIndex(index()) }}
                     onClick={() => choose(index())}
                   >
-                    {option().label}
+                    <span class="dinkster-canvas-list-copy">
+                      <span class="dinkster-canvas-list-label">{option().label}</span>
+                    </span>
+                    <Show when={id === props.selectedId}>
+                      <Check class="dinkster-canvas-list-check" aria-hidden="true" />
+                    </Show>
                   </div>
                 )
               }}

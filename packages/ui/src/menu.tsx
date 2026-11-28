@@ -23,6 +23,7 @@ import {
 } from 'lucide-solid'
 import { ProductIcon, ProductTextInput, type ProductRole } from './controls.js'
 import { useProductStrings } from './strings.js'
+import { ProductShortcut } from './shortcut.js'
 import { placeFloatingSurface } from '@dinkster/core/floating-surface'
 import tokens from '@dinkster/branding/components' with { type: 'json' }
 
@@ -44,6 +45,8 @@ export interface ProductMenuItem {
   disabled?: boolean
   checked?: boolean
   attention?: ProductAttention | undefined
+  /** Shortcut keys rendered with the shared key chips at the row's end. */
+  keys?: readonly string[] | undefined
   /** A second action at the row's end, shown on hover and keyboard focus. */
   rowAction?: { label: string; icon: LucideIcon; onSelect: () => void }
   onSelect: () => void
@@ -83,6 +86,7 @@ function Menu(props: {
   rail?: boolean | undefined
   project?: boolean
   iconOnly?: boolean | undefined
+  windowAction?: boolean | undefined
   fill?: 'quiet' | undefined
   align?: 'start' | 'end' | undefined
   busy?: boolean
@@ -233,7 +237,7 @@ function Menu(props: {
   })
   return (
     <div
-      class="dinkster-menu-anchor"
+      class={props.windowAction ? 'dinkster-menu-anchor dinkster-window-action' : 'dinkster-menu-anchor'}
       data-project={props.project ? '' : undefined}
       ref={root}
       onFocusOut={(event) => {
@@ -437,6 +441,9 @@ function Menu(props: {
                         <Show when={item().attention}>
                           {(attention) => <Attention attention={attention()} />}
                         </Show>
+                        <Show when={item().keys}>
+                          {(keys) => <span class="dinkster-menu-item-keys" aria-hidden="true"><ProductShortcut keys={keys()} /></span>}
+                        </Show>
                       </button>
                     )
                     return (
@@ -489,6 +496,8 @@ export function ProductMenu(props: {
   identity?: MenuIdentity
   icon?: LucideIcon
   iconOnly?: boolean
+  /** Uses the same chrome wrapper as ProductWindowAction. */
+  windowAction?: boolean
   /** A borderless text trigger; absent keeps the outlined trigger. */
   fill?: 'quiet'
   /** The preferred trigger edge, before viewport clamping. */
@@ -505,6 +514,7 @@ export function ProductMenu(props: {
       items={props.items}
       identity={props.identity}
       iconOnly={props.iconOnly}
+      windowAction={props.windowAction}
       fill={props.fill}
       align={props.align}
       attention={props.attention}
@@ -614,7 +624,6 @@ export function ProductAccountMenu(props: {
         {
           label: strings.signOut,
           icon: LogOut,
-          intent: 'remove',
           onSelect: props.onSignOut,
         },
       ]}

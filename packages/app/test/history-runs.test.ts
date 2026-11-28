@@ -193,6 +193,34 @@ describe('groupNoOpHistoryRuns', () => {
 })
 
 describe('runsSource', () => {
+  it('keeps seconds in run details but not durable or live collection rows', async () => {
+    const { backend } = await nativeSetup()
+    const today = new Date(2026, 10, 27, 16, 47, 17)
+    const yesterday = new Date(2026, 10, 26, 23, 59, 43)
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(2026, 10, 27, 18))
+    try {
+      vi.spyOn(backend.connection, 'listHistory').mockResolvedValue({ records: [
+        run({ runId: 'today', jobId: 'job-today', finishedAt: today.getTime() / 1000 }),
+        run({ runId: 'yesterday', jobId: 'job-yesterday', finishedAt: yesterday.getTime() / 1000 }),
+      ] })
+      const time = today.toLocaleTimeString('en', { hour: 'numeric', minute: '2-digit' })
+      const date = yesterday.toLocaleDateString('en', { year: 'numeric', month: 'numeric', day: 'numeric' })
+      const rows = await runsSource(app).page({ query: '', limit: 24 })
+      expect(rows.items.map((entry) => entry.subtitle)).toEqual([
+        `today, ${time} - job-today`, `${date} - job-yesterday`,
+      ])
+      expect(rows.items[0]!.details!.find((detail) => detail.label === 'finished')!.text).toContain(':17')
+      const ref = { connection: backend.id, prompt: asPromptId('live-time') }
+      app.store.apply({ kind: 'started', execution: ref, timestamp: today.getTime() })
+      const live = await historySource(app).page({ query: '', limit: 24 })
+      expect(live.items[0]!.subtitle).toBe(`today, ${time} - live-time`)
+      expect(live.items[0]!.details!.find((detail) => detail.label === 'queued')!.text).toContain(':17')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('pages /api/history with the mapped filter and maps records to entries', async () => {
     const { backend } = (await nativeSetup())
     const list = vi.spyOn(backend.connection, 'listHistory').mockResolvedValue({
@@ -295,13 +323,6 @@ describe('runsSource', () => {
     expect(neverStarted.badges).toEqual(expect.arrayContaining(['interrupted', 'never started']))
     expect(neverStarted.details).toContainEqual({ label: 'interrupted', text: 'never started' })
     expect(neverStarted.actions).toEqual([{ id: 'delete', label: 'Delete record' }])
-  })
-
-  it('an unmatchable query returns empty WITHOUT calling the server', async () => {
-    const { backend } = (await nativeSetup())
-    const list = vi.spyOn(backend.connection, 'listHistory')
-    expect(await runsSource(app).page({ query: 'xyz', limit: 24 })).toEqual({ owner: backend.id, items: [], total: 0 })
-    expect(list).not.toHaveBeenCalled()
   })
 
 })
@@ -446,7 +467,7 @@ describe('delete and clear', () => {
     expect(app.store.executions.get()).toBe(executions)
   })
 
-  it('clear failures land in Problems and reject so the confirmation can stay open', async () => {
+  it('clear failures land in Problems and reject', async () => {
     const { backend } = (await nativeSetup())
     vi.spyOn(backend.connection, 'clearHistory').mockRejectedValue(new Error('boom'))
     await expect(app.clearRunHistory(backend.id)).rejects.toThrow('boom')

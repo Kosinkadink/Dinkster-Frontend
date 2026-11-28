@@ -1,10 +1,11 @@
-import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, onCleanup, Show } from 'solid-js'
 import type { DinksterValuesClient, ExecutionState, ValuePeekResult } from '@dinkster/client'
 import type { Occurrence, WorkflowDocument } from '@dinkster/core'
 import { useAppMessage } from './locale.js'
 import { resolveNodeOccurrence } from './problem-display.js'
 import { regionIterationInventory, regionValuePresentation, type RegionIteration, type RegionIterationNode } from './region-iteration.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
+import { ProductProgress, ProductSelect } from '@dinkster/ui'
 
 export function RegionIterationInspector(props: {
   readonly execution: ExecutionState
@@ -111,29 +112,26 @@ export function RegionIterationInspector(props: {
             <Show when={current.iterations.length > 0} fallback={<ProductEmptyState title={message('regionInspector.empty')} />}>
               <label>
                 <span>{message('regionInspector.iterationLabel')}</span>
-                <select value={iteration()?.key} onChange={(event) => setIterationKey(event.currentTarget.value)}>
-                  <For each={current.iterations}>{(entry) => <option value={entry.key}>{iterationLabel(entry)}</option>}</For>
-                </select>
+                <ProductSelect aria-label={message('regionInspector.iterationLabel')} value={iteration()?.key} onChange={setIterationKey}
+                  options={current.iterations.map((entry) => ({ value: entry.key, label: iterationLabel(entry) }))} />
               </label>
               <label>
                 <span>{message('regionInspector.nodeLabel')}</span>
-                <select value={node()?.runtimeId} onChange={(event) => setRuntimeId(event.currentTarget.value)}>
-                  <For each={iteration()?.nodes ?? []}>{(entry) => <option value={entry.runtimeId}>{nodeLabel(entry)}</option>}</For>
-                </select>
+                <ProductSelect aria-label={message('regionInspector.nodeLabel')} value={node()?.runtimeId} onChange={setRuntimeId}
+                  options={(iteration()?.nodes ?? []).map((entry) => ({ value: entry.runtimeId, label: nodeLabel(entry) }))} />
               </label>
               <Show when={(node()?.outputIds.length ?? 0) > 0} fallback={<ProductEmptyState title={message('regionInspector.noOutputs')} />}>
                 <label>
                   <span>{message('regionInspector.outputLabel')}</span>
-                  <select value={selectedOutput()} onChange={(event) => setOutputId(event.currentTarget.value)}>
-                    <For each={node()?.outputIds ?? []}>{(entry) => <option value={entry}>{entry}</option>}</For>
-                  </select>
+                  <ProductSelect aria-label={message('regionInspector.outputLabel')} value={selectedOutput()} onChange={setOutputId}
+                    options={(node()?.outputIds ?? []).map((value) => ({ value, label: value }))} />
                 </label>
                 <div class="region-iteration-identity">
                   <span class="region-iteration-provenance" data-provenance={node()?.state}>{status()}</span>
                   <Show when={node()?.progress !== undefined}>
                     <div class="region-iteration-progress">
                       <span>{message('regionInspector.progress', { percent: Math.round(node()!.progress! * 100) })}</span>
-                      <progress max="1" value={node()!.progress} />
+                      <ProductProgress label={message('regionInspector.progress', { percent: Math.round(node()!.progress! * 100) })} value={node()!.progress} />
                     </div>
                   </Show>
                   <code>{node()?.runtimeId}</code>

@@ -25,7 +25,9 @@
  */
 
 import { diag, type Diagnostic, type DiagnosticRef } from '../diagnostics.js'
+import { t } from '../i18n/index.js'
 import type { DynamicPortState, GraphDef, Json, NodeData } from '../format/document.js'
+import { boundaryItems } from '../format/document.js'
 import { asPortId, isExactWidgetTapRef, isPortEndpoint, portAddressKey, type DynamicMemberId, type NodeId } from '../ids.js'
 import { Formula, FormulaRefused, UNKNOWN, type FormulaNameKind, type FormulaScope, type FormulaValue, type FormulaValues, type Unknown } from '../mirror/formula.js'
 import {
@@ -61,15 +63,18 @@ import type {
   OuterName,
   OuterScope,
   OutputSpec,
+  RecordField,
   SectionSpec,
   TypeChoiceSpec,
   TypeExpr,
   UseSpec,
   WidgetSpec,
 } from './model.js'
-import { isAssetWidgetInput, isFormulaSpec, isLookupSpec, scopeRowsOf } from './model.js'
-import { isAssetRefValue, readWhenUnset, sentSpecOf, sentWhenUnset } from './widget-defaults.js'
-import { normalizeComboOption } from './combo-options.js'
+import { canonicalTypeIdOf, isAssetWidgetInput, isFormulaSpec, isLookupSpec, scopeRowsOf } from './model.js'
+import { typeExprFromDinksterWire } from './dinkster-wire.js'
+import { recordFieldTypeFits } from './type-relations.js'
+import { isAssetRefValue, primitiveWidgetFor, readWhenUnset, sentSpecOf, sentWhenUnset } from './widget-defaults.js'
+import { normalizeComboOption, normalizedComboOptions } from './combo-options.js'
 import { isCanonicalUnsafeInteger, numericStepConstraints, OFFSET_UNKNOWN } from './numeric-step.js'
 
 // ---------------------------------------------------------------------------
@@ -130,6 +135,10 @@ export function buildGraphConnectivity(def: GraphDef): (node: NodeId) => Connect
       add(inputs, sink.node, portAddressKey(sink.port))
       add(inputPorts, sink.node, sink.port)
     }
+  }
+  for (const item of boundaryItems(def.boundary, 'outputs')) {
+    if (item.binds.kind === 'port') add(outputs, item.binds.node, producerKey('port', item.binds.port))
+    else if (item.binds.kind === 'widgetTap') add(outputs, item.binds.node, producerKey('tap', item.binds.tap))
   }
   const cache = new Map<NodeId, Connectivity>()
   return (node) => {
@@ -226,6 +235,14 @@ export interface ElaboratedInput {
   readonly ancestry?: readonly DynamicAncestor[]
   /** Value not stored in node.values (a choice's dropdown: the chosen key). */
   readonly derivedValue?: Json
+  /** Declared record a field selector reads, retained when its field alone is promoted. */
+  readonly recordSelectionSource?: TypeExpr
+  /** Per-level views of one saved record-field selection, never extra inputs. */
+  readonly recordSelectionRows?: readonly {
+    readonly record: string
+    readonly value: Json
+    readonly options: readonly { readonly value: Json; readonly label: string }[]
+  }[]
   /** Member state to persist before writing or wiring this row. */
   readonly materialize?: readonly MaterializeFrame[]
   /** A field that declares `automatic` with nothing stored and no wire: the value in use. */
@@ -237,6 +254,8 @@ export interface ElaboratedInput {
   /** Direct user value edits are blocked; wires and action writes are unchanged. */
   readonly readOnly?: true
   readonly disabled?: true
+  /** Display-only unavailable row: no focus, activation or hover explanation. */
+  readonly inert?: true
   readonly disabledReason?: string
   /** Keys of the boxes the node draws around this row, outermost first. */
   readonly boxes?: readonly string[]
@@ -256,6 +275,8 @@ export interface ElaboratedInput {
    * each. The answers in use are already in `spec.widget`.
    */
   readonly looked?: Readonly<Partial<Record<LookedWidgetField, LookedState>>>
+  /** A declared numeric constraint has no usable answer yet; stored corrections must wait. */
+  readonly numericConstraintsPending?: true
   /**
    * Not drawn because of where it sits: its `visible` is false, or a hidden
    * choice or group holds it. Its `spec.hidden` is set, but the run is sent
@@ -335,6 +356,8 @@ export interface ElaboratedOutput {
   readonly ancestry?: readonly DynamicAncestor[]
   /** False when this output takes no part in wiring: a member the document does not store. */
   readonly wireable?: false
+  /** A wired output outside the current interface: drawn inactive and delivers nothing. */
+  readonly kept?: string
   readonly materialize?: readonly MaterializeFrame[]
   readonly boxes?: readonly string[]
   /** Inside its member's box: the row's own label, drawn in place of the full name. */
@@ -568,7 +591,7 @@ export interface ElaboratedInterface {
   readonly chunkSafe?: Pick<NonNullable<NodeSchema['chunkSafe']>, 'inputs' | 'outputs'>
   /** Non-port values the run carries. */
   readonly submissionValues: readonly { readonly path: string; readonly apiPath: string; readonly value: Json }[]
-  /** Stored member keys of each group that is not a count group, in order: the run's member lists. */
+  /** Member keys in run order: stored groups and count-grown groups that hold outputs. */
   readonly outputMembers?: Readonly<Record<string, readonly string[]>>
   /** The key of every choice and type choice that takes part in the run, by flattened id. */
   readonly choices?: Readonly<Record<string, string>>
@@ -577,6 +600,8 @@ export interface ElaboratedInterface {
    * leader, with the start key the node shows for each (view mode only).
    */
   readonly unstoredChoices?: Readonly<Record<string, string>>
+  /** Declared record selections whose missing or path-only value needs a saved snapshot. */
+  readonly unstoredRecordSelections?: Readonly<Record<string, string>>
   /**
    * Groups that grow by hand and take part in the node with fewer stored
    * members than their minimum, with the members that reach it (view mode only).
@@ -807,7 +832,7 @@ interface Scope {
 }
 
 const scopeType = (type: TypeExpr, member: string): TypeExpr => {
-  if (type.kind === 'variable') return { ...type, templateId: `${member}:${type.templateId}` }
+  if (type.kind === 'variable' || type.kind === 'record' && type.templateId !== undefined) return { ...type, templateId: `${member}:${type.templateId}` }
   if (type.kind === 'tuple') return { ...type, elements: type.elements.map((element) => scopeType(element, member)) }
   if (type.kind === 'list' || type.kind === 'asset' || type.kind === 'stream') return { ...type, element: scopeType(type.element, member) }
   return type
@@ -992,6 +1017,7 @@ function elaboratePass(
   const outputMembers: Record<string, string[]> = {}
   const choices: Record<string, string> = {}
   const unstoredChoices: Record<string, string> = {}
+  const unstoredRecordSelections: Record<string, string> = {}
   const unstoredMinimums: Record<string, MaterializeFrame> = {}
   const constructs = new Set<string>()
   const groupPaths = new Set<string>()
@@ -1553,8 +1579,10 @@ function elaboratePass(
   const lookedWidget = (widget: WidgetSpec & { readonly looked: NonNullable<WidgetSpec['looked']> }, scope: Scope): {
     readonly widget: WidgetSpec
     readonly states: Partial<Record<LookedWidgetField, LookedState>>
+    readonly numericConstraintsPending: boolean
   } => {
     const states: Partial<Record<LookedWidgetField, LookedState>> = {}
+    let numericConstraintsPending = false
     const fields: Record<string, unknown> = { ...widget.options }
     let completions = widget.textCompletions
     const worked = new Set<LookedNumberField>()
@@ -1571,6 +1599,7 @@ function elaboratePass(
       const value = found === undefined ? undefined : lookedAnswerValue(widget, field, found)
       if (found !== undefined && value === undefined && states[field] !== undefined) states[field] = wrongShape(states[field])
       if (value === undefined) {
+        if (field !== 'options' && field !== 'completions') numericConstraintsPending = true
         if (field === 'offset') fields[OFFSET_UNKNOWN] = true
         continue
       }
@@ -1592,6 +1621,7 @@ function elaboratePass(
     const min = limitOf(fields['min'])
     const max = limitOf(fields['max'])
     if (min !== undefined && max !== undefined && min > max) {
+      numericConstraintsPending = true
       for (const field of ['min', 'max'] as const) {
         if (!worked.has(field)) continue
         delete fields[field]
@@ -1606,6 +1636,7 @@ function elaboratePass(
         ...(completions !== undefined ? { textCompletions: completions } : {}),
       },
       states,
+      numericConstraintsPending,
     }
   }
 
@@ -1613,11 +1644,11 @@ function elaboratePass(
 
   /**
    * Walk rows that are no longer part of the node for the ones a wire on
-   * their output keeps (as drawn only). The walk settles nothing and reports
+   * their output keeps. The walk settles nothing and reports
    * nothing: what it reads is not the node's.
    */
-  const keep = (walk: () => void): void => {
-    if (!view || census) return
+  const keep = (walk: () => void, duringCompile = false): void => {
+    if ((!view && !duringCompile) || census) return
     const reported = diagnostics.length
     const settledBefore = new Map(chosen)
     const constructsBefore = new Set(constructs)
@@ -1674,7 +1705,7 @@ function elaboratePass(
 
   const emitInput = (row: InputSpec, path: string, scope: Scope, label?: string, extra: Partial<ElaboratedInput> = {}): void => {
     if (scope.kept !== undefined &&
-      (emittedInputs.has(path) || !connectivity.isOutputConnected(path))) return
+      (!view || emittedInputs.has(path) || !connectivity.isOutputConnected(path))) return
     if (!claim(emittedInputs, activeInputs, path, scope)) {
       exhaust('elab.projectedNamespaceCollision', `projected input namespace collision at '${path}'`)
       return
@@ -1721,6 +1752,7 @@ function elaboratePass(
       ...(scope.kept !== undefined ? { kept: scope.kept } : {}),
       ...(boxedLabel ? { ownLabel: own } : {}),
       ...(looked !== undefined && Object.keys(looked.states).length > 0 ? { looked: looked.states } : {}),
+      ...(looked?.numericConstraintsPending ? { numericConstraintsPending: true as const } : {}),
       ...(hiddenByScope ? { hiddenByScope: true as const } : {}),
       ...(scope.hiddenByDeclaration ? { hiddenByDeclaration: true as const } : {}),
       ...extra,
@@ -1734,7 +1766,8 @@ function elaboratePass(
   }
 
   const emitOutput = (row: OutputSpec, path: string, scope: Scope, label?: string): void => {
-    if (scope.kept !== undefined) return
+    if (scope.kept !== undefined &&
+      (emittedOutputs.has(path) || !connectivity.isOutputConnected(path))) return
     if (!claim(emittedOutputs, activeOutputs, path, scope)) {
       exhaust('elab.projectedNamespaceCollision', `projected output namespace collision at '${path}'`)
       return
@@ -1754,6 +1787,7 @@ function elaboratePass(
       },
       ...common(scope),
       ...(scope.ghost || scope.dormant ? { wireable: false as const } : {}),
+      ...(scope.kept !== undefined ? { kept: scope.kept } : {}),
       ...(boxedLabel ? { ownLabel: own } : {}),
     })
   }
@@ -2043,9 +2077,10 @@ function elaboratePass(
         default: return false
       }
     })
-    // The run's member list gives the engine the order of a grown group's
-    // members, including one whose only stored state is a choice or an output.
-    if (typeof grows === 'string' && !scope.ghost && !scope.dormant && storedCount > 0) {
+    // Count-grown outputs also need a recorded member list: the worker
+    // projects the same output interface the host validated.
+    const countedOutputs = typeof grows === 'object' && 'count' in grows && holdsOutput
+    if (!scope.ghost && !scope.dormant && (countedOutputs || typeof grows === 'string' && storedCount > 0)) {
       outputMembers[path] = [...keys]
     }
 
@@ -2075,6 +2110,7 @@ function elaboratePass(
         required,
         ghost: scope.ghost || ghost,
         dormant: scope.dormant || dormant,
+        ...(dormant && !census ? { kept: 'Outside the current count. Its wire gives nothing.' } : {}),
         origin: { kind: 'member', construct: path, ordinal: position, key, ...(ghost ? { ghost: true } : {}) },
         ancestry: [...scope.ancestry, {
           construct: path,
@@ -2143,11 +2179,14 @@ function elaboratePass(
       if (halted) return
       if (!member(position, key, false)) allUsed = false
     }
-    // A count that shrank leaves its later members stored: the census reads
-    // them as dormant, as it reads an option that is not chosen.
-    if (census && typeof grows === 'object' && 'count' in grows) {
+    // The census reads stored later members; the interface keeps only rows
+    // whose output still has a wire. Neither changes the live member list.
+    if (typeof grows === 'object' && 'count' in grows && (census || holdsOutput)) {
       const later = new Map<number, string>()
-      for (const stored of [...Object.keys(node.values), ...Object.keys(node.dynamic ?? {})]) {
+      const addresses = census
+        ? [...Object.keys(node.values), ...Object.keys(node.dynamic ?? {})]
+        : connectivity.outputPorts?.() ?? []
+      for (const stored of addresses) {
         if (!stored.startsWith(`${path}.`)) continue
         const key = stored.slice(path.length + 1).split('.')[0]!
         const position = keyPosition(row.keys, key)
@@ -2155,7 +2194,8 @@ function elaboratePass(
       }
       for (const [position, key] of [...later.entries()].sort(([a], [b]) => a - b)) {
         if (halted) return
-        member(position, key, false, true)
+        if (census) member(position, key, false, true)
+        else keep(() => { member(position, key, false, true) }, true)
       }
     }
 
@@ -2605,7 +2645,142 @@ function elaboratePass(
     })
   }
 
-  const project = (type: TypeExpr): TypeExpr => {
+  const projectRecord = (inputId: string, source: TypeExpr | undefined, onRemoved?: (message?: string) => void): TypeExpr | undefined => {
+    let selector = items.find((item) => item.kind === 'input' && item.spec.id === inputId)
+    if (source?.kind === 'record' && selector?.kind === 'input') {
+      const index = items.indexOf(selector)
+      selector = { ...selector, recordSelectionSource: source }
+      items[index] = selector
+    }
+    const stored = Object.hasOwn(node.values, inputId) ? node.values[inputId]
+      : selector?.kind === 'input' ? readWhenUnset(selector.spec) : undefined
+    try {
+      if (source?.kind !== 'record' || typeof stored !== 'string' || linked(inputId)) throw new Error('Record selection requires a declared record and a stored field path.')
+      const selection: unknown = JSON.parse(stored)
+      const saved = typeof selection === 'object' && selection !== null && !Array.isArray(selection)
+        ? selection as Record<string, unknown> : undefined
+      const path = saved === undefined && Array.isArray(selection) && selection.length === 0 && source.fields.length > 0
+        ? [[...source.fields].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)[0]!.id]
+        : saved === undefined ? selection : saved['path']
+      if (saved === undefined && Array.isArray(path) && path.length === 0 && source.fields.length === 0) {
+        if (selector?.kind === 'input' && selector.spec.widget !== undefined) {
+          const options = { ...selector.spec.widget.options }
+          delete options['options']
+          items[items.indexOf(selector)] = { ...selector, disabled: true, inert: true, derivedValue: '', spec: {
+            ...selector.spec, widget: { ...selector.spec.widget, options: { ...options, placeholder: t('canvas.record.noFields') } },
+          } }
+        }
+        onRemoved?.()
+        return { kind: 'wildcard' }
+      }
+      if (!Array.isArray(path) || path.length === 0 || !path.every((key) => typeof key === 'string' && key !== '')) throw new Error('Record selection requires a nonempty path of stable field IDs.')
+      const oldType = saved === undefined ? undefined : typeExprFromDinksterWire(saved['type'])
+      if (oldType !== undefined && canonicalTypeIdOf(oldType) === undefined) throw new Error('Saved record selection requires a resolved type.')
+      if (saved !== undefined && typeof saved['name'] !== 'string') throw new Error('Saved record selection requires a field name.')
+      let current: TypeExpr | undefined = source
+      const names: string[] = []
+      for (const key of path) {
+        const field: RecordField | undefined = current?.kind === 'record' ? current.fields.find((field) => field.id === key) : undefined
+        if (field !== undefined) names.push(field.name)
+        current = field?.type
+      }
+      const fits = current !== undefined && (oldType === undefined || recordFieldTypeFits(current, oldType))
+      if (selector?.kind === 'input' && selector.spec.widget !== undefined) {
+        const widget = selector.spec.widget
+        const choices = normalizedComboOptions(widget)
+        const matching = choices.find((option) => {
+          if (typeof option.value !== 'string') return false
+          try {
+            const candidate = JSON.parse(option.value)
+            if (candidate === null || Array.isArray(candidate) || typeof candidate.name !== 'string' || !Array.isArray(candidate.path)) return false
+            const declared = typeExprFromDinksterWire(candidate.type)
+            return current !== undefined && recordFieldTypeFits(current, declared) && recordFieldTypeFits(declared, current) &&
+              candidate.path.length === path.length && candidate.path.every((key: unknown, index: number) => key === path[index])
+          } catch { return false }
+        })
+        if (!census && view && fits && (saved === undefined || !Object.hasOwn(node.values, inputId)) && typeof matching?.value === 'string') {
+          unstoredRecordSelections[inputId] = matching.value
+        }
+        if (fits || oldType !== undefined) {
+          const label = fits ? names.join(' / ') : `${saved!['name']} (removed)`
+          const shown = { value: stored, label }
+          const presented = fits && matching !== undefined
+            ? choices.map((option) => option === matching ? shown : option)
+            : [...choices.filter((option) => option.value !== stored), shown]
+          const candidates = choices.flatMap((option) => {
+            if (typeof option.value !== 'string') return []
+            try {
+              const candidate = JSON.parse(option.value)
+              return Array.isArray(candidate.path) && typeof candidate.name === 'string'
+                ? [{ ...option, path: candidate.path as string[] }] : []
+            } catch { return [] }
+          })
+          const rows: NonNullable<ElaboratedInput['recordSelectionRows']>[number][] = []
+          let record: TypeExpr = source
+          let recordName = source.name
+          let parent: Json = stored
+          for (let depth = 0; record.kind === 'record'; depth++) {
+            const prefix = path.slice(0, depth)
+            const options: { value: Json; label: string }[] = candidates.filter((candidate) => candidate.path.length === depth + 1 &&
+              prefix.every((key, index) => key === candidate.path[index]))
+              .map((candidate) => ({ value: candidate.value, label: record.kind === 'record'
+                ? record.fields.find((field) => field.id === candidate.path[depth])?.name ?? candidate.label : candidate.label }))
+            if (depth > 0) options.unshift({ value: parent, label: t('canvas.record.wholeRecord') })
+            const field: RecordField | undefined = record.fields.find((field) => field.id === path[depth])
+            const selected = options.find((option) => {
+              if (typeof option.value !== 'string') return false
+              try { return JSON.parse(option.value).path[depth] === path[depth] } catch { return false }
+            })
+            let value: Json = selected?.value ?? parent
+            if (depth < path.length && (field === undefined || field.type.kind !== 'record' || depth === path.length - 1)) {
+              const oldName = String(saved?.['name'] ?? names.join(' / ')).split(' / ').slice(depth).join(' / ')
+              const final = { value: stored, label: fits ? field!.name : `${oldName} (removed)` }
+              const at = options.findIndex((option) => fits ? option === selected : option.value === stored)
+              if (at >= 0) options[at] = final
+              else options.push(final)
+              value = stored
+            }
+            rows.push({ record: recordName, value, options })
+            if (field === undefined || depth >= path.length || field.type.kind !== 'record' || !fits && depth === path.length - 1) break
+            parent = value
+            record = field.type
+            recordName = field.name
+          }
+          const index = items.indexOf(selector)
+          const declaredDefault = readWhenUnset(selector.spec)
+          let defaultValue = declaredDefault
+          if (typeof declaredDefault === 'string') {
+            try {
+              const declared = JSON.parse(declaredDefault)
+              const defaultPath = Array.isArray(declared) ? declared : declared.path
+              defaultValue = candidates.find((candidate) => Array.isArray(defaultPath) &&
+                candidate.path.length === defaultPath.length && candidate.path.every((key, depth) => key === defaultPath[depth]))?.value ?? declaredDefault
+            } catch { /* A malformed declaration keeps its ordinary validation problem. */ }
+          }
+          items[index] = { ...selector, ...(Array.isArray(widget.options['options']) ? { recordSelectionRows: rows } : {}),
+            spec: { ...selector.spec, widget: { ...widget, default: defaultValue, options: { ...widget.options, options: presented } } } }
+        }
+      }
+      if (fits) return current!
+      if (oldType === undefined) throw new Error('The selected record field is no longer declared.')
+      const message = current === undefined ? `Record field '${saved!['name']}' was removed.`
+        : `Record field '${saved!['name']}' changed type from ${canonicalTypeIdOf(oldType)} to ${canonicalTypeIdOf(current)}.`
+      diagnostics.push(diag('warning', 'schema', 'record-field-removed', message, {
+        ...(options.nodeId === undefined ? {} : { anchor: { port: { node: options.nodeId, port: asPortId(inputId) } } }),
+        data: { input: inputId, oldType, ...(current === undefined ? {} : { newType: current }) },
+      }))
+      onRemoved?.(message)
+      return oldType
+    } catch (error) {
+      report('elab.record.selection', error instanceof Error ? error.message : 'Invalid record field selection.', inputId)
+      return undefined
+    }
+  }
+  const project = (type: TypeExpr, onRemoved?: (message?: string) => void): TypeExpr => {
+    if (type.kind === 'record_field') {
+      const source = items.find((item) => item.kind === 'input' && item.spec.id === type.input)
+      return projectRecord(type.index, source?.kind === 'input' ? source.spec.type : undefined, onRemoved) ?? type
+    }
     if (type.kind === 'tuple_element') {
       const input = items.find((item) => item.kind === 'input' && item.spec.id === type.input)
       const element = type.element ?? (input?.kind === 'input' ? input.spec.type : undefined)
@@ -2620,12 +2795,29 @@ function elaboratePass(
       }
       return { kind: 'tuple_element', element, index }
     }
-    if (type.kind === 'tuple') return { ...type, elements: type.elements.map(project) }
-    if (type.kind === 'list' || type.kind === 'asset' || type.kind === 'stream') return { ...type, element: project(type.element) }
+    if (type.kind === 'tuple') return { ...type, elements: type.elements.map((element) => project(element, onRemoved)) }
+    if (type.kind === 'list' || type.kind === 'asset' || type.kind === 'stream') return { ...type, element: project(type.element, onRemoved) }
     return type
   }
   for (const [index, item] of items.entries()) {
-    if (item.kind === 'output') items[index] = { ...item, spec: { ...item.spec, type: project(item.spec.type) } }
+    if (item.kind === 'output') {
+      let kept: string | undefined
+      const type = project(item.spec.type, (message) => { if (message !== undefined) kept = message })
+      items[index] = { ...item, spec: { ...item.spec, type,
+        ...(kept === undefined ? {} : { optional: true, ...(!connectivity.isOutputConnected(item.address.port) ? { hidden: true as const } : {}) }),
+      }, ...(kept === undefined ? {} : { kept }) }
+    }
+    else if (item.kind === 'input' && item.spec.type.kind === 'record_field') {
+      let removed = false
+      const type = project(item.spec.type, () => { removed = true })
+      const widget = item.spec.widget ?? primitiveWidgetFor(type, item.spec.ext?.['default'])
+      items[index] = { ...item, spec: { ...item.spec, type,
+        ...(widget === undefined ? {} : { widget }), ...(removed ? { optional: true } : {}),
+      } }
+    }
+    else if (item.kind === 'input' && item.spec.recordSelectionSource !== undefined) {
+      projectRecord(item.spec.id, item.spec.recordSelectionSource)
+    }
   }
 
   const chunkSafe = schema.chunkSafe
@@ -2681,6 +2873,7 @@ function elaboratePass(
     ...(Object.keys(outputMembers).length > 0 ? { outputMembers } : {}),
     ...(Object.keys(choices).length > 0 ? { choices } : {}),
     ...(Object.keys(unstoredChoices).length > 0 ? { unstoredChoices } : {}),
+    ...(Object.keys(unstoredRecordSelections).length > 0 ? { unstoredRecordSelections } : {}),
     ...(Object.keys(unstoredMinimums).length > 0 ? { unstoredMinimums } : {}),
     constructs: [...constructs],
     groups: [...constructs].filter((path) => groupPaths.has(path)),

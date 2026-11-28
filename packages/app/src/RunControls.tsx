@@ -2,7 +2,7 @@ import { For, Show, createSignal, onCleanup, type JSX } from 'solid-js'
 import { Portal } from 'solid-js/web'
 import type { ExecutionState } from '@dinkster/client'
 import { executionKey, formatNumber, formatRelativeTime, t } from '@dinkster/core'
-import { ProductCancelButton, ProductMenu, ProductRunActivity } from '@dinkster/ui'
+import { ProductCancelButton, ProductMenu, ProductProgress, ProductRunActivity } from '@dinkster/ui'
 import Ellipsis from 'lucide-solid/icons/ellipsis'
 import LoaderCircle from 'lucide-solid/icons/loader-circle'
 import Clock from 'lucide-solid/icons/clock'
@@ -120,7 +120,7 @@ export function RunRow(props: {
     >
       <div class="run-row-line">
         <Show when={runIsPending(props.entry)} fallback={
-          <span class="run-row-thumbnail" aria-hidden="true">{props.thumbnail}</span>
+          <span class="run-row-thumbnail">{props.thumbnail}</span>
         }>
           <span class="run-row-mark" data-status={props.entry.status}>
             <Icon icon={props.entry.status === 'running' ? LoaderCircle : Clock} />
@@ -180,14 +180,14 @@ export function RunProgress(props: {
   readonly testId?: string | undefined
 }) {
   return (
-    <span class={`run-progress ${props.class}`}>
-      <progress class="run-progress-workflow" data-testid={props.testId} max="1" value={props.progress.value}
-        aria-label={props.label}
+    <div class={`run-progress ${props.class}`}>
+      <ProductProgress data-testid={props.testId} value={props.progress.value}
+        label={props.label}
         aria-valuetext={`${Math.round(props.progress.value * 100)}%, ${props.progress.finished} of ${props.progress.total} nodes`} />
-      <progress class="run-progress-node" data-testid={props.testId === undefined ? undefined : `${props.testId}-node`}
-        max="1" value={props.progress.node ?? 0} aria-label={props.nodeLabel}
+      <ProductProgress data-part="node" data-testid={props.testId === undefined ? undefined : `${props.testId}-node`}
+        value={props.progress.node ?? 0} label={props.nodeLabel}
         aria-hidden={props.progress.node === undefined ? 'true' : undefined} />
-    </span>
+    </div>
   )
 }
 

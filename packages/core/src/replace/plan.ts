@@ -71,6 +71,7 @@ import { boundaryItems } from '../format/document.js'
 // ---------------------------------------------------------------------------
 
 export const REPLACEMENT_MIGRATION_ARCHIVE_EXT_KEY = 'dinkster.replacementMigration'
+export const REPLACEMENT_SIGNATURE_EXT_KEY = 'dinkster.replacementSignature'
 
 /** Copied families depend on both stored state and the complete incoming topology. */
 export const replacementSourceStateHash = (graph: GraphDef, node: NodeData): string =>
@@ -91,6 +92,8 @@ export interface NodeReplacePlan {
   /** Expected CURRENT type - the staleness guard at apply time. */
   readonly from: string
   readonly to: string
+  /** Interface reached by an exact-signature same-type migration. */
+  readonly targetSignature?: string
   readonly note?: string
   /** Which rule case matched (for review UI/diagnostics). */
   readonly caseIndex: number
@@ -496,6 +499,7 @@ const groupMembersOf = (elaborated: ElaboratedInterface, path: string): readonly
   const keys: string[] = []
   for (const item of elaborated.items) {
     if (item.kind !== 'input' && item.kind !== 'output') continue
+    if (item.kept !== undefined) continue
     const origin = item.ancestry?.find((ancestor) => ancestor.construct === path)
     if (origin === undefined || origin.ghost === true) continue
     if (!keys.includes(origin.member)) keys.push(origin.member as string)
@@ -626,7 +630,14 @@ function planReplacementForCase(
       ],
     }
 
-  if (rule.fromSignature !== undefined && document.environment?.nodes[node.type]?.signature !== rule.fromSignature) {
+  // Review can upgrade one node while its peers still have the saved interface.
+  const migrated = node.ext?.[REPLACEMENT_SIGNATURE_EXT_KEY]
+  const environmentSignature = document.environment?.nodes[node.type]?.signature
+  const signature = typeof migrated === 'object' && migrated !== null && 'type' in migrated && migrated.type === node.type
+    && 'signature' in migrated && 'environmentSignature' in migrated
+    && migrated['environmentSignature'] === (environmentSignature ?? null)
+    ? migrated['signature'] : environmentSignature
+  if (rule.fromSignature !== undefined && signature !== rule.fromSignature) {
     return { diagnostics: [] }
   }
   if (rule.fromVersion !== undefined && (node.ext?.['importer.comfyNodeType'] !== node.type ||
@@ -2138,12 +2149,15 @@ function planReplacementForCase(
       nodeId,
       from: rule.from,
       to: matched.to,
+      ...(rule.fromSignature !== undefined && rule.fromVersion === undefined &&
+        rule.cases.every((candidate) => candidate.to === rule.from) && target.signature !== undefined &&
+        target.signature !== rule.fromSignature ? { targetSignature: target.signature } : {}),
       ...(rule.note !== undefined ? { note: rule.note } : {}),
       caseIndex,
       values,
       ...(Object.keys(dynamic).length > 0 ? { dynamic } : {}),
-      // Copied groups read the source's stored state and wiring, such as a count.
-      ...([...Object.values(matched.inputFamilies ?? {}), ...Object.values(matched.outputFamilies ?? {})]
+      // Signed migrations and copied groups must not overwrite a later edit.
+      ...(rule.fromSignature !== undefined || [...Object.values(matched.inputFamilies ?? {}), ...Object.values(matched.outputFamilies ?? {})]
         .some((mapping) => mapping.kind === 'copy')
         ? { sourceStateGuard: replacementSourceStateHash(def, node) }
         : {}),

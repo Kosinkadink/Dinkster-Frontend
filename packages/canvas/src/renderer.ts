@@ -6,7 +6,7 @@
  * owner pushes scene/state and the renderer repaints on a rAF dirty loop.
  */
 
-import { atomNamesOf, canonicalTypeIdOf, cardinalityOf, effectiveWidgetDefault, formatWidgetValue, t as translate, type CanvasLayerContribution, type CanvasLayerNode, type Json, type NodeDecoration, type NodeProgress, type NodeRunState, type TypeExpr } from '@dinkster/core'
+import { atomNamesOf, canonicalTypeIdOf, cardinalityOf, effectiveWidgetDefault, formatWidgetValue, isComboWidgetInput, t as translate, type CanvasLayerContribution, type CanvasLayerNode, type Json, type NodeDecoration, type NodeProgress, type NodeRunState, type TypeExpr } from '@dinkster/core'
 import {
   BYPASSED_BADGE,
   LAST_RUN_BADGE,
@@ -25,7 +25,7 @@ import {
 import { controllerChipRect, controllerChipTextRight, CONTROLLER_CHIP_TEXT_GAP, EDGE_ACTION_GLYPH_HALF, edgeActionCenterX, widgetFieldBounds } from './controller-chip.js'
 import { linkBounds, linkControlOffset, minimizeArrowRect, previewEdgeShown } from './hit.js'
 import { animationFrameAt, containRect, minimizedStripContent, previewHasPanel, splitPreviewRect, type OutputTextMap, type PreviewMap } from './previews.js'
-import { memberSpans, projectNodeLayoutHeight, projectPictureHeight, projectTextBoxLines, TITLE_START, widgetChromeRect, withCompactPreviewRegion, withFoldedPreviewRegion, withPreviewRegion, withTextOutputRegion, type LayoutLine, type LayoutRow, type MemberGrip, type NodeLayout, type NoteLookupLine, type PinLayout, noteLookupRows } from './layout.js'
+import { memberSpans, projectNodeLayoutHeight, projectNodeLayoutWidth, projectPictureHeight, projectTextBoxLines, TITLE_START, widgetChromeRect, withCompactPreviewRegion, withFoldedPreviewRegion, withPreviewRegion, withTextOutputRegion, type LayoutLine, type LayoutRow, type MemberGrip, type NodeLayout, type NoteLookupLine, type PinLayout, noteLookupRows } from './layout.js'
 import {
   boundaryFieldNode,
   boundarySceneId,
@@ -55,7 +55,7 @@ import {
 } from './toolbox.js'
 import { paintSeedControllerIcon, paintToolboxIcon } from './icons.js'
 import { isButtonIcon, paintButtonIcon } from './button-icons.js'
-import { canvasDetailLevel, canvasPaintTokens, defaultTokens, IN_NODE_EDITORS, presentedType, typeColor, type CanvasDetailLevel, type DesignTokens, type RowGeometry } from './tokens.js'
+import { canvasDetailLevel, canvasPaintTokens, defaultTokens, IN_NODE_EDITORS, presentedType, typeColor, type CanvasDetailLevel, type DesignTokens } from './tokens.js'
 import { fitText, measureWidth, paintCenteredText, shareRowWidth, wrapText } from './text-fit.js'
 
 /**
@@ -430,20 +430,11 @@ export interface RendererLensCapabilities {
 export function widgetRowAffordanceRect(
   rowWidth: number,
   rowHeight: number,
-  row: Extract<LayoutRow, { kind: 'widget' }>,
-  geometry: RowGeometry,
 ): { readonly x: number; readonly y: number; readonly width: number; readonly height: number } {
   const paint = canvasPaintTokens.lensAffordance
   const size = Math.max(paint.rowMinSize, Math.min(paint.rowMaxSize, rowHeight - paint.rowPadding))
-  const numeric = (row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT') && row.viewId !== 'core.integerColor'
-  const trailingEdge = row.controllerMode !== undefined
-    ? controllerChipRect(rowWidth, rowHeight, geometry).x - CONTROLLER_CHIP_TEXT_GAP
-    : rowWidth - (numeric ? geometry.stepperZone + CONTROLLER_CHIP_TEXT_GAP : CONTROLLER_CHIP_TEXT_GAP)
   return {
-    x: Math.max(
-      geometry.stepperZone + CONTROLLER_CHIP_TEXT_GAP,
-      trailingEdge - size,
-    ),
+    x: Math.max(0, rowWidth - CONTROLLER_CHIP_TEXT_GAP - size),
     y: (rowHeight - size) / 2,
     width: size,
     height: size,
@@ -687,12 +678,14 @@ export interface OverlayState {
     readonly direction: 'in' | 'out'
     readonly widgetTap?: true
   }
-  /** Keyboard-focused semantic pin. */
-  readonly focusedPin?: {
+  /** Keyboard-list location, independent of selection and pointer hover. */
+  readonly focusedTarget?: {
     readonly nodeId: string
-    readonly portId: string
-    readonly direction: 'in' | 'out'
-    readonly widgetTap?: true
+    readonly pin?: {
+      readonly portId: string
+      readonly direction: 'in' | 'out'
+      readonly widgetTap?: true
+    }
   }
   /** One widget row under the idle pointer. */
   readonly hoveredWidget?: { readonly nodeId: string; readonly valueKey: string }
@@ -1058,7 +1051,7 @@ export class CanvasRenderer {
   private reducedMotion = false
   private animationTimeMs = 0
   private previewChecker: CanvasPattern | null | undefined
-  private readonly graphTiles = new Map<string, ImageBitmap>()
+  private readonly graphTiles = new Map<string, ImageBitmap | null>()
   private graphTileTransform = ''
   private graphTileSurface: OffscreenCanvas | undefined
   private canvasLayers: readonly CanvasLayerContribution[] = []
@@ -1071,6 +1064,7 @@ export class CanvasRenderer {
     private tokens: DesignTokens,
     private readonly paintWidget: WidgetPainter = defaultWidgetPainter,
   ) {
+    this.fixedDetailMinScale = tokens.detailMinScale
     this.loop = this.loop.bind(this)
     this.scheduleFrame()
   }
@@ -1101,6 +1095,7 @@ export class CanvasRenderer {
   setScene(scene: Scene): void {
     this.baseScene = scene
     this.replacePaintScene(this.sceneWithBodyRegions(scene))
+    this.refreshDetailMinScale()
     this.refreshConnectivity()
     this.canvasLayerNodes = Object.freeze(this.scene.nodes.map((node) => Object.freeze({
       id: node.id,
@@ -1179,7 +1174,7 @@ export class CanvasRenderer {
     ctx.font = `${list.fontSize}px ${t.fontFamily}`
     ctx.textBaseline = 'middle'
     ctx.fillStyle = t.colors.nodeHeader
-    ctx.strokeStyle = t.colors.listOutline
+    ctx.strokeStyle = t.colors.nodeOutline
     ctx.lineWidth = list.stroke
     ctx.beginPath()
     ctx.roundRect(x, y, width, height, list.radius)
@@ -1238,7 +1233,7 @@ export class CanvasRenderer {
     const nodes = new Set<string>()
     const local = new Set<keyof OverlayState>([
       'selection', 'dragOffsets', 'resizePreview', 'bodyDropNode', 'dropRow', 'hoveredNode',
-      'hoveredPin', 'focusedPin', 'hoveredWidget', 'hoveredBox', 'hoveredButton', 'pressedButton', 'hoveredGrip', 'memberDrag', 'hoveredBadge', 'hoveredMinimize', 'textBoxLines', 'pictureHeight', 'textBoxEdge', 'hoveredPreviewCaption',
+      'hoveredPin', 'hoveredWidget', 'hoveredBox', 'hoveredButton', 'pressedButton', 'hoveredGrip', 'memberDrag', 'hoveredBadge', 'hoveredMinimize', 'textBoxLines', 'pictureHeight', 'textBoxEdge', 'hoveredPreviewCaption',
       'previewEdge',
     ])
     const keys = new Set([...Object.keys(previous), ...Object.keys(overlay)] as (keyof OverlayState)[])
@@ -1246,6 +1241,8 @@ export class CanvasRenderer {
       const before = previous[key]
       const after = overlay[key]
       if (before === after) continue
+      // The keyboard ring is painted above retained imagery, not into node tiles.
+      if (key === 'focusedTarget') continue
       if (key === 'selection' || key === 'linkSelection' || key === 'rerouteSelection' ||
           key === 'groupSelection' ||
           key === 'netViewSelection' || key === 'dropTargets' || key === 'hiddenLinkIds') {
@@ -1389,10 +1386,48 @@ export class CanvasRenderer {
     this.invalidate()
   }
 
+  private fixedDetailMinScale: number
+  private automaticDetails = false
+  private viewportGesture = false
+  private detailSettleTimer: ReturnType<typeof setTimeout> | undefined
+  private readonly detailScaleListeners = new Set<(scale: number) => void>()
+
   setDetailMinScale(scale: number): void {
-    if (this.tokens.detailMinScale === scale) return
-    this.tokens = { ...this.tokens, detailMinScale: scale }
+    this.fixedDetailMinScale = scale
+    this.refreshDetailMinScale()
+  }
+
+  setDetailMode(mode: 'automatic' | 'fixed'): void {
+    this.automaticDetails = mode === 'automatic'
+    this.refreshDetailMinScale()
+  }
+
+  onDetailMinScaleChange(listener: (scale: number) => void): () => void {
+    this.detailScaleListeners.add(listener)
+    return () => this.detailScaleListeners.delete(listener)
+  }
+
+  setViewportGesture(active: boolean): void {
+    if (this.viewportGesture === active) return
+    this.viewportGesture = active
+    if (active) {
+      clearTimeout(this.detailSettleTimer)
+      this.detailSettleTimer = undefined
+    } else this.refreshDetailMinScale()
+  }
+
+  refreshDetailMinScale(): void {
+    if (this.automaticDetails && (this.viewportGesture || this.viewportAnimation !== undefined || this.detailSettleTimer !== undefined)) return
+    const { x, y, scale } = this.viewport
+    const count = this.automaticDetails ? this.scene.nodes.filter((node) =>
+      node.x * scale + x <= this.canvas.clientWidth && (node.x + node.layout.width) * scale + x >= 0 &&
+      node.y * scale + y <= this.canvas.clientHeight && (node.y + node.layout.height) * scale + y >= 0,
+    ).length : 0
+    const threshold = this.automaticDetails ? count <= 40 ? 0.15 : count <= 150 ? 0.22 : 0.3 : this.fixedDetailMinScale
+    if (this.tokens.detailMinScale === threshold) return
+    this.tokens = { ...this.tokens, detailMinScale: threshold }
     this.invalidate()
+    for (const listener of this.detailScaleListeners) listener(threshold)
   }
 
   setColors(colors: DesignTokens['colors'], typePaint?: Pick<DesignTokens, 'typeColors' | 'typeFallbackLightness'>): void {
@@ -1580,6 +1615,13 @@ export class CanvasRenderer {
     return this.lensCapabilities
   }
 
+  /** Field controls and editors stop before a lens control's trailing slot. */
+  widgetContentWidth(node: SceneNode, row: Extract<LayoutRow, { kind: 'widget' }>): number {
+    const width = row.width ?? node.layout.width - row.inset * 2
+    if (this.lensCapabilities.widgetRowAffordance?.(node, row) === undefined) return width
+    return Math.max(0, widgetRowAffordanceRect(width, this.tokens.rowHeight).x - CONTROLLER_CHIP_TEXT_GAP)
+  }
+
   /** The value and wire state shared by field painting and label-mark hit testing. */
   widgetPaintState(node: SceneNode, row: Extract<LayoutRow, { kind: 'widget' }>, driven?: { readonly value?: Json }): Pick<WidgetPaintArgs, 'value' | 'companion' | 'connected'> {
     const arriving = this.rowCompanion(node.id, row, driven)
@@ -1605,7 +1647,7 @@ export class CanvasRenderer {
   }
 
   getDetailLevel(): CanvasDetailLevel {
-    return canvasDetailLevel(this.viewport.scale, this.tokens.mediaControlMinScale, this.tokens.detailMinScale)
+    return canvasDetailLevel(this.viewport.scale, this.tokens.detailMinScale)
   }
 
   private badges: BadgeMap = {}
@@ -1658,6 +1700,22 @@ export class CanvasRenderer {
 
   getNodeBadgeLayout(node: SceneNode): readonly BadgePlacement[] {
     return layoutNodeBadges(node, this.badges[node.id] ?? [], this.badgeLayoutOptions(node))
+  }
+
+  /** The words actually painted, so help can distinguish a full label from a cut or hidden one. */
+  getBadgeText(entry: BadgePlacement): string {
+    const { badge } = entry
+    if (badge.placement === 'title') return badge.count === undefined ? '' : String(badge.count)
+    if (entry.compact && badge.icon !== undefined) return ''
+    const ctx = this.canvas.getContext('2d')!
+    const paint = { ...canvasPaintTokens.badge.tab, ...this.tokens.badgeTab }
+    const width = entry.overflow ? entry.width : Math.max(0, entry.width - paint.padding * 2 -
+      (badge.icon === undefined ? 0 : paint.iconSize + paint.iconGap))
+    ctx.save()
+    ctx.font = `${canvasPaintTokens.type.semiboldWeight} ${paint.fontSize}px ${this.tokens.fontFamily}`
+    const text = fitText(ctx, badge.glyph, width)
+    ctx.restore()
+    return text
   }
 
   private nodeDecorations: Readonly<Record<string, NodeDecoration>> = {}
@@ -1881,20 +1939,41 @@ export class CanvasRenderer {
       const folded = previewFoldedOf(node)
       const preview = previews[node.id]
       const outputText = outputTexts[node.id]
+      const audio = preview?.kind === 'audio' || node.audioPreview === true ? canvasPaintTokens.node.audioPreview : undefined
+      const tokens = audio === undefined ? this.tokens : { ...this.tokens, previewMinHeight: audio.minHeight, previewDefaultHeight: audio.minHeight }
       if (node.layout.minimized === true) {
         const content = minimizedStripContent(preview, outputText)
         return content === 'picture'
-          ? { ...node, layout: folded ? withFoldedPreviewRegion(node.layout, this.tokens) : withPreviewRegion(node.layout, this.tokens) }
+          ? { ...node, layout: folded ? withFoldedPreviewRegion(node.layout, tokens) : withPreviewRegion(node.layout, tokens) }
           : content === 'text'
             ? { ...node, layout: withTextOutputRegion(node.layout, this.tokens, this.outputTextLineCount(node.layout, outputText!.text), folded) }
             : node
       }
       // Only the caption row: before a picture, while it loads or failed, and folded.
       const panel = preview !== undefined && previewHasPanel(preview) && !folded
-      const baseLayout = node.previewCapable === true || (preview !== undefined && !panel)
-        ? withCompactPreviewRegion(node.layout, this.tokens)
+      let baseLayout = node.previewCapable === true || (preview !== undefined && !panel)
+        ? withCompactPreviewRegion(node.layout, tokens)
         : node.layout
-      if (panel) return { ...node, layout: withPreviewRegion(baseLayout, this.tokens) }
+      if (!panel && node.audioPreview === true && baseLayout.preview?.compact === true) {
+        const ctx = this.canvas.getContext('2d')!
+        const caption = canvasPaintTokens.preview.caption
+        ctx.save()
+        ctx.font = `${tokens.fontSize}px ${tokens.fontFamily}`
+        const labelWidth = measureWidth(ctx, 'Preview')
+        ctx.font = `${Math.max(canvasPaintTokens.type.smallMinSize, tokens.fontSize - canvasPaintTokens.type.smallReduction)}px ${tokens.fontFamily}`
+        const detailWidth = measureWidth(ctx, 'no sound yet')
+        ctx.restore()
+        const minWidth = Math.max(baseLayout.minWidth, Math.ceil(tokens.padX * 2 + caption.padLeft + labelWidth + caption.gap + Math.ceil(detailWidth) + caption.padRight))
+        baseLayout = { ...projectNodeLayoutWidth(baseLayout, Math.max(baseLayout.width, minWidth)), minWidth }
+      }
+      if (panel) {
+        let layout = withPreviewRegion(baseLayout, tokens)
+        if (audio !== undefined) {
+          const minWidth = Math.max(layout.minWidth, audio.minWidth)
+          layout = { ...projectNodeLayoutWidth(layout, Math.max(layout.width, minWidth)), minWidth }
+        }
+        return { ...node, layout }
+      }
       if (preview !== undefined && folded && previewHasPanel(preview)) {
         return { ...node, layout: withFoldedPreviewRegion(baseLayout, this.tokens) }
       }
@@ -2096,6 +2175,14 @@ export class CanvasRenderer {
     this.viewport = viewport
     this.dirty = true
     for (const cb of this.viewportListeners) cb(viewport)
+    clearTimeout(this.detailSettleTimer)
+    this.detailSettleTimer = undefined
+    if (this.automaticDetails && !this.viewportGesture) {
+      this.detailSettleTimer = setTimeout(() => {
+        this.detailSettleTimer = undefined
+        this.refreshDetailMinScale()
+      }, 150)
+    }
   }
 
   /** Observe every viewport change (pan/zoom/fit/jump). Returns unsubscribe. */
@@ -2109,7 +2196,7 @@ export class CanvasRenderer {
   }
 
   private clearGraphTiles(): void {
-    for (const tile of this.graphTiles.values()) tile.close()
+    for (const tile of this.graphTiles.values()) tile?.close()
     this.graphTiles.clear()
     this.graphTileTransform = ''
   }
@@ -2125,7 +2212,7 @@ export class CanvasRenderer {
       const width = (size + bleed * 2) / (densityX * scale)
       const height = (size + bleed * 2) / (densityY * scale)
       if (bounds.maxX < x || bounds.minX > x + width || bounds.maxY < y || bounds.minY > y + height) continue
-      tile.close()
+      tile?.close()
       this.graphTiles.delete(key)
     }
   }
@@ -2219,6 +2306,8 @@ export class CanvasRenderer {
 
   dispose(): void {
     this.cancelViewportAnimation()
+    clearTimeout(this.detailSettleTimer)
+    this.detailScaleListeners.clear()
     this.disposed = true
     if (this.rafId !== undefined) cancelAnimationFrame(this.rafId)
     this.rafId = undefined
@@ -2426,6 +2515,7 @@ export class CanvasRenderer {
     const tl = this.getToolboxLayout()
     if (tl) this.drawToolbox(ctx, tl)
     this.drawTypeAdornments(ctx, view)
+    this.drawKeyboardFocus(ctx, scale)
     this.drawPresence(ctx, scale)
     this.drawCanvasLayers('foreground', ctx, view, scale)
     ctx.setTransform(1, 0, 0, 1, 0, 0)
@@ -2469,11 +2559,19 @@ export class CanvasRenderer {
     densityX: number,
     densityY: number,
   ): void {
-    const { tilePixels: size, bleedPixels: bleed } = canvasPaintTokens.graphCache
+    const cache = canvasPaintTokens.graphCache
+    const { tilePixels: size, bleedPixels: bleed } = cache
     const { x, y, scale } = this.viewport
+    const overlay = this.overlay
+    // Node/link bins prove transparency only when nothing else can paint
+    // between them. Overlay transitions also invalidate cached empty tiles.
+    const skipEmpty = scale <= cache.detailMaxScale && this.getDetailLevel() !== 'overview' &&
+      this.scene.groups.length === 0 && this.scene.reroutes.length === 0 && this.scene.netStubs.length === 0 && this.scene.boundaryNodes.length === 0 &&
+      !overlay.selection?.size && !overlay.ghostLink && !overlay.ghostLinks && !overlay.hoveredLine &&
+      !overlay.marquee && !overlay.groupResizeGhost && !overlay.placementGhost
     const pixelX = Math.round(x * densityX)
     const pixelY = Math.round(y * densityY)
-    const transform = `${scale}/${densityX}/${densityY}`
+    const transform = `${scale}/${densityX}/${densityY}/${skipEmpty}`
     if (transform !== this.graphTileTransform) {
       this.clearGraphTiles()
       this.graphTileTransform = transform
@@ -2528,6 +2626,11 @@ export class CanvasRenderer {
               assign(this.linkPaintBounds(link), (scene) => scene.links.push(link))
             }
           }
+          const tileScene = scenes.get(key)!
+          if (skipEmpty && tileScene.nodes.length === 0 && tileScene.links.length === 0) {
+            this.graphTiles.set(key, null)
+            continue
+          }
           const surface = this.graphTileSurface ??= new OffscreenCanvas(size + bleed * 2, size + bleed * 2)
           // Reset paint state as well as pixels before rendering another tile.
           surface.width = surface.height = size + bleed * 2
@@ -2540,17 +2643,17 @@ export class CanvasRenderer {
             y: -originY / (densityY * scale),
             w: (size + bleed * 2) / (densityX * scale),
             h: (size + bleed * 2) / (densityY * scale),
-          }, scale, { ...this.scene, ...scenes.get(key)! })
+          }, scale, { ...this.scene, ...tileScene })
           tile = surface.transferToImageBitmap()
           this.graphTiles.set(key, tile)
         }
-        ctx.drawImage(tile, bleed, bleed, size, size, column * size + pixelX, row * size + pixelY, size, size)
+        if (tile !== null) ctx.drawImage(tile, bleed, bleed, size, size, column * size + pixelX, row * size + pixelY, size, size)
       }
     }
     // Retain only the visible working set, independent of total graph size or pan distance.
     for (const [key, tile] of this.graphTiles) {
       if (used.has(key)) continue
-      tile.close()
+      tile?.close()
       this.graphTiles.delete(key)
     }
   }
@@ -2602,7 +2705,7 @@ export class CanvasRenderer {
       const batches = new Map<string | undefined, Array<readonly [number, number, number, number]>>()
       for (const link of scene.links) {
         if (link.hidden === true || this.overlay.hiddenLinkIds?.has(link.id) === true ||
-            this.overlay.linkSelection?.has(link.id) === true || link.maybeAbsent === true || this.nothingLinks.has(link.id) || link.dimmed === true || link.mismatch === true) continue
+            this.overlay.linkSelection?.has(link.id) === true || link.maybeAbsent === true || this.nothingLinks.has(link.id) || link.dimmed === true || link.sourceMuted === true || link.mismatch === true) continue
         const bounds = linkBounds(link.x1, link.y1, link.x2, link.y2)
         if (bounds.maxX + paintPad < view.x || bounds.minX - paintPad > view.x + view.w ||
             bounds.maxY + paintPad < view.y || bounds.minY - paintPad > view.y + view.h) continue
@@ -2731,7 +2834,7 @@ export class CanvasRenderer {
         this.scopeHighlight === undefined) {
       const batches = new Map<string | undefined, Array<readonly [number, number]>>()
       for (const reroute of this.scene.reroutes) {
-        if (this.overlay.rerouteSelection?.has(reroute.id) === true ||
+        if (reroute.dimmed === true || reroute.sourceMuted === true || this.overlay.rerouteSelection?.has(reroute.id) === true ||
             this.overlay.dropTargets?.has(rerouteTargetKey(reroute.id)) === true ||
             this.overlay.hoveredReroute === reroute.id) continue
         const pad = Math.max(rerouteRadius + canvasPaintTokens.reroute.cullPadding, statusRingCullPad(rerouteRadius, scale))
@@ -2772,6 +2875,8 @@ export class CanvasRenderer {
         : Math.max(rerouteRadius + canvasPaintTokens.reroute.cullPadding, statusRingCullPad(rerouteRadius, scale))
       if (rx + pad < view.x || rx - pad > view.x + view.w || ry + pad < view.y || ry - pad > view.y + view.h) continue
       if (this.scopeHighlight && !this.scopeHighlight.reroutes.has(r.id)) ctx.globalAlpha = SCOPE_DIM
+      if (r.dimmed) ctx.globalAlpha *= canvasPaintTokens.widget.inactiveOpacity
+      if (r.sourceMuted) ctx.globalAlpha *= canvasPaintTokens.node.modeOpacity
       if (this.overlay.dropTargets?.has(rerouteTargetKey(r.id))) {
         ctx.beginPath()
         ctx.arc(rx, ry, rerouteRadius + STATUS_RING_GAP, 0, Math.PI * 2)
@@ -2943,7 +3048,7 @@ export class CanvasRenderer {
       ) {
         continue
       }
-      this.drawNode(ctx, node, detailLevel, o.dx, o.dy)
+      this.drawNode(ctx, node, detailLevel, view, o.dx, o.dy)
     }
 
     // Boundary pseudo-nodes: drawn after regular nodes (they sit at the
@@ -3127,6 +3232,49 @@ export class CanvasRenderer {
       ctx.fillText(descriptor.text, anchorX + descriptor.x, anchorY + descriptor.y)
       ctx.restore()
     }
+  }
+
+  private drawKeyboardFocus(ctx: CanvasRenderingContext2D, scale: number): void {
+    const target = this.overlay.focusedTarget
+    if (target === undefined) return
+    const node = this.scene.nodes.find((node) => node.id === target.nodeId) ??
+      this.scene.boundaryNodes.find((node) => boundarySceneId(node.side) === target.nodeId)
+    if (node === undefined) return
+    const paint = canvasPaintTokens.keyboardFocus
+    const offset = this.overlay.dragOffsets?.get(target.nodeId) ?? ZERO_OFFSET
+    const x = node.x + offset.dx
+    const y = node.y + offset.dy
+    const outset = paint.outset / scale
+    const densityX = this.canvas.width / this.canvas.clientWidth
+    const densityY = this.canvas.height / this.canvas.clientHeight
+    const originX = Math.round(this.viewport.x * densityX)
+    const originY = Math.round(this.viewport.y * densityY)
+    // Align the stroke's edges, not its center, to backing pixels.
+    const snapX = (value: number): number =>
+      (Math.round(value * scale * densityX + originX - paint.stroke * densityX / 2) + paint.stroke * densityX / 2 - originX) / (scale * densityX)
+    const snapY = (value: number): number =>
+      (Math.round(value * scale * densityY + originY - paint.stroke * densityY / 2) + paint.stroke * densityY / 2 - originY) / (scale * densityY)
+    ctx.save()
+    ctx.strokeStyle = this.tokens.colors.keyboardFocus
+    ctx.lineWidth = paint.stroke / scale
+    ctx.beginPath()
+    if (target.pin === undefined) {
+      const left = snapX(x - outset)
+      const top = snapY(y - outset)
+      ctx.roundRect(left, top, snapX(x + node.layout.width + outset) - left,
+        snapY(y + node.layout.height + outset) - top, this.tokens.cornerRadius + outset)
+    } else {
+      const pin = node.layout.pins.find((pin) => pin.portId === target.pin!.portId &&
+        pin.direction === target.pin!.direction && (pin.widgetTap === true) === (target.pin!.widgetTap === true))
+      if (pin === undefined) { ctx.restore(); return }
+      const point = edgePinPoint(this.tokens, pin.direction, pin.direction === 'in' ? x : x + node.layout.width, y + pin.y)
+      const radius = detailRadius(this.tokens.pinRadius, scale, this.getDetailLevel()) + outset
+      ctx.ellipse(snapX(point.x), snapY(point.y),
+        Math.round(radius * scale * densityX) / (scale * densityX),
+        Math.round(radius * scale * densityY) / (scale * densityY), 0, 0, Math.PI * 2)
+    }
+    ctx.stroke()
+    ctx.restore()
   }
 
   /**
@@ -3490,8 +3638,8 @@ export class CanvasRenderer {
     }
   }
 
-  /** Paint-only projection for an in-flight resize; scene and hit geometry stay committed. */
-  private nodeForPaint(node: SceneNode): SceneNode {
+  /** Live geometry shared by canvas paint and host overlays; scene and hit geometry stay committed. */
+  nodeForPaint(node: SceneNode): SceneNode {
     const lines = this.overlay.textBoxLines
     if (lines?.nodeId === node.id) {
       return { ...node, layout: projectTextBoxLines(node.layout, lines.valueKey, lines.lines, this.tokens) }
@@ -3505,16 +3653,7 @@ export class CanvasRenderer {
       ...node,
       x: preview.x,
       y: preview.y,
-      layout: {
-        ...layout,
-        width: preview.width,
-        ...(layout.preview === undefined ? {} : {
-          preview: { ...layout.preview, width: Math.max(0, preview.width - this.tokens.padX * 2) },
-        }),
-        ...(layout.textOutput === undefined ? {} : {
-          textOutput: { ...layout.textOutput, width: Math.max(0, preview.width - this.tokens.padX * 2) },
-        }),
-      },
+      layout: projectNodeLayoutWidth(layout, preview.width),
     }
   }
 
@@ -3597,7 +3736,7 @@ export class CanvasRenderer {
         if (badge.count !== undefined) ctx.fillText(String(badge.count), x + mark.padding + mark.iconSize + mark.gap, textY)
       } else if (entry.overflow) {
         ctx.textAlign = 'center'
-        ctx.fillText(fitText(ctx, badge.glyph, width), x + width / 2, textY)
+        ctx.fillText(this.getBadgeText(entry), x + width / 2, textY)
       } else {
         let textX = x + paint.padding
         if (badge.icon !== undefined) {
@@ -3605,7 +3744,7 @@ export class CanvasRenderer {
           textX += paint.iconSize + paint.iconGap
         }
         if (!entry.compact || badge.icon === undefined) {
-          ctx.fillText(fitText(ctx, badge.glyph, Math.max(0, x + width - paint.padding - textX)), textX, textY)
+          ctx.fillText(this.getBadgeText(entry), textX, textY)
         }
       }
       ctx.restore()
@@ -3652,6 +3791,7 @@ export class CanvasRenderer {
     ctx: CanvasRenderingContext2D,
     sceneNode: SceneNode,
     detailLevel: CanvasDetailLevel,
+    view: Readonly<{ y: number; h: number }>,
     dx = 0,
     dy = 0,
   ): void {
@@ -3797,17 +3937,17 @@ export class CanvasRenderer {
     this.drawMinimizeArrow(ctx, node)
     if (!contentDetail) {
       ctx.font = `${l.titleRenamed ? 'italic ' : ''}${canvasPaintTokens.type.semiboldWeight} ${t.titleFontSize}px ${t.fontFamily}`
+      ctx.fillStyle = t.colors.title
+      ctx.textBaseline = 'middle'
+      ctx.textAlign = 'left'
+      paintCenteredText(ctx, fitText(ctx, title, l.width - TITLE_START - t.padX), node.x + TITLE_START, node.y + l.headerHeight / 2, t.titleFontSize)
       if (measureWidth(ctx, title) <= l.width - TITLE_START - t.padX) {
-        ctx.fillStyle = t.colors.title
-        ctx.textBaseline = 'middle'
-        ctx.textAlign = 'left'
-        paintCenteredText(ctx, title, node.x + TITLE_START, node.y + l.headerHeight / 2, t.titleFontSize)
         this.drawTitleSuffix(ctx, suffix, node.x + TITLE_START + measureWidth(ctx, title), node.x + l.width - t.padX, node.y + l.headerHeight / 2, false)
       }
     }
 
     // Detailed text and chips are omitted in the overview tier; structural
-    // state, fitting titles, and typed connectivity remain visible.
+    // state, fitted titles, and typed connectivity remain visible.
     if (contentDetail) {
       // Title fitting respects the space left by header marks.
       ctx.fillStyle = t.colors.title
@@ -4054,8 +4194,15 @@ export class CanvasRenderer {
       // A skipped node's fields are quiet; its problem marks keep contrast.
       const skippedRows = progress?.state === 'skipped'
       this.problemMarkAlpha = rowsAlpha
+      const cache = canvasPaintTokens.graphCache
+      const cullFields = scale <= cache.detailMaxScale
+      const rowPad = structureCullPad(scale, t.pinRadius, detailLevel)
       for (const row of l.rows) {
         const rowY = node.y + row.y
+        // A field outside this tile cannot contribute pixels; its pins and
+        // enclosing boxes still paint through their independent paths.
+        if (cullFields && row.kind === 'widget' &&
+            (rowY + row.height + rowPad < view.y || rowY - rowPad > view.y + view.h)) continue
         // A member box's header starts where its outline does.
         const rowTop = row.kind === 'member' ? row.top : row.y
         ctx.globalAlpha = dragged !== undefined && rowTop >= dragged.top && rowTop < dragged.bottom
@@ -4178,16 +4325,21 @@ export class CanvasRenderer {
           const paint = canvasPaintTokens.widget
           ctx.fillRect(node.x + t.padX, rowY + t.rowGeometry.fieldInsetY, l.width - t.padX * 2, row.height - t.rowGeometry.fieldInsetY * 2)
           ctx.globalAlpha = rowAlpha * paint.fallback.opacity
+          const usable = Math.max(0, l.width - t.padX * 2 - paint.fallback.textInset * 2)
+          const labelZone = shareRowWidth(usable, measureWidth(ctx, row.label) + paint.labelWidthPadding,
+            measureWidth(ctx, row.text) + paint.fallbackValueWidthPadding, true)
           ctx.fillStyle = t.colors.label
           ctx.textAlign = 'left'
-          ctx.fillText(row.label, node.x + t.padX + paint.fallback.textInset, rowY + row.height / 2, (l.width - t.padX * 2) * paint.fallback.labelRatio)
+          ctx.fillText(fitText(ctx, row.label, Math.max(0, labelZone - paint.labelClipPadding)),
+            node.x + t.padX + paint.fallback.textInset, rowY + row.height / 2)
           ctx.fillStyle = t.colors.value
           ctx.textAlign = 'right'
-          ctx.fillText(row.text, node.x + l.width - t.padX - paint.fallback.textInset, rowY + row.height / 2, (l.width - t.padX * 2) * paint.fallback.valueRatio)
+          ctx.fillText(fitText(ctx, row.text, Math.max(0, usable - labelZone)),
+            node.x + l.width - t.padX - paint.fallback.textInset, rowY + row.height / 2)
           ctx.textAlign = 'left'
           ctx.globalAlpha = rowAlpha
           // A problem on this stored value outlines its row.
-          this.paintRowProblem(ctx, sceneNode.id, row.label, {
+          this.paintRowProblem(ctx, sceneNode.id, row.valueKey, {
             x: node.x + t.padX, y: rowY + t.rowGeometry.fieldInsetY,
             width: l.width - t.padX * 2, height: row.height - t.rowGeometry.fieldInsetY * 2, radius: 0,
           })
@@ -4215,6 +4367,7 @@ export class CanvasRenderer {
           }
           if (row.output) {
             if (row.output.ghost) ctx.globalAlpha = rowAlpha * GHOST_ALPHA
+            if (row.output.inactive) ctx.globalAlpha = rowAlpha * canvasPaintTokens.widget.inactiveOpacity
             ctx.fillStyle = t.colors.label
             const right = row.crossInset === undefined
               ? node.x + l.width - t.rowGeometry.portLabelInset - (row.nameInset ?? 0)
@@ -4409,7 +4562,7 @@ export class CanvasRenderer {
         y: node.y + l.preview.y,
         width: l.preview.width,
         height: l.preview.height,
-      }, { label: 'Preview', detail: 'no picture yet', detailColor: t.colors.valueMark, detailFont: smallFont, hovered: false })
+      }, { label: 'Preview', detail: node.audioPreview === true ? 'no sound yet' : 'no picture yet', detailColor: t.colors.valueMark, detailFont: smallFont, hovered: false })
     }
     if (previewEdgeShown(node) && contentDetail) {
       // The text box's bar, inside the node just above its bottom edge: it
@@ -4476,7 +4629,7 @@ export class CanvasRenderer {
     // affordance must be discoverable by pointing at the node, not only by
     // selecting it first.
     const nodeHovered = this.overlay.hoveredNode === node.id
-    const matchVariableAt = (target: OverlayState['hoveredPin'] | OverlayState['focusedPin']): string | undefined => {
+    const matchVariableAt = (target: OverlayState['hoveredPin']): string | undefined => {
       if (target === undefined) return undefined
       return l.pins.find((pin) =>
         pin.portId === target.portId &&
@@ -4486,9 +4639,6 @@ export class CanvasRenderer {
     }
     const hoveredMatchVariable = this.overlay.hoveredPin?.nodeId === node.id
       ? matchVariableAt(this.overlay.hoveredPin)
-      : undefined
-    const focusedMatchVariable = this.overlay.focusedPin?.nodeId === node.id
-      ? matchVariableAt(this.overlay.focusedPin)
       : undefined
     if (l.minimized) {
       const isConnected = (pin: PinLayout): boolean => {
@@ -4524,7 +4674,8 @@ export class CanvasRenderer {
       return
     }
     for (const pin of l.pins) {
-      if (pin.stacked === true) continue
+      if (pin.stacked === true || pin.lineHidden === true) continue
+      if (!contentDetail && l.rows.some((row) => row.kind === 'editorSpace' && pin.y >= row.y && pin.y < row.y + row.height)) continue
       const { x: px, y: py } = edgePinPoint(t, pin.direction, pin.direction === 'in' ? node.x : node.x + l.width, node.y + pin.y)
       const targetKey = dropTargetKey(node.id, pin.portId, pin.direction, pin.widgetTap === true)
       const isLegalTarget = this.overlay.dropTargets?.has(targetKey) ?? false
@@ -4535,14 +4686,9 @@ export class CanvasRenderer {
         this.overlay.hoveredPin.portId === pin.portId &&
         this.overlay.hoveredPin.direction === pin.direction &&
         (pin.widgetTap === true) === (this.overlay.hoveredPin.widgetTap === true)
-      const focused =
-        this.overlay.focusedPin?.nodeId === node.id &&
-        this.overlay.focusedPin.portId === pin.portId &&
-        this.overlay.focusedPin.direction === pin.direction &&
-        (pin.widgetTap === true) === (this.overlay.focusedPin.widgetTap === true)
       const associated = pin.matchVariable !== undefined &&
-        (pin.matchVariable === hoveredMatchVariable || pin.matchVariable === focusedMatchVariable)
-      const radius = hovered || focused || associated ? pinRadius + PIN_HOVER_GROWTH : pinRadius
+        pin.matchVariable === hoveredMatchVariable
+      const radius = hovered || associated ? pinRadius + PIN_HOVER_GROWTH : pinRadius
       // A field's output pin shares its input's annotations but sends one value.
       const acceptsList = pin.direction === 'in' && pin.acceptsList === true
       const shape = pinShapeOf(pin.type, pin.direction, acceptsList)
@@ -4715,10 +4861,13 @@ export class CanvasRenderer {
     const t = this.tokens
     const l = node.layout
     const rowY = node.y + row.y
-    if (this.openRows[sceneNode.id] === row.valueKey) return
+    if (this.openRows[sceneNode.id] === row.valueKey) {
+      this.drawWidgetRowAffordance(ctx, sceneNode, node, row)
+      return
+    }
     const display = this.widgetPaintState(node, row, driven)
     const { companion, connected } = display
-    const widgetWidth = row.width ?? l.width - row.inset * 2
+    const widgetWidth = this.widgetContentWidth(sceneNode, row)
     const rowAlpha = ctx.globalAlpha
     if (row.disabled) ctx.globalAlpha = rowAlpha * canvasPaintTokens.widget.inactiveOpacity
     else {
@@ -4844,7 +4993,7 @@ export class CanvasRenderer {
       ctx.strokeStyle = t.colors.selection
       ctx.strokeRect(x, y, chip.width, chip.height)
       const icon = chip.width * canvasPaintTokens.controller.chipIconRatio
-      paintSeedControllerIcon(ctx, row.controllerMode, x + (chip.width - icon) / 2, y + (chip.height - icon) / 2, icon, t.colors.label)
+      paintSeedControllerIcon(ctx, row.controllerMode, x + (chip.width - icon) / 2, y + (chip.height - icon) / 2, icon, t.colors.label, isComboWidgetInput({ widget: row.spec }))
       ctx.globalAlpha = chipAlpha
     }
     const numeric = (row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT') && row.viewId !== 'core.integerColor'
@@ -4879,39 +5028,48 @@ export class CanvasRenderer {
       ctx.lineCap = previousLineCap
       ctx.globalAlpha = glyphAlpha
     }
-    const lensAffordance = this.lensCapabilities.widgetRowAffordance?.(sceneNode, row)
-    if (lensAffordance !== undefined) {
-      const rowWidth = widgetWidth
-      const rect = widgetRowAffordanceRect(rowWidth, t.rowHeight, row, t.rowGeometry)
-      const x = node.x + row.inset + rect.x
-      const y = rowY + rect.y
-      const affordanceAlpha = ctx.globalAlpha
-      const paint = canvasPaintTokens.lensAffordance
-      if (lensAffordance.disabled === true) ctx.globalAlpha *= paint.disabledOpacity
-      ctx.fillStyle = lensAffordance.active ? t.colors.widgetAffordanceActive : t.colors.widgetBackground
-      ctx.strokeStyle = lensAffordance.active ? t.colors.widgetAffordanceActive : t.colors.widgetAffordance
-      ctx.lineWidth = paint.stroke
-      ctx.beginPath()
-      ctx.roundRect(x, y, rect.width, rect.height, paint.radius)
-      ctx.fill()
-      ctx.stroke()
-      ctx.strokeStyle = lensAffordance.active ? t.colors.canvasBackground : t.colors.widgetAffordance
-      ctx.lineCap = 'round'
-      ctx.beginPath()
-      if (lensAffordance.active) {
-        ctx.moveTo(x + rect.width * paint.check.startX, y + rect.height * paint.check.startY)
-        ctx.lineTo(x + rect.width * paint.check.middleX, y + rect.height * paint.check.middleY)
-        ctx.lineTo(x + rect.width * paint.check.endX, y + rect.height * paint.check.endY)
-      } else {
-        ctx.moveTo(x + rect.width * paint.plus.start, y + rect.height / 2)
-        ctx.lineTo(x + rect.width * paint.plus.end, y + rect.height / 2)
-        ctx.moveTo(x + rect.width / 2, y + rect.height * paint.plus.start)
-        ctx.lineTo(x + rect.width / 2, y + rect.height * paint.plus.end)
-      }
-      ctx.stroke()
-      ctx.globalAlpha = affordanceAlpha
-    }
+    this.drawWidgetRowAffordance(ctx, sceneNode, node, row)
     ctx.globalAlpha = rowAlpha
+  }
+
+  private drawWidgetRowAffordance(
+    ctx: CanvasRenderingContext2D,
+    sceneNode: SceneNode,
+    node: SceneNode,
+    row: Extract<LayoutRow, { kind: 'widget' }>,
+  ): void {
+    const affordance = this.lensCapabilities.widgetRowAffordance?.(sceneNode, row)
+    if (affordance === undefined) return
+    const t = this.tokens
+    const rowWidth = row.width ?? node.layout.width - row.inset * 2
+    const rect = widgetRowAffordanceRect(rowWidth, t.rowHeight)
+    const x = node.x + row.inset + rect.x
+    const y = node.y + row.y + rect.y
+    const paint = canvasPaintTokens.lensAffordance
+    ctx.save()
+    if (affordance.disabled === true) ctx.globalAlpha *= paint.disabledOpacity
+    ctx.fillStyle = affordance.active ? t.colors.widgetAffordanceActive : t.colors.widgetBackground
+    ctx.strokeStyle = affordance.active ? t.colors.widgetAffordanceActive : t.colors.widgetAffordance
+    ctx.lineWidth = paint.stroke
+    ctx.beginPath()
+    ctx.roundRect(x, y, rect.width, rect.height, paint.radius)
+    ctx.fill()
+    ctx.stroke()
+    ctx.strokeStyle = affordance.active ? t.colors.canvasBackground : t.colors.widgetAffordance
+    ctx.lineCap = 'round'
+    ctx.beginPath()
+    if (affordance.active) {
+      ctx.moveTo(x + rect.width * paint.check.startX, y + rect.height * paint.check.startY)
+      ctx.lineTo(x + rect.width * paint.check.middleX, y + rect.height * paint.check.middleY)
+      ctx.lineTo(x + rect.width * paint.check.endX, y + rect.height * paint.check.endY)
+    } else {
+      ctx.moveTo(x + rect.width * paint.plus.start, y + rect.height / 2)
+      ctx.lineTo(x + rect.width * paint.plus.end, y + rect.height / 2)
+      ctx.moveTo(x + rect.width / 2, y + rect.height * paint.plus.start)
+      ctx.lineTo(x + rect.width / 2, y + rect.height * paint.plus.end)
+    }
+    ctx.stroke()
+    ctx.restore()
   }
 
   private drawRunningGlow(
@@ -5315,6 +5473,7 @@ export class CanvasRenderer {
     // Pins. Ghost pins draw hollow; a legal boundary drop target gets the
     // same highlight ring as regular pins.
     for (const pin of l.pins) {
+      if (!contentDetail && l.rows.some((row) => row.kind === 'editorSpace' && pin.y >= row.y && pin.y < row.y + row.height)) continue
       const { x: px, y: py } = edgePinPoint(t, pin.direction, pin.direction === 'in' ? x : x + l.width, y + pin.y)
       if (this.overlay.dropTargets?.has(boundaryTargetKey(bnode.side, pin.portId))) {
         ctx.beginPath()
