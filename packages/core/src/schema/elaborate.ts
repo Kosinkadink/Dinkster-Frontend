@@ -2725,7 +2725,7 @@ function elaboratePass(
               record = field.type
             }
             const index = items.indexOf(selector)
-            items[index] = { ...selector, ...(widget.widgetType === 'COMBO' ? { recordSelectionRows: rows } : {}),
+            items[index] = { ...selector, ...(choices.length > 0 ? { recordSelectionRows: rows } : {}),
               spec: { ...selector.spec, widget: { ...widget, options: { ...widget.options, options: presented } } } }
           }
         }
