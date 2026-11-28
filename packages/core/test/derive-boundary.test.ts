@@ -2126,10 +2126,64 @@ describe('Boundary sample acceptance compilation', () => {
       edit(store, 'node.setValues', { graphId: 'detail', nodeId: 'sample', values: {
         'nested.n0.weights.w0': 0.2, 'nested.n1.weights.w0': 0.8, 'nested.n1.weights.w1': 0.9,
       } })
-      expect(prompt(store.doc)[path]!.inputs).toMatchObject({
+      edit(store, 'dynamic.materialize', { graphId: 'root', nodeId: 'first', frames: [
+        { construct: 'nested', members: ['n0', 'n1'] },
+        { construct: 'nested.n0.weights', members: ['w0', 'w1'] },
+        { construct: 'nested.n1.weights', members: ['w0'] },
+      ] })
+      edit(store, 'node.setValues', { graphId: 'root', nodeId: 'first', values: {
+        'nested.n0.weights.w0': 0.25, 'nested.n0.weights.w1': 0.85, 'nested.n1.weights.w0': 0.65,
+      } })
+      edit(store, 'dynamic.materialize', { graphId: 'root', nodeId: 'second', frames: [
+        { construct: 'nested', members: ['n0'] }, { construct: 'nested.n0.weights', members: ['w0'] },
+      ] })
+      edit(store, 'node.setValue', { graphId: 'root', nodeId: 'second', inputId: 'nested.n0.weights.w0', value: 0.55 })
+      const original = store.doc, compiled = prompt(original)
+      const second = level === 1 ? 'second.sample' : 'second.detail.sample'
+      const prefix = {
         'nested.n0.weights.w0': 0.2, 'nested.n1.weights.w0': 0.8, 'nested.n1.weights.w1': 0.9,
+      }
+      const nestedInputs = (inputs: Record<string, unknown>) => Object.fromEntries(Object.entries(inputs).filter(([id]) => id.startsWith('nested.')))
+      expect(nestedInputs(compiled[path]!.inputs)).toEqual({ ...prefix,
+        'nested.n2.weights.w0': 0.25, 'nested.n2.weights.w1': 0.85, 'nested.n3.weights.w0': 0.65,
       })
-      expect(prompt(store.doc)[path]!.inputs).not.toHaveProperty('nested.n0.weights.w1')
+      expect(nestedInputs(compiled[second]!.inputs)).toEqual({ ...prefix, 'nested.n2.weights.w0': 0.55 })
+      expect(Object.fromEntries(Object.entries(compiled[path]!.outputMembers!).filter(([id]) => id === 'nested' || id.startsWith('nested.')))).toEqual({
+        nested: ['n0', 'n1', 'n2', 'n3'], 'nested.n0.weights': ['w0'], 'nested.n1.weights': ['w0', 'w1'],
+        'nested.n2.weights': ['w0', 'w1'], 'nested.n3.weights': ['w0'],
+      })
+      const check = (document: WorkflowDocument, removed: boolean) => {
+        expect(loadDocument(JSON.parse(JSON.stringify(document))).document).toEqual(document)
+        const current = prompt(document)
+        const { 'nested.n2.weights.w0': _w0, 'nested.n2.weights.w1': _w1, ...remainingInputs } = compiled[path]!.inputs
+        const { 'nested.n2.weights': _weights, ...remainingMembers } = compiled[path]!.outputMembers!
+        expect(current[path]).toEqual(removed ? { ...compiled[path]!, inputs: remainingInputs,
+          outputMembers: { ...remainingMembers, nested: ['n0', 'n1', 'n3'] },
+        } : compiled[path])
+        expect(current[path]!.outputMembers).toMatchObject({
+          'nested.n0.weights': ['w0'], 'nested.n1.weights': ['w0', 'w1'],
+          'nested.n3.weights': ['w0'],
+        })
+        expect(current[second]).toEqual(compiled[second])
+        expect(current[second]!.outputMembers).toMatchObject({ nested: ['n0', 'n1', 'n2'], 'nested.n2.weights': ['w0'] })
+        expect(document.graphs.root!.nodes.second).toEqual(original.graphs.root!.nodes.second)
+        expect(document.graphs.detail).toEqual(original.graphs.detail)
+        expect(document.graphs.portrait).toEqual(original.graphs.portrait)
+      }
+      check(original, false)
+      const refused = store.dispatch({ command: 'dynamic.moveMember', params: {
+        graphId: 'root', nodeId: 'first', construct: 'nested', member: 'n1', index: 0,
+      } })
+      expect(refused.ok).toBe(false)
+      expect(refused.diagnostics.map((entry) => entry.code)).toContain('dynamic.notReorderable')
+      expect(store.doc).toBe(original)
+      edit(store, 'dynamic.removeMember', { graphId: 'root', nodeId: 'first', construct: 'nested', member: 'n0' })
+      const removed = store.doc
+      check(removed, true)
+      expect(store.undo()).toBe(true)
+      expect(store.doc).toEqual(original)
+      expect(store.redo()).toBe(true)
+      expect(store.doc).toEqual(removed)
     })
 
     it(`boundary/type-choice/${context}`, () => {
