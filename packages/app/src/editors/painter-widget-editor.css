@@ -39,6 +39,10 @@
   gap: 8px;
 }
 
+.painter-toolbar .product-field[data-layout='compact'] {
+  grid-template-columns: max-content minmax(0, 1fr) auto;
+}
+
 .painter-toolbar .product-number {
   width: 110px;
 }
