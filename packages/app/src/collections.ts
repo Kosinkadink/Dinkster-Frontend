@@ -328,7 +328,6 @@ const workflowEntry = (r: LibraryRecord, backend: Backend): CollectionEntry => (
   badges: r.labels.filter((l) => l !== WORKFLOW_LABEL),
   diagnostics: JSON.stringify({ ...r, backend: backend.label }, null, 2),
   details: [
-    { label: 'modified', text: formatDate(r.modified * 1000, { ...COLLECTION_DATE_OPTIONS, hour: 'numeric', minute: '2-digit' }) },
     ...(r.folder !== undefined ? [{ label: 'folder', text: r.folder }] : []),
   ],
   // 'copy-link' puts a shareable dinkster:// link on the clipboard; the
@@ -646,7 +645,9 @@ export function historySource(app: AppState): CollectionSource {
             { label: 'state', text: titleCase(statusText === 'error' ? 'failed' : statusText) },
             ...(exec.startedAt !== undefined ? [{ label: 'started', text: localTimeText(exec.startedAt) }] : []),
             ...(exec.startedAt === undefined || exec.endedAt === undefined ? [] : [{ label: 'duration', text: formatNumber(Math.max(0, (exec.endedAt - exec.startedAt) / 1000), { style: 'unit', unit: 'second', unitDisplay: 'narrow' }) }]),
-            { label: 'nodes', text: t('runs.chosen.nodesText', { ran: Object.values(exec.nodes).filter((node) => node.state === 'done').length, cached: Object.values(exec.nodes).filter((node) => node.state === 'cached').length }) },
+            ...(Object.values(exec.nodes).some((node) => node.state === 'done' || node.state === 'cached')
+              ? [{ label: 'nodes', text: t('runs.chosen.nodesText', { ran: Object.values(exec.nodes).filter((node) => node.state === 'done').length, cached: Object.values(exec.nodes).filter((node) => node.state === 'cached').length }) }]
+              : []),
           ],
         }
       }),

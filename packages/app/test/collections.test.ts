@@ -198,6 +198,13 @@ describe('historySource', () => {
     expect(page.items[1]!.subtitle).not.toContain('p-early')
     expect(page.items[1]!.badges).toBeUndefined()
     expect(JSON.parse(page.items[0]!.diagnostics!)).toMatchObject({ nodes: { sampler: { worker: 'render-box' } } })
+    expect(page.items.every((entry) => entry.details?.every((detail) => detail.label !== 'nodes'))).toBe(true)
+
+    app.store.apply({ kind: 'nodeStates', execution: second, timestamp: 3500, nodes: {
+      sampler: { state: 'done' }, firstCache: { state: 'cached' }, secondCache: { state: 'cached' },
+    } })
+    const measured = await historySource(app).page({ query: '', limit: 10 })
+    expect(measured.items[0]!.details).toContainEqual({ label: 'nodes', text: '1 nodes ran, 2 from cache' })
   })
 
   it('shows failed state and keeps errors in the copied diagnostics', async () => {

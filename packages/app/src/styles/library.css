@@ -139,7 +139,7 @@
   user-select: text;
 }
 .library-detail-rail > * { flex: none; }
-.library-detail-header { display: flex; min-width: 0; align-items: flex-start; gap: var(--dinkster-space-8); }
+.library-detail-header { position: sticky; top: 0; z-index: 2; display: flex; min-width: 0; align-items: flex-start; gap: var(--dinkster-space-8); background: var(--dinkster-surface-inset); box-shadow: 0 calc(-1 * var(--dinkster-space-12)) 0 var(--dinkster-surface-inset); }
 .library-detail-header > span:nth-child(2) { display: grid; flex: 1; min-width: 0; gap: var(--dinkster-space-4); }
 .library-detail-header strong,
 .library-detail-header small { overflow-wrap: anywhere; }
@@ -182,6 +182,12 @@
   .library-backend-context { grid-template-columns: minmax(0, 1fr) auto; }
   .library-backend-context > span:first-child { display: none; }
 }
+
+.modal-surface[data-modal='board-card-picker'] .library-panel { height: auto; flex: 0 1 auto; }
+.modal-surface[data-modal='board-card-picker'] .collection-panel { flex: 0 1 auto; }
+.modal-surface[data-modal='board-card-picker'] .collection-content { flex: none; flex-direction: column; flex-wrap: nowrap; }
+.modal-surface[data-modal='board-card-picker'] .collection-content > .collection-items { flex: none; height: min(320px, 32vh); max-height: none; }
+.modal-surface[data-modal='board-card-picker'] .library-detail-rail { flex: 0 1 auto; max-height: min(320px, 32vh); box-sizing: border-box; }
 
 .assets-panel {
   flex: 1;
