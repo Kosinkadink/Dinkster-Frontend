@@ -1,14 +1,11 @@
-import { mkdir } from 'node:fs/promises'
 import { expect, test } from '../visual.js'
 import { focusByTab } from './fixtures.js'
 
-const PROOF = '/tmp/audit-assets-proof'
 const sharedDigest = `blake3:${'a'.repeat(64)}`
 const localDigest = `blake3:${'b'.repeat(64)}`
 const pixel = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+XxW8WQAAAABJRU5ErkJggg==', 'base64')
 
-test('uses the configured All assets source while preserving curated per-mount browsing', async ({ page }) => {
-  await mkdir(PROOF, { recursive: true })
+test('uses the configured All assets source while preserving curated per-mount browsing', async ({ page }, testInfo) => {
   let catalogRequests = 0
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
@@ -111,5 +108,5 @@ test('uses the configured All assets source while preserving curated per-mount b
   await expect(assetsPanel.getByRole('option', { name: /local\.safetensors/ }).locator('.collection-badge').last()).toHaveText('21 B')
   await page.keyboard.press('Escape')
   await expect(page.locator('.app-tooltip')).not.toBeVisible()
-  await page.screenshot({ path: `${PROOF}/01-configured-all-assets-grid.png`, fullPage: true })
+  await page.screenshot({ path: testInfo.outputPath('01-configured-all-assets-grid.png'), fullPage: true })
 })
