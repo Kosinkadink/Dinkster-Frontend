@@ -2192,6 +2192,7 @@
   "installations.restore.before": "Recorded software",
   "installations.restore.after": "Replacement software",
   "installations.restore.unavailable": "No compatible software alternative is available. Nothing can be applied.",
+  "installations.restore.unresolved": "The restore start is still unconfirmed. Check again for its background job; another restore stays blocked.",
   "installations.restore.reviewAgain": "The restore did not return a confirmed start. Review again before applying another restore.",
   "installations.restore.review": "Review again",
   "installations.restore.state.running": "Restoring",

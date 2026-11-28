@@ -3,7 +3,7 @@ import {
   createPageLoad, ProductButton, ProductCodeBlock, ProductDialog, ProductDisclosure,
   ProductErrorBanner, ProductField, ProductNotice, ProductPageLoad, ProductSelect,
 } from '@dinkster/ui'
-import { requestFailure, requestFetch } from '@dinkster/client'
+import { RequestFailure, requestFailure, requestFetch } from '@dinkster/client'
 import type { SetupJob } from '../setup-job.js'
 import { setupJobActive } from '../setup-job.js'
 import { failureMessage } from '../request-failure.js'
@@ -17,25 +17,45 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     if (!response.ok) throw await requestFailure(response)
     return await response.json()
   } catch (failure) {
-    throw new Error(failureMessage(failure))
+    throw new Error(failureMessage(failure), { cause: failure })
   }
 }
 
 /** The page observes process-owned work independently of the selected detail or review. */
-export function createInstallationJobs(onCompleted: (root: string) => void) {
+export function createInstallationJobs(onTerminal: (job: SetupJob) => void) {
+  const message = useAppMessage()
   const page = createPageLoad<SetupJob | null>()
   const [changing, setChanging] = createSignal(false)
   const [error, setError] = createSignal<string>()
+  const [unresolved, setUnresolved] = createSignal(false)
   let disposed = false
   let observed = false
-  const completed = new Set<string>()
+  let discoveryAttempts = 0
+  let previousId: string | undefined
+  const reconciled = new Set<string>()
   const read = async () => {
+    const tracked = page.value()
+    if (setupJobActive(tracked)) {
+      try {
+        return await request<SetupJob>(`installations/jobs/${encodeURIComponent(tracked!.id)}`)
+      } catch (failure) {
+        const cause = (failure as Error).cause
+        if (!(cause instanceof RequestFailure) || cause.status !== 404) throw failure
+        // The supervisor's process-owned registry can disappear on restart.
+        setError((failure as Error).message)
+      }
+    }
+    if (unresolved()) discoveryAttempts--
     const { activeJob } = await request<{ activeJob: SetupJob | null }>('setup/active')
+    if (unresolved()) {
+      if (activeJob && activeJob.id !== previousId) { setUnresolved(false); discoveryAttempts = 0 }
+      else if (discoveryAttempts <= 0) throw new Error(message('installations.restore.unresolved'))
+    }
     return setupJobActive(activeJob)
       ? request<SetupJob>(`installations/jobs/${encodeURIComponent(activeJob!.id)}`) : activeJob
   }
   const refresh = () => page.load(read)
-  const blocked = () => changing() || page.pending() || Boolean(page.error()) || setupJobActive(page.value())
+  const blocked = () => changing() || unresolved() || page.pending() || Boolean(page.error()) || setupJobActive(page.value())
   async function start(planId: string): Promise<boolean> {
     if (blocked()) return false
     setChanging(true)
@@ -48,7 +68,16 @@ export function createInstallationJobs(onCompleted: (root: string) => void) {
       return true
     } catch (failure) {
       // Discover an ambiguous start; repeating POST would reuse unreviewed authority.
-      if (!disposed) { await refresh(); setError((failure as Error).message) }
+      if (!disposed) {
+        const cause = (failure as Error).cause
+        if (!(cause instanceof RequestFailure) || cause.status === undefined || cause.status >= 500) {
+          previousId = page.value()?.id
+          discoveryAttempts = 8
+          setUnresolved(true)
+        }
+        await refresh()
+        setError((failure as Error).message)
+      }
       return false
     } finally {
       if (!disposed) setChanging(false)
@@ -71,12 +100,12 @@ export function createInstallationJobs(onCompleted: (root: string) => void) {
   createEffect(() => {
     const job = page.value()
     if (job === undefined) return
-    if (job?.operation === 'restore' && job.state === 'completed' && !completed.has(job.id)) {
-      completed.add(job.id)
-      if (observed) onCompleted(job.root)
+    if (job?.operation === 'restore' && !setupJobActive(job) && !reconciled.has(job.id)) {
+      reconciled.add(job.id)
+      if (observed) onTerminal(job)
     }
     observed = true
-    if (!setupJobActive(job) || page.pending() || changing()) return
+    if ((!setupJobActive(job) && !(unresolved() && discoveryAttempts > 0)) || page.pending() || changing()) return
     const timer = setTimeout(() => { void refresh() }, 750)
     onCleanup(() => clearTimeout(timer))
   })
@@ -111,6 +140,7 @@ export function InstallationRestore(props: {
   const page = createPageLoad<RestorePlan>()
   const [choice, setChoice] = createSignal('')
   const [invalid, setInvalid] = createSignal(false)
+  const [dismissedJobRead, setDismissedJobRead] = createSignal<Error>()
   const read = async () => {
     setChoice('')
     setInvalid(false)
@@ -130,6 +160,10 @@ export function InstallationRestore(props: {
       onClick={() => { void apply() }}>{message('installations.restore.apply')}</ProductButton>}>
     <ProductNotice>{message('installations.restore.explanation', { root: props.root })}</ProductNotice>
     <Show when={props.jobs.error()}>{(error) => <ProductErrorBanner onDismiss={props.jobs.dismissError}>{error()}</ProductErrorBanner>}</Show>
+    <Show when={props.jobs.page.error()}>{(error) => <>
+      <Show when={error() !== dismissedJobRead()}><ProductErrorBanner onDismiss={() => setDismissedJobRead(error())}>{error().message}</ProductErrorBanner></Show>
+      <ProductButton disabled={props.jobs.page.pending()} onClick={() => { void props.jobs.refresh() }}>{message('setup.retry')}</ProductButton>
+    </>}</Show>
     <Show when={invalid()}><ProductNotice>{message('installations.restore.reviewAgain')}</ProductNotice>
       <ProductButton disabled={props.jobs.blocked()} onClick={() => { void page.load(read) }}>{message('installations.restore.review')}</ProductButton></Show>
     <ProductPageLoad page={page} read={read} loadingLabel={message('installations.restore.loading')}>

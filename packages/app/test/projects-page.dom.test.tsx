@@ -102,7 +102,7 @@ const projects = [
 ]
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
-const rows = () => [...document.querySelectorAll('[role="option"]')].map((row) => row.textContent)
+const rows = () => [...document.querySelectorAll('[data-project-selection]')].map((row) => row.textContent)
 const loading = (label: string) => [...document.querySelectorAll('[role="status"]')].find((node) => node.textContent === label)
 
 it('shows recorded history newest first and keeps current generations, imports and failures distinct across roots', async () => {
@@ -129,7 +129,7 @@ it('shows recorded history newest first and keeps current generations, imports a
   }))
   const dispose = render(() => <InstallationsView source={{ installations: async () => ({ all: [stable, nightly], engine: 'stopped' }) }} />, document.body)
   await settle()
-  document.querySelectorAll<HTMLElement>('[role="option"]')[1]!.click()
+  document.querySelectorAll<HTMLElement>('[data-project-selection]')[1]!.click()
   await settle()
   const history = () => document.querySelector('[aria-label="History"]')!
   const items = () => [...history().querySelectorAll('li')]
@@ -145,11 +145,11 @@ it('shows recorded history newest first and keeps current generations, imports a
   await settle()
   expect(history().textContent).not.toContain('9.9.9')
   stableRead = Promise.resolve(Response.json({ current: 1, history: [entry(1, 1, 'setup', '9.9.9')] }))
-  document.querySelectorAll<HTMLElement>('[role="option"]')[0]!.click()
+  document.querySelectorAll<HTMLElement>('[data-project-selection]')[0]!.click()
   await settle()
   expect(history().textContent).toContain('Set up with 9.9.9')
   unavailable = true
-  document.querySelectorAll<HTMLElement>('[role="option"]')[1]!.click()
+  document.querySelectorAll<HTMLElement>('[data-project-selection]')[1]!.click()
   await settle()
   expect(document.body.textContent).toContain('Recorded history cannot be read')
   expect(document.body.textContent).not.toContain('No recorded installation history')
@@ -195,7 +195,7 @@ it('keeps recorded facts with their selected installation through late replies, 
     all: [stable, nightly], open: stable, engine: 'ready',
   }) }} />, document.body)
   await settle()
-  document.querySelectorAll<HTMLElement>('[role="option"]')[1]!.click()
+  document.querySelectorAll<HTMLElement>('[data-project-selection]')[1]!.click()
   await settle()
   const facts = () => document.querySelector('[aria-label="About this installation"]')!
   expect(facts().textContent).toContain(nightly.root)
@@ -205,11 +205,11 @@ it('keeps recorded facts with their selected installation through late replies, 
   await settle()
   expect(facts().textContent).not.toContain('0.1.2')
   stableRead = Promise.resolve(Response.json({ root: stable.root, current: 2, build: { version: '0.1.2', variant: 'linux-cpu' }, engines: [] }))
-  document.querySelectorAll<HTMLElement>('[role="option"]')[0]!.click()
+  document.querySelectorAll<HTMLElement>('[data-project-selection]')[0]!.click()
   await settle()
   expect(facts().textContent).toContain('0.1.2')
   nightlyUnavailable = true
-  document.querySelectorAll<HTMLElement>('[role="option"]')[1]!.click()
+  document.querySelectorAll<HTMLElement>('[data-project-selection]')[1]!.click()
   await settle()
   expect(document.body.textContent).toContain('Selected snapshot cannot be read')
   expect(document.querySelector('[aria-label="About this installation"]')).toBeNull()
@@ -233,7 +233,7 @@ it('selects installations independently of the running engine and opens setup in
   await settle()
   expect(rows()).toEqual(['StableStopped', 'NightlyRunning'])
   expect(document.querySelector('[aria-label="About this installation"]')?.textContent).toContain(stable.root)
-  document.querySelectorAll<HTMLElement>('[role="option"]')[1]!.click()
+  document.querySelectorAll<HTMLElement>('[data-project-selection]')[1]!.click()
   await settle()
   expect(document.querySelector('h2')?.textContent).toBe('Nightly')
   expect(document.querySelector('[aria-label="About this installation"]')?.textContent).toContain(nightly.root)
@@ -245,8 +245,8 @@ it('selects installations independently of the running engine and opens setup in
   expect(back.textContent).toBe('Installations')
   back.click()
   await settle()
-  expect(document.querySelector('[role="option"][aria-selected="true"]')?.textContent).toBe('NightlyRunning')
-  document.querySelectorAll<HTMLElement>('[role="option"]')[0]!.click()
+  expect(document.querySelector('[role="row"][aria-selected="true"] [data-project-selection]')?.textContent).toBe('NightlyRunning')
+  document.querySelectorAll<HTMLElement>('[data-project-selection]')[0]!.click()
   await settle()
   expect(document.querySelector('[data-testid="setup-form"]')).toBeNull()
   expect(document.querySelector('h2')?.textContent).toBe('Stable')
@@ -311,13 +311,13 @@ it('reads saved sandbox authority per installation and keeps unavailable prerequ
   expect(toggle().getAttribute('aria-checked')).toBe('true')
   expect(document.querySelector('[role="alert"]')?.textContent).toContain('The engine did not answer.')
   expect(document.body.textContent).toContain('Changes apply when the engine restarts.')
-  document.querySelectorAll<HTMLElement>('[role="option"]')[1]!.click()
+  document.querySelectorAll<HTMLElement>('[data-project-selection]')[1]!.click()
   await settle()
   expect(toggle().getAttribute('aria-checked')).toBe('true')
   toggle().click()
   await settle()
   expect(toggle().getAttribute('aria-checked')).toBe('false')
-  document.querySelectorAll<HTMLElement>('[role="option"]')[0]!.click()
+  document.querySelectorAll<HTMLElement>('[data-project-selection]')[0]!.click()
   await settle()
   expect(toggle().getAttribute('aria-checked')).toBe('true')
   dispose()
@@ -1138,17 +1138,21 @@ it('revokes a pending template choice when the feature turns off without creatin
   expect(created).toBe(false)
 })
 
-it('requires reviewed Restore consent and keeps a lost-reply job on its own row across selection and cancellation', async () => {
+it.each(['completed', 'failed'] as const)('requires reviewed Restore consent and reconciles a delayed lost-reply job through %s', async (terminal) => {
   vi.useFakeTimers()
   let job: Record<string, unknown> | null = null
+  let discoverable = false
   let posts = 0
   let restored = false
   const approved: unknown[] = []
   vi.stubGlobal('fetch', async (input: string, init?: RequestInit) => {
     const url = new URL(String(input), 'http://localhost')
     const root = url.searchParams.get('root')!
-    if (url.pathname.endsWith('/active')) return Response.json({ activeJob: job })
+    if (url.pathname.endsWith('/active')) return Response.json({ activeJob: restored
+      ? { id: 'newer-job', root: nightly.root, operation: 'update', state: 'running' }
+      : discoverable ? job : null })
     if (url.pathname.includes('/jobs/')) {
+      if (url.pathname.endsWith('/newer-job')) return Response.json({ id: 'newer-job', root: nightly.root, operation: 'update', state: 'running' })
       if (init?.method === 'DELETE') job = { ...job, state: 'cancelling' }
       return Response.json(job)
     }
@@ -1190,6 +1194,12 @@ it('requires reviewed Restore consent and keeps a lost-reply job on its own row 
     expect(button('Apply restore')!.disabled).toBe(true)
     button('Apply restore')!.click()
     expect(posts).toBe(1)
+    await vi.advanceTimersByTimeAsync(terminal === 'failed' ? 6000 : 1500)
+    expect(button('Apply restore')!.disabled).toBe(true)
+    if (terminal === 'failed') expect(document.querySelector('dialog')!.textContent).toContain('The restore start is still unconfirmed.')
+    discoverable = true
+    if (terminal === 'failed') [...document.querySelectorAll<HTMLButtonElement>('dialog button')].find((entry) => entry.textContent === 'Check again')!.click()
+    await vi.advanceTimersByTimeAsync(750)
     document.querySelector<HTMLDialogElement>('dialog')!.close()
     await vi.advanceTimersByTimeAsync(0)
     const selections = () => [...document.querySelectorAll<HTMLElement>('[data-project-selection]')]
@@ -1198,15 +1208,18 @@ it('requires reviewed Restore consent and keeps a lost-reply job on its own row 
     await vi.advanceTimersByTimeAsync(0)
     expect(selections()[1]!.closest('[role="row"]')!.getAttribute('aria-selected')).toBe('true')
     expect(document.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('0.42')
+    button('Cancel')!.focus()
     button('Cancel')!.click()
-    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(document.activeElement).toBe(selections()[0])
     expect(selections()[0]!.textContent).toContain('Cancelling restore')
     expect(button('Cancel')!.disabled).toBe(true)
     expect(selections()[1]!.closest('[role="row"]')!.getAttribute('aria-selected')).toBe('true')
-    // A late cancel can lose to a committed restore; the server's terminal state wins.
-    job = Object.assign({}, job, { state: 'completed' }); restored = true
+    // Activation can commit before either cancellation or a later cleanup failure.
+    job = Object.assign({}, job, { state: terminal, error: terminal === 'failed' ? { code: 'cleanup-failed', message: 'Cleanup failed after activation.' } : null }); restored = true
     await vi.advanceTimersByTimeAsync(750)
-    expect(selections()[0]!.textContent).toContain('Restore completed')
+    expect(selections()[0]!.textContent).toContain(terminal === 'completed' ? 'Restore completed' : 'Restore failed')
+    expect([...document.querySelectorAll('.dinkster-toast')].map((toast) => toast.textContent).filter(Boolean)).toEqual(terminal === 'completed' ? [`${stable.root}: Restore completed`] : [])
     expect(selections()[1]!.closest('[role="row"]')!.getAttribute('aria-selected')).toBe('true')
     selections()[0]!.click()
     await vi.advanceTimersByTimeAsync(0)

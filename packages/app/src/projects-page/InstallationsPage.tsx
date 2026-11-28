@@ -135,9 +135,9 @@ export function InstallationsView(props: {
   const [dismissedRead, setDismissedRead] = createSignal<Error>()
   const [notification, setNotification] = createSignal<{ message: string }>()
   const [revisions, setRevisions] = createSignal<ReadonlyMap<string, number>>(new Map())
-  const jobs = createInstallationJobs((root) => {
-    setRevisions((previous) => new Map(previous).set(root, (previous.get(root) ?? 0) + 1))
-    setNotification({ message: `${root}: ${message('installations.restore.state.completed')}` })
+  const jobs = createInstallationJobs((job) => {
+    setRevisions((previous) => new Map(previous).set(job.root, (previous.get(job.root) ?? 0) + 1))
+    if (job.state === 'completed') setNotification({ message: `${job.root}: ${message('installations.restore.state.completed')}` })
     void refresh()
   })
   const restoreJob = () => jobs.page.value()?.operation === 'restore' ? jobs.page.value() : undefined
@@ -189,10 +189,10 @@ export function InstallationsView(props: {
                 state: job?.state === 'failed' ? 'failed' as const : setupJobActive(job) ? 'opening' as const : undefined,
                 progress: setupJobActive(job) ? { label: rowDetail(row), value: value?.total && value.total > 0 ? Math.min(1, Math.max(0, value.completed / value.total)) : undefined } : undefined }
             })}
-            action={restoreJob() ? (row) => <Show when={jobFor(row.id) && setupJobActive(jobFor(row.id))}>
+            action={(row) => <Show when={jobFor(row.id) && setupJobActive(jobFor(row.id))}>
               <ProductTextButton label={message('setup.cancel')} disabled={jobs.changing() || jobFor(row.id)?.state === 'cancelling'}
                 onClick={() => { void jobs.cancel() }} />
-            </Show> : undefined}
+            </Show>}
             selected={showSetup() ? undefined : selected()?.root}
             onSelect={(root) => { setChosen(root); setSettingUp(false); setNarrowDetail(true) }} />
         </ProductPageAnswer>

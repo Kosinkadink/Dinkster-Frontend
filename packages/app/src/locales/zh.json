@@ -2188,6 +2188,7 @@
   "installations.restore.before": "已记录的软件",
   "installations.restore.after": "替换软件",
   "installations.restore.unavailable": "没有兼容的软件替代方案。无法应用恢复。",
+  "installations.restore.unresolved": "仍无法确认恢复是否已启动。请重试以检查后台任务；其他恢复操作将保持禁用。",
   "installations.restore.reviewAgain": "恢复未返回确认的启动结果。再次应用恢复前请重新检查。",
   "installations.restore.review": "重新检查",
   "installations.restore.state.running": "正在恢复",
