@@ -129,7 +129,6 @@ const navigation = [
   { label: 'Forms', href: '#forms', icon: User },
   { label: 'Lists and tables', href: '#lists', icon: LayoutList },
   { label: 'Menus and messages', href: '#messages', icon: Bell },
-  { label: 'Tooltips', href: '#tooltips', icon: Bell },
   { label: 'Confirmations', href: '#confirmations', icon: CircleAlert },
   { label: 'Account data', href: '#account-data', icon: User },
   { label: 'Board', href: '#board', icon: LayoutList },
@@ -256,6 +255,8 @@ function Gallery() {
             ? 'Dropdowns'
             : route().endsWith('field-alignment')
             ? 'Field alignment'
+            : route() === '#tooltips'
+            ? 'Tooltips'
             : route() === '#signed-out'
             ? 'Signed-out shell'
             : (navigation.find((item) => item.href === route())?.label ??
