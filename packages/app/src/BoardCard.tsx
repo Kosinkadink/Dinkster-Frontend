@@ -131,7 +131,7 @@ function BoardCardInput(props: {
         </div></Portal></Show>
       </Show>
     </>}>
-    <Show when={!isBooleanParameter(props.row)}>{input()}</Show>
+    <Show when={!isBooleanParameter(props.row)}><div data-board-input-key={exposedKey(props.row.entry)}>{input()}</div></Show>
     <Show when={error()}>{(message) => <ProductNotice tone="error">{message()}</ProductNotice>}</Show>
   </ExposedParameterRow>
 }
@@ -142,6 +142,7 @@ export function BoardCard(props: {
   readonly card: BoardCardItem
   readonly onOpen?: (() => void) | undefined
   readonly onChooseInputs?: (() => void) | undefined
+  readonly onInputPosition?: ((key: string, offset: number | undefined, value: () => unknown) => void) | undefined
   readonly onRemove: () => void
 }) {
   const backends = useSignal(props.app.backends)
@@ -274,12 +275,18 @@ export function BoardCard(props: {
       if (source() && !projection().error && props.card.autoSize === true)
         props.entry.session.dispatch({ command: 'board.card.fit', params: { id: props.card.id, height } })
     }}
-    onOpen={props.onOpen} onChooseInputs={props.onChooseInputs} onRemove={props.onRemove}>
+    onOpen={props.onOpen} onChooseInputs={props.onChooseInputs} onRemove={props.onRemove}
+    onInputPosition={(key, offset) => {
+      props.onInputPosition?.(key, offset, () => {
+        const row = rows().get(key)
+        return row?.kind === 'live' ? row.value : undefined
+      })
+    }}>
     <For each={[...rows().keys()]}>{(key) => {
       const row = () => rows().get(key)!
       return <Show when={row().kind === 'live'} fallback={<p class="dinkster-board-card-error" role="status">{(row() as Extract<ParamRow, { kind: 'stale' }>).reason}</p>}>
         <Show when={editable(row() as LiveRow)} fallback={<ExposedParameterRow head={<span class="app-view-label">{(row() as LiveRow).label}</span>}>
-          <p class="app-view-readonly" title={t((row() as LiveRow).linked ? 'appView.readOnly.linked' : (row() as LiveRow).derived ? 'appView.readOnly.derived' : 'appView.readOnly.unsupported')}>
+          <p data-board-input-key={key} class="app-view-readonly" title={t((row() as LiveRow).linked ? 'appView.readOnly.linked' : (row() as LiveRow).derived ? 'appView.readOnly.derived' : 'appView.readOnly.unsupported')}>
             {typeof (row() as LiveRow).value === 'string' ? (row() as LiveRow).value as string : JSON.stringify((row() as LiveRow).value) ?? t('appView.value.unset')}
           </p>
         </ExposedParameterRow>}>

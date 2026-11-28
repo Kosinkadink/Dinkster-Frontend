@@ -358,6 +358,74 @@ describe('app page tabs', () => {
     }
   })
 
+  it('continues a selected file into an idle selected card and shares undoable removal between result menus', async () => {
+    const app = createWorkflowApp()
+    const root = document.createElement('div')
+    document.body.append(root)
+    let dispose = () => {}
+    const backend = app.addBackend('http://board-continuation:8000', 'Continuation', false, 'dinkster')!
+    const registry = buildDinksterRegistry(backend.id, nodesPayload)
+    const original = registry.resolve('std.math.add_ints')!
+    const schema = { ...original, body: original.body.map((input) => input.kind !== 'input' ? input : {
+      ...input, type: { kind: 'concrete' as const, name: 'ASSET' },
+      widget: { widgetType: 'ASSET', kind: 'media/image', options: { accept: ['image/*'] }, default: null },
+    }) }
+    backend.registry.set({ ...registry, resolve: (type) => type === schema.type ? schema : registry.resolve(type) })
+    const asset = { digest: `blake3:${'a'.repeat(64)}`, name: 'Selected.png', mediaType: 'image/png', size: 137, virtualPath: 'results/Selected.png' }
+    const saved = { ...asset, digest: `blake3:${'b'.repeat(64)}`, name: 'Saved.png', size: 251 }
+    const input = (inputId: string) => ({ graphId: 'g0', nodeId: 'n0', inputId })
+    const source = { format: 'dinkster-workflow', formatVersion: 1, lineage: 'continue-source', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Enhance details', nodes: {
+        n0: { id: 'n0', type: schema.type, values: { a: saved, b: null } },
+      }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } }, view: { graphs: {} },
+      ext: { 'dinkster.exposed': [input('b'), input('a')] } }
+    const record = { id: 'enhance', scope: 'local', name: 'Enhance details', digest: `blake3:${'c'.repeat(64)}`,
+      mediaType: 'application/x-dinkster-workflow+json', labels: ['workflow'], created: 1, modified: 2, revision: 1 }
+    vi.spyOn(backend.connection, 'listLibrary').mockResolvedValue({ records: [record] })
+    vi.spyOn(backend.connection, 'getLibraryRecord').mockResolvedValue(record)
+    vi.spyOn(backend.connection, 'fetchAssetText').mockResolvedValue(JSON.stringify(source))
+    vi.spyOn(backend.connection, 'listLocalAssets').mockResolvedValue({ assets: [{ asset, aliases: [], observations: [] }] })
+    const availability = vi.spyOn(backend.connection, 'checkAssetAvailability').mockResolvedValue([{ digest: asset.digest, status: 'available' }])
+    const submit = vi.spyOn(backend.connection, 'submit')
+    try {
+      const entry = app.boards.open(emptyBoard(), 'Continue with', backend.baseUrl)
+      entry.session.dispatch({ command: 'board.item.add', params: { items: [{ id: 'picture', kind: 'picture',
+        asset: { digest: asset.digest, name: asset.name, mediaType: asset.mediaType },
+        rect: { x: 40, y: 80, width: 280, height: 175 } }] } })
+      app.pages.open(`board:${entry.id}`)
+      const tab = app.pages.tabs().find((tab) => tab.id === `page:board:${entry.id}`) as PageTab
+      dispose = render(() => <PageTabPanel host={app.pages} tab={tab} />, root)
+      const picture = () => root.querySelector<HTMLElement>('[data-board-item="picture"]')!
+      picture().dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 }))
+      await vi.waitFor(() => expect(root.querySelector('[aria-label="Continue with"]')).not.toBeNull())
+      root.querySelector<HTMLButtonElement>('[aria-label="Continue with"]')!.click()
+      await vi.waitFor(() => expect(document.body.textContent).toContain('Workflows that take a picture'))
+      const menuItem = (label: string) => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+        .find((item) => item.textContent?.trim() === label)!
+      menuItem('Enhance details').click()
+      await vi.waitFor(() => expect(entry.session.doc.order).toHaveLength(2))
+      const id = entry.session.doc.order.find((id) => id !== 'picture')!
+      const card = entry.session.doc.items[id]!
+      expect(card).toMatchObject({ kind: 'workflow', values: { [exposedKey(input('b'))]: asset },
+        continuedFrom: { itemId: 'picture', inputKey: exposedKey(input('b')) }, rect: { x: 344, y: 80 } })
+      expect(root.querySelector(`[data-board-item="${id}"]`)?.getAttribute('data-selected')).toBe('true')
+      expect(submit).not.toHaveBeenCalled()
+      expect(entry.session.undo()).toBe(true)
+      expect(entry.session.doc.order).toEqual(['picture'])
+      availability.mockResolvedValue([{ digest: asset.digest, status: 'missing' }])
+      app.backendsTick.update((value) => value + 1)
+      picture().dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
+      await vi.waitFor(() => expect(menuItem('Remove from board')).toBeDefined())
+      expect(root.querySelector('[aria-label="Continue with"]')).toBeNull()
+      expect(root.querySelector('[aria-label="Open workflow"]')).toBeNull()
+      menuItem('Remove from board').click()
+      expect(entry.session.doc.order).toEqual([])
+      expect(entry.session.undo()).toBe(true)
+      expect(entry.session.doc.order).toEqual(['picture'])
+      expect(source.graphs.g0.nodes.n0.values).toEqual({ a: saved, b: null })
+    } finally { dispose(); app.dispose(); root.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals() }
+  })
+
   it('chooses workflows and both blueprint sources from the Board backend, cancels late placement, and selects undoable independent cards', async () => {
     const app = createWorkflowApp()
     const tabs = app.tabs.get()
