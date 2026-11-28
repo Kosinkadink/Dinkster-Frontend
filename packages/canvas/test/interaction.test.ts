@@ -1635,6 +1635,92 @@ describe('small flow node wire gestures', () => {
   const flowSchemas = new Map(Object.entries(wires).map(([type, wire]) => [type, parseDinksterSchema(type, wire).schema!]))
   const resolve = (type: string) => flowSchemas.get(type) ?? historicalSchemas.get(type)
 
+  it('projects internal output constraints without sharing unconstrained occurrence types', () => {
+    const sink = (name: string): NodeSchema => ({
+      type: `${name}Sink`, displayName: name, category: 'test', source: 'v3', isOutputNode: false,
+      body: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name }, optional: false }],
+    })
+    const schemas = new Map(['IMAGE', 'INT'].map((name) => [sink(name).type, sink(name)]))
+    const base = (type: string) => schemas.get(type) ?? resolve(type)
+    const loaded = loadDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'bound-output-types', root: 'root',
+      graphs: {
+        root: { id: 'root', name: 'Root', nextOrdinal: 10, nodes: {
+          fixed: { id: 'fixed', type: '#fixed', values: {} },
+          nested: { id: 'nested', type: '#nested', values: {} },
+          image: { id: 'image', type: 'EmptyImage', values: {} },
+          int: { id: 'int', type: 'PrimitiveInt', values: {} },
+          freeImage: { id: 'freeImage', type: '#free', values: {} },
+          freeInt: { id: 'freeInt', type: '#free', values: {} },
+          imageSink: { id: 'imageSink', type: 'IMAGESink', values: {} },
+          intSink: { id: 'intSink', type: 'INTSink', values: {} },
+        }, links: {
+          imageLink: { id: 'imageLink', from: { node: 'image', port: 'out0' }, to: { node: 'freeImage', port: 'value' } },
+          intLink: { id: 'intLink', from: { node: 'int', port: 'out0' }, to: { node: 'freeInt', port: 'value' } },
+        }, nets: {}, reroutes: {} },
+        fixed: { id: 'fixed', name: 'Fixed', nextOrdinal: 3, nodes: {
+          image: { id: 'image', type: 'EmptyImage', values: {} },
+          only: { id: 'only', type: 'dinkster.utilities.only_if', values: {} },
+        }, links: {
+          imageLink: { id: 'imageLink', from: { node: 'image', port: 'out0' }, to: { node: 'only', port: 'value' } },
+        }, nets: {}, reroutes: {}, boundary: { body: [
+          { kind: 'output', id: 'result', binds: { kind: 'port', node: 'only', port: 'value' } },
+        ] } },
+        nested: { id: 'nested', name: 'Nested', nextOrdinal: 2,
+          nodes: { fixed: { id: 'fixed', type: '#fixed', values: {} } }, links: {}, nets: {}, reroutes: {},
+          boundary: { body: [{ kind: 'output', id: 'result', binds: { kind: 'port', node: 'fixed', port: 'result' } }] } },
+        free: { id: 'free', name: 'Free', nextOrdinal: 2,
+          nodes: { only: { id: 'only', type: 'dinkster.utilities.only_if', values: {} } }, links: {}, nets: {}, reroutes: {},
+          boundary: { body: [
+            { kind: 'input', id: 'value', binds: { kind: 'port', node: 'only', port: 'value' } },
+            { kind: 'output', id: 'result', binds: { kind: 'port', node: 'only', port: 'value' } },
+          ] } },
+      },
+      view: { graphs: { root: { nodes: {
+        fixed: { position: { x: 0, y: 0 } },
+        nested: { position: { x: 0, y: 1200 } },
+        image: { position: { x: 0, y: 600 } }, int: { position: { x: 0, y: 900 } },
+        freeImage: { position: { x: 800, y: 600 } }, freeInt: { position: { x: 800, y: 900 } },
+        imageSink: { position: { x: 400, y: 0 } }, intSink: { position: { x: 400, y: 300 } },
+      } } } },
+    })
+    expect(loaded.diagnostics).toEqual([])
+    const store = new DocumentStore(loaded.document!, coreCommandRegistry(), 200, undefined,
+      () => ({ kind: 'initial', schemaResolverFor: () => base }))
+    const before = structuredClone(store.doc)
+    const resolved = documentResolver(store.doc, base)
+    const scene = buildScene({ document: store.doc, graphId: 'root', resolve: resolved, tokens: defaultTokens,
+      measure: (text) => text.length * 6, widgetMeasure: () => ({ viewId: 'core.line', rows: 1 }) })
+    const outputOf = (id: string) => scene.nodes.find((node) => node.id === id)!.layout.pins
+      .find((pin) => pin.direction === 'out' && pin.portId === 'result')!
+    expect(['fixed', 'nested', 'freeImage', 'freeInt'].map((id) => outputOf(id).type)).toEqual([
+      { kind: 'concrete', name: 'IMAGE' }, { kind: 'concrete', name: 'IMAGE' },
+      { kind: 'concrete', name: 'IMAGE' }, { kind: 'concrete', name: 'INT' },
+    ])
+    expect(store.doc).toEqual(before)
+    const source = scene.nodes.find((node) => node.id === 'fixed')!
+    const harness = interactionHarness(scene, { dispatch: (invocation) => store.dispatch(invocation) })
+    harness.fire('pointerdown', source.x + source.layout.width, source.y + outputOf('fixed').y)
+    harness.fire('pointermove', source.x + source.layout.width + 30, source.y + outputOf('fixed').y)
+    const targets = (harness.overlays.at(-1) as { dropTargets: Set<string> }).dropTargets
+    expect(targets.has('imageSink:value:in')).toBe(true)
+    expect(targets.has('intSink:value:in')).toBe(false)
+    const wrong = scene.nodes.find((node) => node.id === 'intSink')!
+    const input = wrong.layout.pins.find((pin) => pin.direction === 'in')!
+    harness.fire('pointermove', wrong.x, wrong.y + input.y)
+    harness.fire('pointerup', wrong.x, wrong.y + input.y)
+    expect(store.doc).toEqual(before)
+    const accepted = scene.nodes.find((node) => node.id === 'imageSink')!
+    const acceptedInput = accepted.layout.pins.find((pin) => pin.direction === 'in')!
+    harness.fire('pointerdown', source.x + source.layout.width, source.y + outputOf('fixed').y)
+    harness.fire('pointermove', accepted.x, accepted.y + acceptedInput.y)
+    harness.fire('pointerup', accepted.x, accepted.y + acceptedInput.y)
+    expect(Object.values(store.doc.graphs.root!.links).some((link) =>
+      'port' in link.from && link.from.node === 'fixed' && link.from.port === 'result' &&
+      'port' in link.to && link.to.node === 'imageSink' && link.to.port === 'value')).toBe(true)
+    harness.controller.dispose()
+  })
+
   it.each([
     ['dinkster.utilities.or_else', 'values.2', 'PrimitiveInt', false],
     ['dinkster.utilities.or_else', 'values.2', 'EmptyImage', true],

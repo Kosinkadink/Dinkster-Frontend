@@ -4,10 +4,11 @@
  * Solves MatchType variables over one graph definition's ELABORATED
  * topology. Strictly advisory and strictly downstream: results color pins
  * and noodles, badge conflicts, and refine drop-target highlighting - they
- * are NEVER written back into the document or schema, and NEVER feed
- * elaboration (the anti-oscillation DAG: document -> elaboration -> solving
- * -> rendering). Conflicting links are marked, not auto-disconnected: a
- * stale document must stay loadable and fixable.
+ * are never written back into the document or authored schema, and never
+ * feed the same graph's elaboration (document -> elaboration -> solving
+ * -> rendering). Boundary derivation may project a child definition's solved
+ * outputs into its parent's schema. Conflicting links are marked, not
+ * auto-disconnected: a stale document must stay loadable and fixable.
  *
  * Semantics (matching backend V3 validation):
  * - '*' (wildcard) imposes NO constraint. It is not a type variable; it
