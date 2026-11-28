@@ -69,6 +69,7 @@ test('a dropped image wire offers compatible installed nodes and blueprints and 
 
 test('recent entries, categories, type menus and installation actions stay on the same surface', async ({ page }) => {
   await page.goto('/#node-search')
+  await page.clock.install()
   const before = page.getByTestId('node-search-before')
   await expect(before.getByRole('group', { name: 'Recent', exact: true }).getByRole('option')).toHaveText([
     'Gradient Imagedev / image', 'Image Statsdev / image',
@@ -84,8 +85,11 @@ test('recent entries, categories, type menus and installation actions stay on th
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
   for (const direction of ['Takes', 'Gives'] as const) {
     const trigger = typed.getByRole('button', { name: direction, exact: true })
-    await expect(trigger).toHaveAttribute('title', direction)
+    await expect(trigger).not.toHaveAttribute('title')
     await expect(trigger).toHaveText(direction)
+    await trigger.hover()
+    await page.clock.fastForward(1000)
+    await expect(page.getByRole('tooltip')).toHaveCount(0)
     await trigger.click()
     const labels = typed.getByRole('menu').locator('.dinkster-search-type-label')
     await expect(labels).toHaveCount(5)
@@ -258,12 +262,17 @@ test('custom menu content keeps string names, separate descriptions and selectio
   for (const width of [240, 360, 600]) {
     await page.setViewportSize({ width, height: 900 })
     await page.goto('/#node-search')
+    await page.clock.install()
     const trigger = page.getByRole('button', { name: 'Choose example type', exact: true })
     await expect(trigger).toHaveText('image')
-    await expect(trigger).toHaveAttribute('title', 'Choose an example type')
+    await expect(trigger).not.toHaveAttribute('title')
     await trigger.scrollIntoViewIfNeeded()
     await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
+    await trigger.hover()
+    await page.clock.fastForward(1000)
+    await expect(page.getByRole('tooltip')).toHaveText('Choose an example type')
     await trigger.click()
+    await expect(page.getByRole('tooltip')).toHaveCount(0)
     const menu = page.getByRole('menu', { name: 'Type label examples', exact: true })
     const bounds = (await menu.boundingBox())!
     expect(bounds.x).toBeGreaterThanOrEqual(8)
