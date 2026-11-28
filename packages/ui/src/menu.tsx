@@ -411,6 +411,7 @@ function Menu(props: {
                             : item().description || item().labelContent !== undefined ? item().label : undefined
                         })()}
                         class="dinkster-menu-item"
+                        data-tooltip-label={props.project ? item().label : undefined}
                         data-active={props.filter && activeItem()?.id === `${descriptionId}-item` ? '' : undefined}
                         data-description={item().description ? '' : undefined}
                         data-role={item().intent ?? 'neutral'}
@@ -430,7 +431,7 @@ function Menu(props: {
                         >
                           <ProductIcon icon={Check} />
                         </Show>
-                        <Show when={item().description} fallback={<span class="dinkster-menu-item-label" data-custom-label={item().labelContent !== undefined ? '' : undefined}>{item().labelContent ?? item().label}</span>}>
+                        <Show when={item().description} fallback={<span class="dinkster-menu-item-label" data-tooltip-visible-label data-custom-label={item().labelContent !== undefined ? '' : undefined}>{item().labelContent ?? item().label}</span>}>
                           {(description) => (
                             <span class="dinkster-menu-item-copy" data-custom-label={item().labelContent !== undefined ? '' : undefined}>
                               <span class="dinkster-menu-item-label" data-custom-label={item().labelContent !== undefined ? '' : undefined}>{item().labelContent ?? item().label}</span>

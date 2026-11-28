@@ -121,7 +121,17 @@ test('a long project name ends in an ellipsis at 160 px and keeps its full name'
   await trigger.hover()
   await page.clock.fastForward(1000)
   await expect(tooltip).toHaveCount(0)
+  const menu = page.getByRole('menu', { name: 'Projects', exact: true })
+  await menu.getByRole('menuitem', { name: 'Teapot product shots', exact: true }).hover()
+  await page.clock.fastForward(1000)
+  await expect(tooltip).toHaveCount(0)
+  const row = menu.getByRole('menuitemcheckbox', { name, exact: true })
+  await row.hover()
+  await page.clock.fastForward(1000)
+  await expect(tooltip).toHaveText(name)
   await page.keyboard.press('Escape')
+  await expect(menu).toBeHidden()
+  await expect(tooltip).toHaveCount(0)
 })
 
 test('the left bar account menu opens beside the bar, upward from its trigger', async ({
